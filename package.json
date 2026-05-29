@@ -1,0 +1,42 @@
+{
+  "name": "saas",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev --port 3000",
+    "clean": "rimraf dist .tanstack/tmp",
+    "prebuild": "npm run clean",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@netlify/database": "^1.0.0",
+    "@netlify/functions": "^5.2.1",
+    "@supabase/supabase-js": "^2.47.0",
+    "@tanstack/react-router": "1.168.22",
+    "@tanstack/react-start": "1.167.41",
+    "@tanstack/react-store": "0.10.0",
+    "@tanstack/router-plugin": "1.167.22",
+    "@tanstack/store": "0.10.0",
+    "drizzle-orm": "^1.0.0-beta.22",
+    "lucide-react": "^0.576.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "sonner": "^2.0.0",
+    "unpdf": "^1.6.2",
+    "vite-tsconfig-paths": "^6.0.2",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@netlify/vite-plugin-tanstack-start": "1.3.7",
+    "@tailwindcss/vite": "^4.0.6",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "drizzle-kit": "^1.0.0-beta.22",
+    "rimraf": "^6.0.1",
+    "tailwindcss": "^4.0.6",
+    "typescript": "^5.7.2",
+    "vite": "^7.1.7"
+  }
+}

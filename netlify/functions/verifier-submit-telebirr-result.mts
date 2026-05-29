@@ -1,0 +1,425 @@
+import { createClient } from "@supabase/supabase-js";
+import type { Config } from "@netlify/functions";
+import { verifyVerifierRequest } from "./lib/verifier-auth.mts";
+
+function log(step: string, data: Record<string, unknown>) {
+  console.log(JSON.stringify({ fn: "verifier-submit-telebirr-result", step, ts: new Date().toISOString(), ...data }));
+}
+
+function logError(step: string, data: Record<string, unknown>) {
+  console.error(JSON.stringify({ fn: "verifier-submit-telebirr-result", step, ts: new Date().toISOString(), ...data }));
+}
+
+function normalizeName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function sanitize(value: unknown, maxLen = 200): string {
+  const str = String(value ?? "").replace(/[\x00-\x1f]/g, "");
+  return str.length > maxLen ? str.slice(0, maxLen) + "…" : str;
+}
+
+interface SubmitBody {
+  deposit_id?: unknown;
+  transaction_reference?: unknown;
+  receipt_fetch_status?: unknown;
+  extracted_transaction_id?: unknown;
+  extracted_amount?: unknown;
+  extracted_receiver_name?: unknown;
+  extracted_status?: unknown;
+  extracted_payment_date?: unknown;
+  verifier_note?: unknown;
+}
+
+function parseEthiopiaPaymentDate(raw: string): Date | null {
+  const m = raw.match(/^(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  const [, dd, mm, yyyy, hh, min, ss] = m;
+  const iso = `${yyyy}-${mm}-${dd}T${hh}:${min}:${ss}+03:00`;
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) return null;
+  return date;
+}
+
+async function saveForManualReview(
+  admin: ReturnType<typeof createClient>,
+  depositId: string,
+  reason: string,
+) {
+  const { error } = await admin
+    .from("deposits")
+    .update({ admin_note: reason })
+    .eq("id", depositId);
+
+  if (error) {
+    logError("manual_review_update_failed", { depositId, error: error.message });
+  }
+
+  log("verifier_manual_review_saved", { depositId, reason });
+}
+
+export default async (req: Request) => {
+  const auth = verifyVerifierRequest(req, logError);
+  if (!auth.ok) return auth.response;
+
+  let body: SubmitBody;
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ error: "invalid_body", message: "Invalid JSON body." }, { status: 400 });
+  }
+
+  const depositId = typeof body.deposit_id === "string" ? body.deposit_id.trim() : "";
+  const transactionReference = typeof body.transaction_reference === "string" ? body.transaction_reference.trim() : "";
+  const receiptFetchStatus = typeof body.receipt_fetch_status === "string" ? body.receipt_fetch_status.trim() : "";
+  const extractedTransactionId = typeof body.extracted_transaction_id === "string" ? body.extracted_transaction_id.trim() : "";
+  const extractedReceiverName = typeof body.extracted_receiver_name === "string" ? body.extracted_receiver_name.trim() : "";
+  const extractedStatus = typeof body.extracted_status === "string" ? body.extracted_status.trim() : "";
+  const verifierNote = typeof body.verifier_note === "string" ? body.verifier_note.trim() : "";
+  const extractedPaymentDate = typeof body.extracted_payment_date === "string" ? body.extracted_payment_date.trim() : "";
+  const extractedAmount =
+    typeof body.extracted_amount === "number"
+      ? body.extracted_amount
+      : typeof body.extracted_amount === "string"
+        ? parseFloat(body.extracted_amount)
+        : NaN;
+
+  if (!depositId) {
+    return Response.json({ error: "missing_field", message: "deposit_id is required." }, { status: 400 });
+  }
+  if (!transactionReference) {
+    return Response.json({ error: "missing_field", message: "transaction_reference is required." }, { status: 400 });
+  }
+  if (!receiptFetchStatus) {
+    return Response.json({ error: "missing_field", message: "receipt_fetch_status is required." }, { status: 400 });
+  }
+  if (receiptFetchStatus !== "success" && receiptFetchStatus !== "fetch_failed") {
+    return Response.json({ error: "invalid_field", message: "receipt_fetch_status must be 'success' or 'fetch_failed'." }, { status: 400 });
+  }
+
+  log("verifier_result_received", {
+    depositId,
+    transactionReference,
+    receiptFetchStatus,
+    extractedTransactionId,
+    extractedAmount,
+    extractedStatus,
+    extractedPaymentDate,
+  });
+
+  const supabaseUrl = Netlify.env.get("VITE_SUPABASE_URL") ?? Netlify.env.get("SUPABASE_URL") ?? "";
+  const serviceRoleKey = Netlify.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    logError("config", { error: "Missing Supabase configuration" });
+    return Response.json({ error: "server_config", message: "Server is not configured." }, { status: 500 });
+  }
+
+  const admin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  // Load deposit
+  const { data: deposit, error: depositError } = await admin
+    .from("deposits")
+    .select("id, user_id, amount, status, transaction_reference, payment_method_id")
+    .eq("id", depositId)
+    .single();
+
+  if (depositError || !deposit) {
+    logError("verifier_deposit_loaded", { depositId, error: depositError?.message ?? "not_found" });
+    return Response.json({ error: "deposit_not_found", message: "Deposit not found." }, { status: 404 });
+  }
+
+  log("verifier_deposit_loaded", { depositId, status: deposit.status, paymentMethodId: deposit.payment_method_id });
+
+  if (deposit.status !== "pending") {
+    log("verifier_result_failed", { depositId, reason: "not_pending", currentStatus: deposit.status });
+    return Response.json(
+      { error: "not_pending", message: "Deposit is no longer pending.", action: "skipped" },
+      { status: 409 },
+    );
+  }
+
+  // Load payment method and verify it's telebirr
+  const { data: method, error: methodError } = await admin
+    .from("payment_methods")
+    .select("id, type, account_name")
+    .eq("id", deposit.payment_method_id)
+    .single();
+
+  if (methodError || !method) {
+    logError("verifier_result_failed", { depositId, error: "payment_method_not_found" });
+    return Response.json({ error: "method_not_found", message: "Payment method not found." }, { status: 400 });
+  }
+
+  if (method.type !== "telebirr") {
+    log("verifier_result_failed", { depositId, reason: "not_telebirr", methodType: method.type });
+    return Response.json({ error: "not_telebirr", message: "Deposit is not a TeleBirr payment." }, { status: 400 });
+  }
+
+  // --- Decision logic ---
+  const rejectReasons: string[] = [];
+  const manualReviewReasons: string[] = [];
+
+  if (receiptFetchStatus === "fetch_failed") {
+    manualReviewReasons.push("Receipt fetch failed");
+  } else {
+    const hasAmount = !isNaN(extractedAmount) && extractedAmount > 0;
+    const hasReceiver = extractedReceiverName !== "";
+    const hasDate = extractedPaymentDate !== "";
+
+    if (!hasAmount && !hasReceiver && !hasDate) {
+      rejectReasons.push("Unreadable receipt: no amount, receiver, or date could be extracted");
+    } else {
+      if (hasReceiver && normalizeName(extractedReceiverName) !== normalizeName(method.account_name)) {
+        rejectReasons.push(
+          `Receiver name mismatch (expected: ${sanitize(method.account_name, 60)}, got: ${sanitize(extractedReceiverName, 60)})`,
+        );
+      }
+
+      if (!hasAmount) {
+        manualReviewReasons.push(`Invalid or missing amount: ${sanitize(String(body.extracted_amount ?? ""), 40)}`);
+      }
+
+      if (!hasDate) {
+        manualReviewReasons.push("Payment date missing from receipt");
+      } else {
+        const paymentDateParsed = parseEthiopiaPaymentDate(extractedPaymentDate);
+        if (!paymentDateParsed) {
+          manualReviewReasons.push(`Payment date invalid format: ${sanitize(extractedPaymentDate, 40)}`);
+        } else {
+          const ageMs = Date.now() - paymentDateParsed.getTime();
+          if (ageMs > 60 * 60 * 1000) {
+            manualReviewReasons.push(`Payment date too old: ${sanitize(extractedPaymentDate, 40)} (${Math.round(ageMs / 60000)} min ago)`);
+          } else if (ageMs < -5 * 60 * 1000) {
+            manualReviewReasons.push(`Payment date is in the future: ${sanitize(extractedPaymentDate, 40)}`);
+          }
+        }
+      }
+    }
+  }
+
+  // Find admin profile (needed for reject + approve paths)
+  const { data: adminUser } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("is_admin", true)
+    .eq("is_frozen", false)
+    .limit(1)
+    .single();
+
+  // --- REJECT ---
+  if (rejectReasons.length > 0) {
+    log("verifier_auto_reject", { depositId, rejectReasons });
+
+    if (!adminUser) {
+      logError("no_admin_found", { depositId });
+      const reason = `Verifier review: Auto-reject attempted but no admin available. Reasons: ${rejectReasons.join("; ")}`;
+      await saveForManualReview(admin, depositId, reason);
+      return Response.json(
+        { action: "manual_review", deposit_id: depositId, failures: ["no_admin_available", ...rejectReasons] },
+        { status: 500 },
+      );
+    }
+
+    const rejectNote = `Verifier rejected: ${rejectReasons.join("; ")}`;
+    const { data: rejectRpcResult, error: rejectRpcError } = await admin.rpc("approve_deposit_tx", {
+      p_deposit_id: depositId,
+      p_admin_id: adminUser.id,
+      p_action: "reject",
+      p_admin_note: rejectNote,
+    });
+
+    if (rejectRpcError) {
+      logError("reject_rpc_error", { depositId, message: rejectRpcError.message, code: rejectRpcError.code });
+      await saveForManualReview(
+        admin,
+        depositId,
+        `Verifier review: Auto-reject failed (RPC error). Reasons: ${rejectReasons.join("; ")}`,
+      );
+      return Response.json(
+        { action: "manual_review", deposit_id: depositId, failures: ["rpc_failed", ...rejectReasons] },
+        { status: 500 },
+      );
+    }
+
+    const rejectTxResult = rejectRpcResult as Record<string, unknown> | null;
+    if (!rejectTxResult?.success) {
+      const errorCode = (rejectTxResult?.error as string) ?? "unknown";
+      if (errorCode === "already_reviewed") {
+        return Response.json(
+          { action: "skipped", deposit_id: depositId, reason: "already_reviewed" },
+          { status: 409 },
+        );
+      }
+      await saveForManualReview(
+        admin,
+        depositId,
+        `Verifier review: Auto-reject RPC error: ${errorCode}. Reasons: ${rejectReasons.join("; ")}`,
+      );
+      return Response.json(
+        { action: "manual_review", deposit_id: depositId, failures: [errorCode, ...rejectReasons] },
+        { status: 500 },
+      );
+    }
+
+    try {
+      const { error: notifError } = await admin.from("notifications").insert({
+        user_id: deposit.user_id,
+        title: "Deposit Rejected",
+        message: `Your deposit of ${deposit.amount} ETB was rejected. Please check the details and submit again.`,
+        metadata: {
+          type: "deposit_rejected",
+          deposit_id: depositId,
+          amount: deposit.amount,
+          auto_verified: true,
+        },
+      });
+
+      if (notifError) {
+        logError("notification_failed", { depositId, error: notifError.message });
+      }
+    } catch (notifEx) {
+      logError("notification_exception", {
+        depositId,
+        error: notifEx instanceof Error ? notifEx.message : "unknown",
+      });
+    }
+
+    return Response.json({
+      action: "rejected",
+      deposit_id: depositId,
+      reasons: rejectReasons,
+    });
+  }
+
+  // --- MANUAL REVIEW ---
+  if (manualReviewReasons.length > 0) {
+    const reason = `Verifier review: ${manualReviewReasons.join("; ")}.${verifierNote ? ` Note: ${sanitize(verifierNote, 100)}` : ""}`;
+    log("verifier_manual_review", { depositId, manualReviewReasons });
+    await saveForManualReview(admin, depositId, reason);
+    return Response.json({
+      action: "manual_review",
+      deposit_id: depositId,
+      failures: manualReviewReasons,
+    });
+  }
+
+  // --- APPROVE ---
+  log("verifier_result_validated", { depositId, extractedAmount, extractedTransactionId });
+
+  if (!adminUser) {
+    logError("no_admin_found", { depositId });
+    await saveForManualReview(
+      admin,
+      depositId,
+      `Verifier review: Validation passed (${extractedAmount} ETB) but no admin account available for auto-approval.`,
+    );
+    return Response.json(
+      { action: "manual_review", deposit_id: depositId, failures: ["no_admin_available"] },
+      { status: 500 },
+    );
+  }
+
+  const adminNote = `Auto-approved via TeleBirr receipt verifier. Amount: ${extractedAmount} ETB. TX: ${sanitize(extractedTransactionId, 30)}. Receiver: ${sanitize(extractedReceiverName, 60)}.`;
+
+  const { data: rpcResult, error: rpcError } = await admin.rpc("approve_deposit_tx", {
+    p_deposit_id: depositId,
+    p_admin_id: adminUser.id,
+    p_action: "approve",
+    p_admin_note: adminNote,
+    p_amount: extractedAmount,
+  });
+
+  if (rpcError) {
+    logError("rpc_error", { depositId, message: rpcError.message, code: rpcError.code });
+    await saveForManualReview(
+      admin,
+      depositId,
+      `Verifier review: Validation passed (${extractedAmount} ETB) but RPC approval failed. Requires manual approval.`,
+    );
+    return Response.json(
+      { action: "manual_review", deposit_id: depositId, failures: ["rpc_failed"] },
+      { status: 500 },
+    );
+  }
+
+  const txResult = rpcResult as Record<string, unknown> | null;
+
+  if (!txResult?.success) {
+    const errorCode = (txResult?.error as string) ?? "unknown";
+    logError("rpc_business_error", { depositId, errorCode, message: txResult?.message });
+
+    if (errorCode === "already_reviewed") {
+      return Response.json(
+        { action: "skipped", deposit_id: depositId, reason: "already_reviewed" },
+        { status: 409 },
+      );
+    }
+
+    await saveForManualReview(
+      admin,
+      depositId,
+      `Verifier review: Validation passed (${extractedAmount} ETB) but approval RPC returned error: ${errorCode}. Requires manual review.`,
+    );
+    return Response.json(
+      { action: "manual_review", deposit_id: depositId, failures: [errorCode] },
+      { status: 500 },
+    );
+  }
+
+  log("verifier_deposit_approved", {
+    depositId,
+    amount: txResult.amount,
+    balanceBefore: txResult.balance_before,
+    balanceAfter: txResult.balance_after,
+    transactionId: txResult.transaction_id,
+  });
+
+  await admin
+    .from("deposits")
+    .update({ auto_verified: true, verified_at: new Date().toISOString() })
+    .eq("id", depositId);
+
+  try {
+    const { error: notifError } = await admin.from("notifications").insert({
+      user_id: deposit.user_id,
+      title: "Deposit Approved",
+      message: `Your deposit of ${extractedAmount} ETB has been approved and credited to your wallet.`,
+      metadata: {
+        type: "deposit_approved",
+        deposit_id: depositId,
+        amount: extractedAmount,
+        auto_verified: true,
+      },
+    });
+
+    if (notifError) {
+      logError("notification_failed", { depositId, error: notifError.message });
+    }
+  } catch (notifEx) {
+    logError("notification_exception", {
+      depositId,
+      error: notifEx instanceof Error ? notifEx.message : "unknown",
+    });
+  }
+
+  return Response.json({
+    action: "approved",
+    deposit_id: depositId,
+    amount: extractedAmount,
+    balance_before: txResult.balance_before,
+    balance_after: txResult.balance_after,
+    transaction_id: txResult.transaction_id,
+  });
+};
+
+export const config: Config = {
+  path: "/api/verifier/submit-telebirr-result",
+  method: "POST",
+};

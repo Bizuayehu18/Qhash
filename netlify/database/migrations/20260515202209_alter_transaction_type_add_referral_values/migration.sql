@@ -1,0 +1,2 @@
+ALTER TYPE "transaction_type" ADD VALUE 'referral_investment_bonus' BEFORE 'admin_adjustment';--> statement-breakpoint
+ALTER TYPE "transaction_type" ADD VALUE 'referral_daily_bonus' BEFORE 'admin_adjustment';

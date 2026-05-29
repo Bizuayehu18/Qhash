@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.tanstack/tmp/
+.netlify/
+.vite/
+.env
+.env.*
+*.log

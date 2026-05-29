@@ -1,0 +1,386 @@
+@import "tailwindcss" source("../");
+
+@theme {
+  --color-neon: #00ff41;
+  --color-neon-dim: #00cc33;
+  --color-neon-dark: #003311;
+  --color-surface: #0a0a0a;
+  --color-surface-1: #111111;
+  --color-surface-2: #1a1a1a;
+  --color-surface-3: #222222;
+}
+
+body {
+  @apply m-0 bg-[#0a0a0a] text-gray-100;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
+    "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior-y: contain;
+}
+
+code, pre {
+  font-family: "JetBrains Mono", "Fira Code", "Courier New", monospace;
+}
+
+.neon-text {
+  color: #00ff41;
+  text-shadow: 0 0 8px rgba(0, 255, 65, 0.6);
+}
+
+.neon-border {
+  border-color: rgba(0, 255, 65, 0.35);
+  box-shadow: 0 0 12px rgba(0, 255, 65, 0.08);
+}
+
+.neon-glow {
+  box-shadow: 0 0 20px rgba(0, 255, 65, 0.15), 0 0 40px rgba(0, 255, 65, 0.05);
+}
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0, 255, 65, 0.35); }
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0px 1000px #111 inset;
+  -webkit-text-fill-color: #f1f5f9;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* App shell */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  max-width: 480px;
+  margin: 0 auto;
+  position: relative;
+  overflow: hidden;
+}
+
+@media (min-width: 481px) {
+  .app-shell {
+    border-left: 1px solid #1a1a1a;
+    border-right: 1px solid #1a1a1a;
+  }
+}
+
+.app-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* Bottom nav */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 480px;
+  z-index: 50;
+  background: rgba(10, 10, 10, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.bottom-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 0;
+  font-size: 10px;
+  color: #666;
+  transition: color 0.2s ease, transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+  position: relative;
+}
+
+.bottom-nav-item.active {
+  color: #00ff41;
+}
+
+.bottom-nav-item.active::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 24px;
+  height: 2px;
+  background: #00ff41;
+  border-radius: 0 0 2px 2px;
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.5);
+}
+
+.bottom-nav-item:active {
+  transform: scale(0.92);
+}
+
+/* Page transitions */
+.page-enter {
+  animation: pageEnter 0.25s ease-out;
+}
+
+@keyframes pageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Skeleton loading */
+.skeleton {
+  background: linear-gradient(90deg, #1a1a1a 25%, #222 50%, #1a1a1a 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Glow pulse for active mining */
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 15px rgba(0, 255, 65, 0.1); }
+  50% { box-shadow: 0 0 25px rgba(0, 255, 65, 0.25), 0 0 50px rgba(0, 255, 65, 0.1); }
+}
+
+.mining-active {
+  animation: glowPulse 3s ease-in-out infinite;
+}
+
+/* Balance card gradient */
+.balance-card {
+  background: linear-gradient(135deg, #0d1a0d 0%, #0a0a0a 50%, #0a1a0a 100%);
+  border: 1px solid rgba(0, 255, 65, 0.15);
+  position: relative;
+  overflow: hidden;
+}
+
+.balance-card::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -50%;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle, rgba(0, 255, 65, 0.06) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* Smooth card press */
+.card-press {
+  transition: transform 0.1s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.card-press:active {
+  transform: scale(0.98);
+}
+
+/* Status dot animation */
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.status-pulse {
+  animation: statusPulse 2s ease-in-out infinite;
+}
+
+/* Hide scrollbar on mobile content */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Bottom sheet slide up */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Mining status card */
+.mining-stat-card {
+  background: linear-gradient(145deg, #111 0%, #0d0d0d 100%);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  position: relative;
+  overflow: hidden;
+}
+
+.mining-stat-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0, 255, 65, 0.2), transparent);
+}
+
+/* Hash rate animation */
+@keyframes hashScroll {
+  0% { transform: translateY(0); opacity: 0.5; }
+  50% { opacity: 1; }
+  100% { transform: translateY(-100%); opacity: 0; }
+}
+
+.hash-stream {
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 8px;
+  line-height: 1.2;
+  color: rgba(0, 255, 65, 0.15);
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.hash-line {
+  animation: hashScroll var(--duration, 4s) linear infinite;
+  animation-delay: var(--delay, 0s);
+  white-space: nowrap;
+}
+
+/* Mining node pulse */
+@keyframes nodePulse {
+  0%, 100% {
+    box-shadow: 0 0 4px rgba(0, 255, 65, 0.2), 0 0 8px rgba(0, 255, 65, 0.1);
+    opacity: 0.7;
+  }
+  50% {
+    box-shadow: 0 0 8px rgba(0, 255, 65, 0.4), 0 0 16px rgba(0, 255, 65, 0.2);
+    opacity: 1;
+  }
+}
+
+.node-dot {
+  animation: nodePulse var(--speed, 2s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+/* Connection line animation */
+@keyframes dataFlow {
+  0% { stroke-dashoffset: 20; }
+  100% { stroke-dashoffset: 0; }
+}
+
+.data-line {
+  stroke-dasharray: 4 4;
+  animation: dataFlow 1.5s linear infinite;
+}
+
+/* Activity feed */
+@keyframes feedSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.feed-item-enter {
+  animation: feedSlideIn 0.3s ease-out;
+}
+
+/* Counter tick animation */
+@keyframes counterTick {
+  0% { transform: translateY(0); opacity: 1; }
+  50% { transform: translateY(-4px); opacity: 0; }
+  51% { transform: translateY(4px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.counter-tick {
+  display: inline-block;
+  animation: counterTick 0.3s ease-in-out;
+}
+
+/* Gradient text for stats */
+.stat-value-glow {
+  color: #fff;
+  text-shadow: 0 0 12px rgba(0, 255, 65, 0.3);
+}
+
+/* Enhanced transaction row */
+.tx-row {
+  transition: background-color 0.15s ease;
+}
+
+.tx-row:active {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+/* Status indicator bar */
+@keyframes barScan {
+  0% { transform: scaleX(0); transform-origin: left; opacity: 0.6; }
+  50% { transform: scaleX(1); transform-origin: left; opacity: 1; }
+  51% { transform-origin: right; }
+  100% { transform: scaleX(0); transform-origin: right; opacity: 0.6; }
+}
+
+.scan-bar {
+  animation: barScan 3s ease-in-out infinite;
+}
+
+/* Stagger children animation */
+.stagger-children > * {
+  animation: pageEnter 0.3s ease-out backwards;
+}
+.stagger-children > *:nth-child(1) { animation-delay: 0s; }
+.stagger-children > *:nth-child(2) { animation-delay: 0.05s; }
+.stagger-children > *:nth-child(3) { animation-delay: 0.1s; }
+.stagger-children > *:nth-child(4) { animation-delay: 0.15s; }
+.stagger-children > *:nth-child(5) { animation-delay: 0.2s; }
+.stagger-children > *:nth-child(6) { animation-delay: 0.25s; }
+.stagger-children > *:nth-child(7) { animation-delay: 0.3s; }
+.stagger-children > *:nth-child(8) { animation-delay: 0.35s; }
+
+/* Number count-up glow */
+@keyframes valueFlash {
+  0% { text-shadow: 0 0 8px rgba(0, 255, 65, 0.6); }
+  100% { text-shadow: 0 0 8px rgba(0, 255, 65, 0); }
+}
+
+.value-update {
+  animation: valueFlash 0.8s ease-out;
+}
+
+/* Premium card hover/active */
+.premium-card {
+  background: #111;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.premium-card:active {
+  border-color: rgba(0, 255, 65, 0.15);
+  box-shadow: 0 0 20px rgba(0, 255, 65, 0.05);
+}
