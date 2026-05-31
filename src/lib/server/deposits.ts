@@ -189,24 +189,131 @@ export const submitDepositFn = createServerFn({ method: "POST" })
             depositId: deposit.id,
             reason: result.adminNote,
           });
-        } else {
-          const now = new Date().toISOString();
+        } else if (typeof result.amount !== "number" || result.amount <= 0) {
+          // Verified but no usable amount — never credit without a positive amount.
           await admin
             .from("deposits")
             .update({
-              amount: result.amount ?? deposit.amount,
-              status: "approved" as DepositStatus,
-              auto_verified: true,
-              verified_at: now,
-              reviewed_at: now,
-              admin_note: "Auto-approved via CBE receipt verification",
+              auto_verified: false,
+              admin_note:
+                "CBE auto-verification passed but extracted amount was invalid. Requires manual review.",
             })
             .eq("id", deposit.id);
 
-          log("cbe_auto_approval_deposit_updated", {
+          log("cbe_auto_approval_invalid_amount", {
             depositId: deposit.id,
             amount: result.amount,
           });
+        } else {
+          // Resolve an active admin actor for the hardened RPC.
+          // Mirrors the TeleBirr verifier: first profile with
+          // is_admin = true and is_frozen = false.
+          const { data: adminUser } = await admin
+            .from("profiles")
+            .select("id")
+            .eq("is_admin", true)
+            .eq("is_frozen", false)
+            .limit(1)
+            .single();
+
+          if (!adminUser) {
+            await admin
+              .from("deposits")
+              .update({
+                auto_verified: false,
+                admin_note:
+                  "CBE auto-verification passed but no active admin available for auto-approval. Requires manual review.",
+              })
+              .eq("id", deposit.id);
+
+            log("cbe_auto_approval_no_admin", { depositId: deposit.id });
+          } else {
+            const { data: rpcResult, error: rpcError } = await admin.rpc(
+              "approve_deposit_tx",
+              {
+                p_deposit_id: deposit.id,
+                p_admin_id: adminUser.id,
+                p_action: "approve",
+                p_admin_note: "Auto-approved via CBE receipt verification",
+                p_amount: result.amount,
+              }
+            );
+
+            const txResult = rpcResult as Record<string, unknown> | null;
+
+            if (rpcError || !txResult?.success) {
+              const errorCode = rpcError
+                ? "rpc_failed"
+                : (txResult?.error as string) ?? "unknown";
+
+              if (!rpcError && errorCode === "already_reviewed") {
+                // Deposit already approved/rejected elsewhere — do not double-credit.
+                log("cbe_auto_approval_already_reviewed", {
+                  depositId: deposit.id,
+                });
+              } else {
+                // Do NOT fall back to direct wallet writes — leave for manual review.
+                await admin
+                  .from("deposits")
+                  .update({
+                    auto_verified: false,
+                    admin_note: `CBE auto-verification passed but RPC approval failed (${errorCode}). Requires manual review.`,
+                  })
+                  .eq("id", deposit.id);
+
+                log("cbe_auto_approval_rpc_failed", {
+                  depositId: deposit.id,
+                  errorCode,
+                });
+              }
+            } else {
+              // RPC already set status/amount/admin_note/reviewed_at atomically.
+              // Flag auto-verification and stamp verified_at.
+              await admin
+                .from("deposits")
+                .update({
+                  auto_verified: true,
+                  verified_at: new Date().toISOString(),
+                })
+                .eq("id", deposit.id);
+
+              log("cbe_auto_approval_succeeded", {
+                depositId: deposit.id,
+                amount: result.amount,
+                balanceBefore: txResult.balance_before,
+                balanceAfter: txResult.balance_after,
+                transactionId: txResult.transaction_id,
+              });
+
+              // Notification must not block approval.
+              try {
+                const { error: notifError } = await admin
+                  .from("notifications")
+                  .insert({
+                    user_id: data.userId,
+                    title: "Deposit Approved",
+                    message: `Your deposit of ${result.amount} ETB has been approved and credited to your wallet.`,
+                    metadata: {
+                      type: "deposit_approved",
+                      deposit_id: deposit.id,
+                      amount: result.amount,
+                      auto_verified: true,
+                    },
+                  });
+                if (notifError) {
+                  log("cbe_notification_failed", {
+                    depositId: deposit.id,
+                    error: notifError.message,
+                  });
+                }
+              } catch (notifEx) {
+                log("cbe_notification_exception", {
+                  depositId: deposit.id,
+                  error: notifEx instanceof Error ? notifEx.message : "unknown",
+                });
+              }
+            }
+          }
         }
       } catch (err) {
         log("cbe_auto_verification_error", {
