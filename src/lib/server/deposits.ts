@@ -183,7 +183,8 @@ export const submitDepositFn = createServerFn({ method: "POST" })
               auto_verified: false,
               admin_note: result.adminNote,
             })
-            .eq("id", deposit.id);
+            .eq("id", deposit.id)
+            .eq("status", "pending");
 
           log("cbe_auto_verification_failed", {
             depositId: deposit.id,
@@ -198,7 +199,8 @@ export const submitDepositFn = createServerFn({ method: "POST" })
               admin_note:
                 "CBE auto-verification passed but extracted amount was invalid. Requires manual review.",
             })
-            .eq("id", deposit.id);
+            .eq("id", deposit.id)
+            .eq("status", "pending");
 
           log("cbe_auto_approval_invalid_amount", {
             depositId: deposit.id,
@@ -224,7 +226,8 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                 admin_note:
                   "CBE auto-verification passed but no active admin available for auto-approval. Requires manual review.",
               })
-              .eq("id", deposit.id);
+              .eq("id", deposit.id)
+              .eq("status", "pending");
 
             log("cbe_auto_approval_no_admin", { depositId: deposit.id });
           } else {
@@ -259,7 +262,8 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                     auto_verified: false,
                     admin_note: `CBE auto-verification passed but RPC approval failed (${errorCode}). Requires manual review.`,
                   })
-                  .eq("id", deposit.id);
+                  .eq("id", deposit.id)
+                  .eq("status", "pending");
 
                 log("cbe_auto_approval_rpc_failed", {
                   depositId: deposit.id,
@@ -328,7 +332,8 @@ export const submitDepositFn = createServerFn({ method: "POST" })
             admin_note:
               "Auto-verification failed: unexpected error. Requires manual review.",
           })
-          .eq("id", deposit.id);
+          .eq("id", deposit.id)
+          .eq("status", "pending");
       }
 
       return {
