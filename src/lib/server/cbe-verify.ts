@@ -458,7 +458,13 @@ function parseCBEReceipt(html: string): ReceiptData {
       if (raw !== null)
         data.amount =
           typeof raw === "number" ? raw : parseAmount(String(raw));
-      if (data.receiverName || data.amount) return data;
+      // The JSON gave us the core fields, but paymentDate is frequently not a
+      // JSON field (it lives in the receipt body as "Payment Date & Time ...").
+      // Only short-circuit when there is nothing left to find; otherwise fall
+      // through so the text/regex fallbacks below can still extract the date.
+      // The `if (!data.X)` guards in the remaining strategies prevent the
+      // already-extracted amount/receiver/status/date from being overwritten.
+      if ((data.receiverName || data.amount) && data.paymentDate) return data;
     }
   } catch {
     // Not JSON — continue with HTML parsing
