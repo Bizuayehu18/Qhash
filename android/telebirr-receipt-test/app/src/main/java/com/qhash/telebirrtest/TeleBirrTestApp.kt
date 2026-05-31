@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -126,6 +127,7 @@ fun TeleBirrTestApp(vm: MainViewModel = viewModel()) {
                             placeholder = {
                                 Text("Enter your verifier API key", fontSize = 12.sp)
                             },
+                            visualTransformation = PasswordVisualTransformation(),
                             textStyle = LocalTextStyle.current.copy(
                                 fontSize = 12.sp,
                                 fontFamily = FontFamily.Monospace
