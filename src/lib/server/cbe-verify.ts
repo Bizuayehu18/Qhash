@@ -9,6 +9,7 @@ interface ReceiptData {
   amount: number | null;
   receiverName: string | null;
   status: string | null;
+  paymentDate: string | null;
 }
 
 export interface CBEVerificationResult {
@@ -44,6 +45,66 @@ function parseAmount(text: string): number | null {
     const val = parseFloat(m[1].replace(/,/g, ""));
     if (!isNaN(val) && val > 0) return val;
   }
+  return null;
+}
+
+// Parse a CBE-style payment date/time string into a Date.
+// CBE prints local Addis Ababa time with no timezone, e.g.:
+//   "5/31/2026, 8:35:00 PM"  /  "05/31/2026 20:35:00"
+// Accepts M/D/YYYY or MM/DD/YYYY, an optional comma after the date, an
+// HH:mm:ss time, and either 12-hour (AM/PM) or 24-hour notation. The parsed
+// instant is anchored to Ethiopia's +03:00 offset. Returns null on any
+// malformed/out-of-range input.
+function parseCBEPaymentDate(raw: string): Date | null {
+  if (!raw) return null;
+
+  const m = raw
+    .trim()
+    .match(
+      /^([0-9]{1,2})\/([0-9]{1,2})\/([0-9]{4}),?\s+([0-9]{1,2}):([0-9]{2}):([0-9]{2})\s*([AaPp][Mm])?$/
+    );
+  if (!m) return null;
+
+  const month = parseInt(m[1], 10);
+  const day = parseInt(m[2], 10);
+  let hour = parseInt(m[4], 10);
+  const minute = parseInt(m[5], 10);
+  const second = parseInt(m[6], 10);
+  const meridiem = m[7] ? m[7].toUpperCase() : null;
+
+  if (month < 1 || month > 12) return null;
+  if (day < 1 || day > 31) return null;
+  if (minute > 59 || second > 59) return null;
+
+  if (meridiem) {
+    // 12-hour clock: valid hours are 1..12. Handle 12 AM (= 00) and 12 PM (= 12).
+    if (hour < 1 || hour > 12) return null;
+    if (meridiem === "AM") {
+      if (hour === 12) hour = 0;
+    } else {
+      if (hour !== 12) hour += 12;
+    }
+  } else {
+    // 24-hour clock: valid hours are 0..23.
+    if (hour > 23) return null;
+  }
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const iso = `${m[3]}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(minute)}:${pad(second)}+03:00`;
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) return null;
+
+  return date;
+}
+
+// CBE-specific regex to pull the payment date/time substring out of a larger
+// block of receipt text. The known label is "Payment Date & Time".
+const CBE_PAYMENT_DATE_REGEX =
+  /payment\s*date(?:\s*(?:&|and|\/)\s*time)?\s*[:：]?\s*([0-9]{1,2}\/[0-9]{1,2}\/[0-9]{4},?\s+[0-9]{1,2}:[0-9]{2}:[0-9]{2}(?:\s*[AaPp][Mm])?)/i;
+
+function extractPaymentDateFromText(text: string): string | null {
+  const m = text.match(CBE_PAYMENT_DATE_REGEX);
+  if (m && m[1]) return m[1].trim();
   return null;
 }
 
@@ -114,6 +175,21 @@ const AMOUNT_LABELS = [
 ];
 
 const STATUS_LABELS = ["status", "transaction status", "state"];
+
+const PAYMENT_DATE_LABELS = [
+  "payment date & time",
+  "payment date and time",
+  "payment date/time",
+  "payment date",
+  "date & time",
+  "transaction date",
+  "date",
+];
+
+// Freshness policy for CBE receipts. A receipt must be recent to auto-credit;
+// otherwise the deposit stays pending for manual review (no wallet credit).
+const CBE_FRESHNESS_MAX_AGE_MS = 60 * 60 * 1000;
+const CBE_FUTURE_SKEW_MS = 5 * 60 * 1000;
 
 function extractFromTableRows(html: string): Record<string, string> {
   const pairs: Record<string, string> = {};
@@ -241,6 +317,16 @@ function resolveFromPairs(
       }
     }
   }
+
+  if (!data.paymentDate) {
+    for (const key of PAYMENT_DATE_LABELS) {
+      if (pairs[key]) {
+        data.paymentDate = pairs[key];
+        if (CBE_PARSER_DEBUG) log("parser_match", { source, field: "paymentDate", key, value: pairs[key] });
+        break;
+      }
+    }
+  }
 }
 
 function parseCBEReceiptFromText(text: string): ReceiptData {
@@ -249,6 +335,7 @@ function parseCBEReceiptFromText(text: string): ReceiptData {
     amount: null,
     receiverName: null,
     status: null,
+    paymentDate: null,
   };
 
   if (CBE_PARSER_DEBUG) {
@@ -312,6 +399,15 @@ function parseCBEReceiptFromText(text: string): ReceiptData {
     }
   }
 
+  // Strategy 5: CBE-specific regex fallback for payment date/time
+  if (!data.paymentDate) {
+    const pd = extractPaymentDateFromText(text);
+    if (pd) {
+      data.paymentDate = pd;
+      if (CBE_PARSER_DEBUG) log("parser_match", { source: "pdf_regex_payment_date", value: pd });
+    }
+  }
+
   return data;
 }
 
@@ -321,6 +417,7 @@ function parseCBEReceipt(html: string): ReceiptData {
     amount: null,
     receiverName: null,
     status: null,
+    paymentDate: null,
   };
 
   // --- Strategy 0: Try raw JSON response ---
@@ -347,12 +444,27 @@ function parseCBEReceipt(html: string): ReceiptData {
         null;
       data.status =
         json.status ?? json.transactionStatus ?? json.transaction_status ?? null;
+      data.paymentDate =
+        json.paymentDate ??
+        json.payment_date ??
+        json.paymentDateTime ??
+        json.payment_date_time ??
+        json.transactionDate ??
+        json.transaction_date ??
+        json.date ??
+        null;
       const raw =
         json.amount ?? json.transactionAmount ?? json.totalAmount ?? json.transfer_amount ?? null;
       if (raw !== null)
         data.amount =
           typeof raw === "number" ? raw : parseAmount(String(raw));
-      if (data.receiverName || data.amount) return data;
+      // The JSON gave us the core fields, but paymentDate is frequently not a
+      // JSON field (it lives in the receipt body as "Payment Date & Time ...").
+      // Only short-circuit when there is nothing left to find; otherwise fall
+      // through so the text/regex fallbacks below can still extract the date.
+      // The `if (!data.X)` guards in the remaining strategies prevent the
+      // already-extracted amount/receiver/status/date from being overwritten.
+      if ((data.receiverName || data.amount) && data.paymentDate) return data;
     }
   } catch {
     // Not JSON — continue with HTML parsing
@@ -438,6 +550,15 @@ function parseCBEReceipt(html: string): ReceiptData {
         if (CBE_PARSER_DEBUG) log("parser_match", { source: "regex_receiver", pattern: p.source, value: data.receiverName });
         break;
       }
+    }
+  }
+
+  // --- Strategy 7: CBE-specific regex fallback for payment date/time ---
+  if (!data.paymentDate) {
+    const pd = extractPaymentDateFromText(stripped) ?? extractPaymentDateFromText(html);
+    if (pd) {
+      data.paymentDate = pd;
+      if (CBE_PARSER_DEBUG) log("parser_match", { source: "regex_payment_date", value: pd });
     }
   }
 
@@ -753,6 +874,81 @@ export async function verifyCBEDeposit(params: {
       receiptData
     );
   }
+
+  // --- Freshness gate: require a recent payment date before auto-crediting ---
+  // A missing/unparseable/stale/future-dated receipt is not auto-rejected; it
+  // returns verified:false so the deposit stays pending for manual review.
+  if (!receiptData.paymentDate) {
+    log("freshness_check", {
+      depositId,
+      decision: "missing",
+      rawPaymentDate: null,
+    });
+    return fail(
+      "Held for review: CBE receipt payment date missing.",
+      receiptUrl,
+      receiptData
+    );
+  }
+
+  const parsedPaymentDate = parseCBEPaymentDate(receiptData.paymentDate);
+
+  if (!parsedPaymentDate) {
+    log("freshness_check", {
+      depositId,
+      decision: "unparseable",
+      rawPaymentDate: receiptData.paymentDate,
+    });
+    return fail(
+      "Held for review: CBE receipt payment date unparseable.",
+      receiptUrl,
+      receiptData
+    );
+  }
+
+  const ageMs = Date.now() - parsedPaymentDate.getTime();
+  const ageMinutes = Math.round(ageMs / 60000);
+
+  log("payment_date_extracted", {
+    depositId,
+    rawPaymentDate: receiptData.paymentDate,
+    ageMinutes,
+  });
+
+  if (ageMs > CBE_FRESHNESS_MAX_AGE_MS) {
+    log("freshness_check", {
+      depositId,
+      decision: "too_old",
+      rawPaymentDate: receiptData.paymentDate,
+      ageMinutes,
+    });
+    return fail(
+      `Held for review: CBE receipt payment date too old (${ageMinutes} min ago).`,
+      receiptUrl,
+      receiptData
+    );
+  }
+
+  if (ageMs < -CBE_FUTURE_SKEW_MS) {
+    log("freshness_check", {
+      depositId,
+      decision: "future",
+      rawPaymentDate: receiptData.paymentDate,
+      ageMinutes,
+    });
+    return fail(
+      "Held for review: CBE receipt payment date is in the future.",
+      receiptUrl,
+      receiptData
+    );
+  }
+
+  log("freshness_check", {
+    depositId,
+    decision: "fresh",
+    rawPaymentDate: receiptData.paymentDate,
+    ageMinutes,
+  });
 
   // --- Verification passed: return extracted data only ---
   // Crediting is performed by the caller through the hardened
