@@ -459,7 +459,7 @@ export async function verifyCBEDeposit(params: {
   paymentMethodId: string;
   admin: SupabaseClient<Database>;
 }): Promise<CBEVerificationResult> {
-  const { depositId, userId, transactionReference: rawTxRef, paymentMethodId, admin } =
+  const { depositId, transactionReference: rawTxRef, paymentMethodId, admin } =
     params;
   const transactionReference = rawTxRef.trim().toUpperCase();
 
@@ -754,154 +754,13 @@ export async function verifyCBEDeposit(params: {
     );
   }
 
-  // --- Credit wallet (direct update pattern) ---
+  // --- Verification passed: return extracted data only ---
+  // Crediting is performed by the caller through the hardened
+  // approve_deposit_tx RPC (atomic, row-locked). This function no longer
+  // touches wallets/transactions/deposits/notifications directly.
   const receiptAmount = receiptData.amount;
 
-  const { data: wallet, error: walletFetchError } = await admin
-    .from("wallets")
-    .select("balance")
-    .eq("user_id", userId)
-    .single();
-
-  if (walletFetchError || !wallet) {
-    log("verification_failed", {
-      depositId,
-      step: "wallet_fetch",
-      error: walletFetchError?.message,
-    });
-    return fail(
-      "Auto-verification failed: unable to credit wallet",
-      receiptUrl,
-      receiptData
-    );
-  }
-
-  const balance_before = Number(wallet.balance);
-  const balance_after = balance_before + receiptAmount;
-
-  const { error: walletUpdateError } = await admin
-    .from("wallets")
-    .update({ balance: balance_after })
-    .eq("user_id", userId);
-
-  if (walletUpdateError) {
-    log("verification_failed", {
-      depositId,
-      step: "wallet_credit",
-      error: walletUpdateError.message,
-    });
-    return fail(
-      "Auto-verification failed: unable to credit wallet",
-      receiptUrl,
-      receiptData
-    );
-  }
-
-  log("wallet_credited", {
-    depositId,
-    userId,
-    receiptAmount,
-    balance_before,
-    balance_after,
-  });
-
-  // --- Create transaction record ---
-  const { error: txnError } = await admin.from("transactions").insert({
-    user_id: userId,
-    type: "deposit",
-    amount: receiptAmount,
-    status: "completed",
-    balance_before,
-    balance_after,
-    description: `CBE deposit auto-verified — ${transactionReference}`,
-    reference_id: depositId,
-    metadata: {
-      deposit_id: depositId,
-      transaction_reference: transactionReference,
-      auto_verified: true,
-      receipt_url: receiptUrl,
-    },
-  });
-
-  if (txnError) {
-    log("verification_failed", {
-      depositId,
-      step: "transaction_create",
-      error: txnError.message,
-    });
-    return fail(
-      `Auto-verification partial: wallet credited ${receiptAmount} ETB but transaction record failed — manual review needed`,
-      receiptUrl,
-      receiptData
-    );
-  }
-  log("transaction_created", { depositId });
-
-  // --- Update deposit record (must run before notification) ---
-  const now = new Date().toISOString();
-  const depositUpdatePayload = {
-    amount: receiptAmount,
-    status: "approved" as const,
-    auto_verified: true,
-    verified_at: now,
-    reviewed_at: now,
-    admin_note: "Auto-approved via CBE receipt verification",
-  };
-  log("deposit_update_payload", { depositId, payload: depositUpdatePayload });
-
-  const { data: depositUpdateData, error: depositUpdateError } = await admin
-    .from("deposits")
-    .update(depositUpdatePayload)
-    .eq("id", depositId)
-    .eq("status", "pending")
-    .select();
-
-  if (depositUpdateError) {
-    log("deposit_update_failed", {
-      depositId,
-      error: depositUpdateError.message,
-      code: depositUpdateError.code,
-      details: depositUpdateError.details,
-      hint: depositUpdateError.hint,
-    });
-  } else {
-    log("deposit_updated", {
-      depositId,
-      rowsReturned: depositUpdateData?.length ?? 0,
-      updatedRow: depositUpdateData?.[0] ?? null,
-    });
-  }
-
-  // --- Create notification (failure must not block approval) ---
-  try {
-    const { error: notifError } = await admin.from("notifications").insert({
-      user_id: userId,
-      title: "Deposit Approved",
-      message: `Your deposit of ${receiptAmount} ETB has been approved and credited to your wallet.`,
-      metadata: {
-        type: "deposit_approved",
-        deposit_id: depositId,
-        amount: receiptAmount,
-        auto_verified: true,
-      },
-    });
-    if (notifError) {
-      log("notification_create_failed", {
-        depositId,
-        error: notifError.message,
-        code: notifError.code,
-      });
-    } else {
-      log("notification_created", { depositId });
-    }
-  } catch (notifEx) {
-    log("notification_create_exception", {
-      depositId,
-      error: notifEx instanceof Error ? notifEx.message : "unknown",
-    });
-  }
-
-  log("auto_approved", {
+  log("verification_succeeded", {
     depositId,
     amount: receiptAmount,
     transactionReference,
