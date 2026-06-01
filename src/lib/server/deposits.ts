@@ -18,6 +18,31 @@ function log(event: string, data: Record<string, unknown>) {
   );
 }
 
+// Derive a safe, low-cardinality reason code from a CBE auto-reject admin note.
+// The raw admin note for a receiver-name mismatch embeds the receipt's receiver
+// name, so it must never be written to production console logs. The full note is
+// still stored on the deposit / audit trail via approve_deposit_tx — this is for
+// log output only.
+function cbeRejectReasonCode(adminNote: string | null): string {
+  const note = adminNote ?? "";
+  if (note.includes("invalid CBE receipt link")) return "invalid_cbe_link";
+  if (note.includes("receiver name mismatch")) return "receiver_mismatch";
+  if (note.includes("unreadable CBE receipt")) return "unreadable_receipt";
+  return "auto_reject";
+}
+
+// Mask a receipt URL down to its host only. CBE receipt URLs embed the
+// transaction reference + account_last_8 and act as a fetch credential, so the
+// full URL must never be written to production logs.
+function maskReceiptUrl(url: string | null): string | null {
+  if (!url) return url;
+  try {
+    return new URL(url).host;
+  } catch {
+    return "invalid_url";
+  }
+}
+
 function generateReceiptUrl(
   type: string,
   txRef: string,
@@ -155,7 +180,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
       log("telebirr_manual_pending", {
         depositId: deposit.id,
         transactionReference: data.transactionReference,
-        receiptUrl,
+        receiptHost: maskReceiptUrl(receiptUrl),
       });
 
       return {
@@ -251,7 +276,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
 
               log("cbe_auto_reject_succeeded", {
                 depositId: deposit.id,
-                reason: result.adminNote,
+                reasonCode: cbeRejectReasonCode(result.adminNote),
               });
 
               // Notification must not block rejection.
