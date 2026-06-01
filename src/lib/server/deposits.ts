@@ -87,6 +87,18 @@ export const submitDepositFn = createServerFn({ method: "POST" })
     };
   })
   .handler(async ({ data }) => {
+    // TEMPORARY DIAGNOSTIC — Netlify logging smoke test (QHASH_LOG_SMOKE_20260601).
+    // Proves the SSR server handler emits stdout for a real deposit, before any
+    // DB work or CBE fetch. Remove in a follow-up cleanup PR.
+    console.log(
+      JSON.stringify({
+        marker: "QHASH_LOG_SMOKE_20260601",
+        source: "submitDepositFn",
+        event: "handler_entered",
+        ts: new Date().toISOString(),
+      })
+    );
+
     const admin = getAdminClient();
 
     log("deposit_submit_started", {
