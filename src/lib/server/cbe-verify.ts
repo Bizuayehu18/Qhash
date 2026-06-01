@@ -14,6 +14,10 @@ interface ReceiptData {
 
 export interface CBEVerificationResult {
   verified: boolean;
+  // Set to "reject" only for definitive negative signals (e.g. a readable
+  // CBE invalid-link response). When absent, a verified:false result means
+  // "hold for manual review", not "reject".
+  action?: "reject";
   receiptData: ReceiptData | null;
   adminNote: string;
   receiptUrl: string;
@@ -573,6 +577,56 @@ function fail(
   return { verified: false, receiptData, adminNote, receiptUrl, amount: null };
 }
 
+// Definitive auto-reject result. Unlike fail(), this carries action:"reject"
+// so the caller rejects the deposit (no wallet credit) instead of holding it
+// for manual review.
+function reject(
+  adminNote: string,
+  receiptUrl: string,
+  receiptData: ReceiptData | null = null
+): CBEVerificationResult {
+  return { verified: false, action: "reject", receiptData, adminNote, receiptUrl, amount: null };
+}
+
+// CBE returns a short, human-readable error — instead of a receipt — when the
+// receipt link / transaction reference is not valid. Two known shapes:
+//
+//   Plain text / HTML:
+//     "You Are Not Allowed to See This Data, Please Check your Link"
+//   JSON:
+//     {"status":"failed","message":"Receipt link is not correct. Please Check Your Link."}
+//
+// These are a definitive negative signal (the reference does not resolve to a
+// real receipt) and auto-reject. Note: this only covers readable responses on
+// a successful (HTTP 200) fetch — HTTP/network/DNS/TLS/timeout failures are
+// transient and handled separately, staying in manual review.
+function isInvalidCBELinkResponse(body: string): boolean {
+  // JSON shape: status "failed" + "Receipt link is not correct" message.
+  try {
+    const json = JSON.parse(body);
+    if (json && typeof json === "object") {
+      const status = String((json as Record<string, unknown>).status ?? "").toLowerCase();
+      const message = String((json as Record<string, unknown>).message ?? "").toLowerCase();
+      if (status === "failed" && message.includes("receipt link is not correct")) {
+        return true;
+      }
+    }
+  } catch {
+    // Not JSON — fall through to the plain text / HTML checks below.
+  }
+
+  // Plain text / HTML shape.
+  const text = body.toLowerCase();
+  if (
+    text.includes("you are not allowed to see this data") ||
+    text.includes("please check your link")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 export async function verifyCBEDeposit(params: {
   depositId: string;
   userId: string;
@@ -770,6 +824,22 @@ export async function verifyCBEDeposit(params: {
     // Fallback: HTML/JSON parsing
     const html = responseBuffer.toString("utf-8");
     log("html_detected", { depositId, contentType, contentLength: html.length });
+
+    // Detect readable CBE invalid-link responses before attempting to parse a
+    // receipt. These mean the link/reference does not resolve to a real
+    // receipt and are auto-rejected (vs. transient fetch failures, which are
+    // never auto-rejected).
+    if (isInvalidCBELinkResponse(html)) {
+      log("invalid_link_detected", {
+        depositId,
+        contentType,
+        preview: html.substring(0, 200),
+      });
+      return reject(
+        "Auto-rejected: invalid CBE receipt link or transaction reference.",
+        receiptUrl
+      );
+    }
 
     try {
       receiptData = parseCBEReceipt(html);

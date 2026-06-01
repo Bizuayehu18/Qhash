@@ -176,7 +176,113 @@ export const submitDepositFn = createServerFn({ method: "POST" })
           admin,
         });
 
-        if (!result.verified) {
+        if (result.action === "reject") {
+          // Definitive auto-reject (e.g. readable CBE invalid-link response).
+          // Reject through the hardened RPC — no direct rejected update, no
+          // wallet credit. Resolve an active admin actor for the RPC.
+          const { data: adminUser } = await admin
+            .from("profiles")
+            .select("id")
+            .eq("is_admin", true)
+            .eq("is_frozen", false)
+            .limit(1)
+            .single();
+
+          if (!adminUser) {
+            await admin
+              .from("deposits")
+              .update({
+                auto_verified: false,
+                admin_note:
+                  result.adminNote +
+                  " (no active admin available for auto-reject; requires manual review)",
+              })
+              .eq("id", deposit.id)
+              .eq("status", "pending");
+
+            log("cbe_auto_reject_no_admin", { depositId: deposit.id });
+          } else {
+            const { data: rpcResult, error: rpcError } = await admin.rpc(
+              "approve_deposit_tx",
+              {
+                p_deposit_id: deposit.id,
+                p_admin_id: adminUser.id,
+                p_action: "reject",
+                p_admin_note: result.adminNote,
+              }
+            );
+
+            const txResult = rpcResult as Record<string, unknown> | null;
+
+            if (rpcError || !txResult?.success) {
+              const errorCode = rpcError
+                ? "rpc_failed"
+                : (txResult?.error as string) ?? "unknown";
+
+              if (!rpcError && errorCode === "already_reviewed") {
+                log("cbe_auto_reject_already_reviewed", {
+                  depositId: deposit.id,
+                });
+              } else {
+                await admin
+                  .from("deposits")
+                  .update({
+                    auto_verified: false,
+                    admin_note: `CBE auto-reject failed (${errorCode}). Requires manual review.`,
+                  })
+                  .eq("id", deposit.id)
+                  .eq("status", "pending");
+
+                log("cbe_auto_reject_rpc_failed", {
+                  depositId: deposit.id,
+                  errorCode,
+                });
+              }
+            } else {
+              // RPC set status/admin_note/reviewed_at atomically (no wallet
+              // credit on reject). Flag auto-verification and stamp verified_at.
+              await admin
+                .from("deposits")
+                .update({
+                  auto_verified: true,
+                  verified_at: new Date().toISOString(),
+                })
+                .eq("id", deposit.id);
+
+              log("cbe_auto_reject_succeeded", {
+                depositId: deposit.id,
+                reason: result.adminNote,
+              });
+
+              // Notification must not block rejection.
+              try {
+                const { error: notifError } = await admin
+                  .from("notifications")
+                  .insert({
+                    user_id: data.userId,
+                    title: "Deposit Rejected",
+                    message: `Your deposit of ${deposit.amount} ETB was rejected. Please check the details and submit again.`,
+                    metadata: {
+                      type: "deposit_rejected",
+                      deposit_id: deposit.id,
+                      auto_verified: true,
+                    },
+                  });
+                if (notifError) {
+                  log("cbe_reject_notification_failed", {
+                    depositId: deposit.id,
+                    error: notifError.message,
+                  });
+                }
+              } catch (notifEx) {
+                log("cbe_reject_notification_exception", {
+                  depositId: deposit.id,
+                  error: notifEx instanceof Error ? notifEx.message : "unknown",
+                });
+              }
+            }
+          }
+        } else if (!result.verified) {
           await admin
             .from("deposits")
             .update({
