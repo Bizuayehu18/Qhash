@@ -18,6 +18,18 @@ function log(event: string, data: Record<string, unknown>) {
   );
 }
 
+// Mask a receipt URL down to its host only. CBE receipt URLs embed the
+// transaction reference + account_last_8 and act as a fetch credential, so the
+// full URL must never be written to production logs.
+function maskReceiptUrl(url: string | null): string | null {
+  if (!url) return url;
+  try {
+    return new URL(url).host;
+  } catch {
+    return "invalid_url";
+  }
+}
+
 function generateReceiptUrl(
   type: string,
   txRef: string,
@@ -155,7 +167,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
       log("telebirr_manual_pending", {
         depositId: deposit.id,
         transactionReference: data.transactionReference,
-        receiptUrl,
+        receiptHost: maskReceiptUrl(receiptUrl),
       });
 
       return {

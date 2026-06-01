@@ -35,6 +35,42 @@ function log(event: string, data: Record<string, unknown>) {
   );
 }
 
+// --- Production-safe logging helpers ---------------------------------------
+// These keep structured events searchable while avoiding sensitive output
+// (full receipt text, unmasked receipt URLs that embed account_last_8, and
+// raw receiver names). depositId remains the primary correlation key.
+
+// Mask a transaction reference to its last 4 characters for logging.
+function maskTxRef(ref: string): string {
+  if (!ref) return "";
+  return ref.length <= 4 ? "****" : `****${ref.slice(-4)}`;
+}
+
+// Mask a receipt URL down to its host only. The full CBE URL embeds the
+// transaction reference + account_last_8 and is effectively a fetch
+// credential, so it must never be logged in full.
+function maskReceiptUrl(url: string): string {
+  if (!url) return "";
+  try {
+    return new URL(url).host;
+  } catch {
+    return "invalid_url";
+  }
+}
+
+// Boolean/numeric summary of a parsed receipt — logged instead of the full
+// ReceiptData object so receiver names and other raw fields stay out of logs.
+function receiptSummary(d: ReceiptData): Record<string, unknown> {
+  return {
+    hasTransactionId: d.transactionId !== null,
+    hasAmount: d.amount !== null && d.amount > 0,
+    amount: d.amount,
+    hasReceiverName: d.receiverName !== null,
+    hasStatus: d.status !== null,
+    hasPaymentDate: d.paymentDate !== null,
+  };
+}
+
 function normalizeName(name: string): string {
   return name
     .toLowerCase()
@@ -136,7 +172,10 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-const CBE_PARSER_DEBUG = true;
+// Parser/debug events are noisy and can expose raw receipt content, so they
+// are off by default and only emitted when CBE_PARSER_DEBUG=true is set in the
+// environment. Normal production requires no env variable.
+const CBE_PARSER_DEBUG = process.env.CBE_PARSER_DEBUG === "true";
 
 const TX_LABELS = [
   "transaction id",
@@ -638,7 +677,7 @@ export async function verifyCBEDeposit(params: {
     params;
   const transactionReference = rawTxRef.trim().toUpperCase();
 
-  log("verification_started", { depositId, transactionReference });
+  log("verification_started", { depositId, txRefLast4: maskTxRef(transactionReference) });
 
   const { data: method } = await admin
     .from("payment_methods")
@@ -671,7 +710,11 @@ export async function verifyCBEDeposit(params: {
   }
 
   const receiptUrl = `${CBE_RECEIPT_BASE}/?id=${transactionReference}${method.account_last_8}`;
-  log("receipt_url_generated", { depositId, receiptUrl });
+  log("receipt_url_generated", {
+    depositId,
+    receiptHost: maskReceiptUrl(receiptUrl),
+    txRefLast4: maskTxRef(transactionReference),
+  });
 
   // --- Fetch receipt ---
   let responseBuffer: Buffer;
@@ -773,19 +816,20 @@ export async function verifyCBEDeposit(params: {
       const { extractText } = await import("unpdf");
       const result = await extractText(new Uint8Array(responseBuffer), { mergePages: true });
 
-      log("pdf_text_extract_raw_shape", {
-        depositId,
-        typeofText: typeof result.text,
-        isArray: Array.isArray(result.text),
-        topLevelKeys: Object.keys(result),
-      });
+      if (CBE_PARSER_DEBUG) {
+        log("pdf_text_extract_raw_shape", {
+          depositId,
+          typeofText: typeof result.text,
+          isArray: Array.isArray(result.text),
+          topLevelKeys: Object.keys(result),
+        });
+      }
 
       extractedText = result.text;
 
       log("pdf_text_extract_success", {
         depositId,
         textLength: extractedText.length,
-        extracted_text_preview_first_1000_chars: extractedText.substring(0, 1000),
       });
     } catch (err) {
       log("pdf_text_extract_failed", {
@@ -808,7 +852,7 @@ export async function verifyCBEDeposit(params: {
 
     try {
       receiptData = parseCBEReceiptFromText(extractedText);
-      log("receipt_parse_success", { depositId, strategy: "pdf", parsed: receiptData });
+      log("receipt_parse_success", { depositId, strategy: "pdf", parsed: receiptSummary(receiptData) });
     } catch (err) {
       log("receipt_parse_failed", {
         depositId,
@@ -833,7 +877,6 @@ export async function verifyCBEDeposit(params: {
       log("invalid_link_detected", {
         depositId,
         contentType,
-        preview: html.substring(0, 200),
       });
       return reject(
         "Auto-rejected: invalid CBE receipt link or transaction reference.",
@@ -843,7 +886,7 @@ export async function verifyCBEDeposit(params: {
 
     try {
       receiptData = parseCBEReceipt(html);
-      log("receipt_parse_success", { depositId, strategy: "html", parsed: receiptData });
+      log("receipt_parse_success", { depositId, strategy: "html", parsed: receiptSummary(receiptData) });
     } catch (err) {
       log("receipt_parse_failed", {
         depositId,
@@ -872,7 +915,7 @@ export async function verifyCBEDeposit(params: {
     log("receipt_unreadable", {
       depositId,
       reason: "no amount, receiver, or payment date extracted",
-      parsed: receiptData,
+      parsed: receiptSummary(receiptData),
     });
     return reject(
       "Auto-rejected: unreadable CBE receipt; no amount, receiver, or payment date could be extracted.",
@@ -885,7 +928,7 @@ export async function verifyCBEDeposit(params: {
     log("receipt_parse_failed", {
       depositId,
       reason: "amount missing or invalid",
-      parsed: receiptData,
+      parsed: receiptSummary(receiptData),
     });
     return fail(
       "Auto-verification failed: could not extract amount from CBE receipt",
@@ -898,7 +941,7 @@ export async function verifyCBEDeposit(params: {
     log("receipt_parse_failed", {
       depositId,
       reason: "receiver name missing",
-      parsed: receiptData,
+      parsed: receiptSummary(receiptData),
     });
     return fail(
       "Auto-verification failed: could not extract receiver name from CBE receipt",
@@ -914,10 +957,7 @@ export async function verifyCBEDeposit(params: {
   if (normalizedReceipt !== normalizedExpected) {
     log("receiver_mismatch", {
       depositId,
-      receiptReceiver: receiptData.receiverName,
-      expectedReceiver: method.account_name,
-      normalizedReceipt,
-      normalizedExpected,
+      receiverMatched: false,
     });
     return reject(
       `Auto-rejected: receiver name mismatch (receipt: "${receiptData.receiverName}").`,
@@ -928,7 +968,7 @@ export async function verifyCBEDeposit(params: {
 
   log("receiver_verified", {
     depositId,
-    receiverName: receiptData.receiverName,
+    receiverMatched: true,
   });
 
   // --- Check duplicate transaction reference ---
@@ -1053,7 +1093,7 @@ export async function verifyCBEDeposit(params: {
   log("verification_succeeded", {
     depositId,
     amount: receiptAmount,
-    transactionReference,
+    txRefLast4: maskTxRef(transactionReference),
   });
 
   return {
