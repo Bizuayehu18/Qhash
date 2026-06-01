@@ -265,7 +265,8 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                     metadata: {
                       type: "deposit_rejected",
                       deposit_id: deposit.id,
-                      auto_verified: true,
+                      auto_verified: false,
+                      reason: result.adminNote,
                     },
                   });
                 if (notifError) {

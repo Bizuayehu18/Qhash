@@ -857,6 +857,30 @@ export async function verifyCBEDeposit(params: {
     }
   }
 
+  // Grouped readable-but-empty check. The receipt was successfully fetched,
+  // read, and parsed into ReceiptData, yet none of the three core fields could
+  // be extracted — a definitive signal that this is not a usable receipt, so
+  // auto-reject. This runs before the individual amount/receiver/date failure
+  // handling below (each of which stays in manual review on its own). It does
+  // NOT cover PDF extraction failures, empty PDF text, parse exceptions, or
+  // HTTP/network errors — those return earlier as manual-review fail()s.
+  if (
+    !receiptData.amount &&
+    !receiptData.receiverName &&
+    !receiptData.paymentDate
+  ) {
+    log("receipt_unreadable", {
+      depositId,
+      reason: "no amount, receiver, or payment date extracted",
+      parsed: receiptData,
+    });
+    return reject(
+      "Auto-rejected: unreadable CBE receipt; no amount, receiver, or payment date could be extracted.",
+      receiptUrl,
+      receiptData
+    );
+  }
+
   if (!receiptData.amount || receiptData.amount <= 0) {
     log("receipt_parse_failed", {
       depositId,
@@ -895,8 +919,8 @@ export async function verifyCBEDeposit(params: {
       normalizedReceipt,
       normalizedExpected,
     });
-    return fail(
-      `Auto-verification failed: receiver name mismatch (receipt: "${receiptData.receiverName}")`,
+    return reject(
+      `Auto-rejected: receiver name mismatch (receipt: "${receiptData.receiverName}").`,
       receiptUrl,
       receiptData
     );
