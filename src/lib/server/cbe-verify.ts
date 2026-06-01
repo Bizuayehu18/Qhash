@@ -739,6 +739,33 @@ export async function verifyCBEDeposit(params: {
     clearTimeout(timeout);
 
     if (!res.ok) {
+      // A non-200 response can still carry a readable CBE invalid-link body
+      // (live testing shows references like FT26149H5 / FT26149H5HZD return
+      // the "Please Check your Link" message under a non-200 status). Safely
+      // read the body and, if it matches a known invalid-link message,
+      // auto-reject. Otherwise — including when the body cannot be read — keep
+      // the existing manual-review fail behavior. Transient HTTP failures must
+      // never auto-reject on their own.
+      const errContentType = res.headers.get("content-type") || "";
+      let errBody: string | null = null;
+      try {
+        errBody = Buffer.from(await res.arrayBuffer()).toString("utf-8");
+      } catch {
+        errBody = null;
+      }
+
+      if (errBody !== null && isInvalidCBELinkResponse(errBody)) {
+        log("invalid_link_detected", {
+          depositId,
+          status: res.status,
+          contentType: errContentType,
+        });
+        return reject(
+          "Auto-rejected: invalid CBE receipt link or transaction reference.",
+          receiptUrl
+        );
+      }
+
       log("receipt_fetch_failed", {
         depositId,
         status: res.status,
