@@ -22,6 +22,15 @@ export interface CBEVerificationResult {
   adminNote: string;
   receiptUrl: string;
   amount: number | null;
+  // Canonical transaction reference extracted from the receipt body
+  // ("Reference No. (VAT Invoice No)"), normalised to uppercase + trimmed.
+  // This is the authoritative reference used for duplicate protection and for
+  // canonicalising the deposit row before approval. Null/absent when the
+  // receipt did not yield an extractable reference.
+  canonicalReference?: string | null;
+  // True when the user-submitted reference differs from the extracted canonical
+  // reference. Used only for safe audit metadata — never gates the decision.
+  submittedReferenceMismatch?: boolean;
 }
 
 function log(event: string, data: Record<string, unknown>) {
@@ -145,6 +154,58 @@ const CBE_PAYMENT_DATE_REGEX =
 function extractPaymentDateFromText(text: string): string | null {
   const m = text.match(CBE_PAYMENT_DATE_REGEX);
   if (m && m[1]) return m[1].trim();
+  return null;
+}
+
+// --- CBE canonical transaction reference extraction -------------------------
+// The real CBE receipt reference is printed inside the receipt body, labelled:
+//   "Reference No. (VAT Invoice No)"
+// e.g. "Reference No. (VAT Invoice No): FT26158V9QB". The submitted reference
+// cannot be trusted for duplicate protection because the receipt URL appends
+// account_last_8 — a user can mutate the submitted reference and still open the
+// same receipt. These patterns recover the authoritative reference from both
+// PDF-extracted text and HTML-stripped text, handling the "(VAT Invoice No)"
+// qualifier, optional colon, and several alternate labels. No fixed length is
+// enforced — only the leading "FT" form is anchored.
+const CBE_REFERENCE_REGEXES: RegExp[] = [
+  // "Reference No. (VAT Invoice No): FT..." — the canonical CBE label, with the
+  // "(VAT Invoice No)" qualifier optional.
+  /reference\s*no\.?\s*(?:\(\s*vat\s*invoice\s*no\.?\s*\))?\s*[:：]?\s*(FT[A-Z0-9]+)/i,
+  // "VAT Invoice No: FT..." on its own.
+  /vat\s*invoice\s*no\.?\s*[:：]?\s*(FT[A-Z0-9]+)/i,
+  // Generic "Transaction Reference" / "Transaction ID: FT...".
+  /transaction\s*(?:reference|id)\s*[:：]?\s*(FT[A-Z0-9]+)/i,
+];
+
+// Labels that may sit on their own line, with the FT value on a following line.
+const CBE_REFERENCE_LINE_LABEL =
+  /(?:reference\s*no|vat\s*invoice\s*no|transaction\s*(?:reference|id))/i;
+
+// Extract and normalise (uppercase + trim) the canonical CBE transaction
+// reference from receipt text. Returns null when no reference is found.
+function extractCBEReference(text: string): string | null {
+  if (!text) return null;
+
+  // 1. Inline label-value patterns (label and value on the same line).
+  for (const re of CBE_REFERENCE_REGEXES) {
+    const m = text.match(re);
+    if (m && m[1]) return m[1].trim().toUpperCase();
+  }
+
+  // 2. Line-break case: a known label on one line, the FT value on a nearby
+  //    following line (common in PDF-extracted text where layout splits them).
+  const lines = text.split("\n").map((l) => l.trim());
+  for (let i = 0; i < lines.length; i++) {
+    if (!CBE_REFERENCE_LINE_LABEL.test(lines[i])) continue;
+    // The label line itself may already contain the value.
+    const inline = lines[i].match(/(FT[A-Z0-9]+)/i);
+    if (inline) return inline[1].trim().toUpperCase();
+    for (let j = i + 1; j < Math.min(i + 3, lines.length); j++) {
+      const m = lines[j].match(/(FT[A-Z0-9]+)/i);
+      if (m) return m[1].trim().toUpperCase();
+    }
+  }
+
   return null;
 }
 
@@ -451,6 +512,14 @@ function parseCBEReceiptFromText(text: string): ReceiptData {
     }
   }
 
+  // Strategy 6: CBE canonical transaction reference. Prefer the explicit
+  // "Reference No. (VAT Invoice No)" value over any generic label match.
+  const cbeRef = extractCBEReference(text);
+  if (cbeRef) {
+    data.transactionId = cbeRef;
+    if (CBE_PARSER_DEBUG) log("parser_match", { source: "pdf_cbe_reference", field: "transactionId" });
+  }
+
   return data;
 }
 
@@ -605,15 +674,31 @@ function parseCBEReceipt(html: string): ReceiptData {
     }
   }
 
+  // --- Strategy 8: CBE canonical transaction reference. Prefer the explicit
+  // "Reference No. (VAT Invoice No)" value over any generic label match. ---
+  const cbeRef = extractCBEReference(stripped) ?? extractCBEReference(html);
+  if (cbeRef) {
+    data.transactionId = cbeRef;
+    if (CBE_PARSER_DEBUG) log("parser_match", { source: "html_cbe_reference", field: "transactionId" });
+  }
+
   return data;
 }
+
+// Extra canonical-reference fields that some fail()/reject() results carry so
+// the caller can audit the masked extracted reference and surface a mismatch.
+type CanonicalExtras = Pick<
+  CBEVerificationResult,
+  "canonicalReference" | "submittedReferenceMismatch"
+>;
 
 function fail(
   adminNote: string,
   receiptUrl: string,
-  receiptData: ReceiptData | null = null
+  receiptData: ReceiptData | null = null,
+  extra: CanonicalExtras = {}
 ): CBEVerificationResult {
-  return { verified: false, receiptData, adminNote, receiptUrl, amount: null };
+  return { verified: false, receiptData, adminNote, receiptUrl, amount: null, ...extra };
 }
 
 // Definitive auto-reject result. Unlike fail(), this carries action:"reject"
@@ -622,9 +707,10 @@ function fail(
 function reject(
   adminNote: string,
   receiptUrl: string,
-  receiptData: ReceiptData | null = null
+  receiptData: ReceiptData | null = null,
+  extra: CanonicalExtras = {}
 ): CBEVerificationResult {
-  return { verified: false, action: "reject", receiptData, adminNote, receiptUrl, amount: null };
+  return { verified: false, action: "reject", receiptData, adminNote, receiptUrl, amount: null, ...extra };
 }
 
 // CBE returns a short, human-readable error — instead of a receipt — when the
@@ -998,20 +1084,85 @@ export async function verifyCBEDeposit(params: {
     receiverMatched: true,
   });
 
-  // --- Check duplicate transaction reference ---
-  const { data: dupes } = await admin
+  // --- Extract the canonical CBE transaction reference from the receipt body ---
+  // The submitted reference cannot be trusted for duplicate protection: the CBE
+  // receipt URL appends account_last_8, so a user can mutate the submitted
+  // reference and still open the same receipt. The authoritative reference is
+  // the one printed inside the receipt ("Reference No. (VAT Invoice No)"). All
+  // duplicate protection and the canonical deposit row use THIS value.
+  const extractedReference = receiptData.transactionId
+    ? receiptData.transactionId.trim().toUpperCase()
+    : null;
+
+  // Missing/unparseable extracted reference: never auto-approve. Hold for manual
+  // review (no wallet credit). The caller maps this note to reason_code
+  // cbe_transaction_id_missing and event cbe_manual_review.
+  if (!extractedReference) {
+    log("extracted_reference_missing", {
+      depositId,
+      submittedTxRefLast4: maskTxRef(transactionReference),
+    });
+    return fail(
+      "Held for review: CBE receipt transaction reference missing.",
+      receiptUrl,
+      receiptData
+    );
+  }
+
+  const submittedReferenceMismatch = extractedReference !== transactionReference;
+
+  // The canonical receipt URL is always built from the EXTRACTED reference, not
+  // the submitted one, so a credited deposit always points at the receipt it was
+  // actually verified against.
+  const canonicalReceiptUrl = `${CBE_RECEIPT_BASE}/?id=${extractedReference}${method.account_last_8}`;
+
+  if (submittedReferenceMismatch) {
+    // Log only masked last4 values for both references — never the raw refs.
+    log("extracted_reference_mismatch", {
+      depositId,
+      submittedTxRefLast4: maskTxRef(transactionReference),
+      extractedTxRefLast4: maskTxRef(extractedReference),
+    });
+  }
+
+  // --- Duplicate check uses the EXTRACTED canonical reference ---
+  const { data: dupes, error: dupeError } = await admin
     .from("deposits")
     .select("id")
-    .eq("transaction_reference", transactionReference)
+    .eq("transaction_reference", extractedReference)
     .neq("id", depositId)
     .limit(1);
 
-  if (dupes && dupes.length > 0) {
-    log("duplicate_checked", { depositId, isDuplicate: true });
+  // A failed duplicate query must never silently fall through to auto-approval:
+  // we cannot prove the reference is unique, so hold for manual review (no
+  // wallet credit). Log a safe event only — no full references, receipt URL, or
+  // receipt text. The caller maps this note to reason_code duplicate_check_failed
+  // and event cbe_manual_review.
+  if (dupeError) {
+    log("cbe_duplicate_check_failed", {
+      depositId,
+      txRefLast4: maskTxRef(extractedReference),
+    });
     return fail(
-      "Auto-verification failed: duplicate transaction reference detected",
-      receiptUrl,
-      receiptData
+      "Held for review: CBE duplicate reference check failed.",
+      canonicalReceiptUrl,
+      receiptData,
+      { canonicalReference: extractedReference, submittedReferenceMismatch }
+    );
+  }
+
+  if (dupes && dupes.length > 0) {
+    log("duplicate_checked", {
+      depositId,
+      isDuplicate: true,
+      txRefLast4: maskTxRef(extractedReference),
+    });
+    // Already credited under another deposit — auto-reject (no wallet credit).
+    return reject(
+      "Auto-rejected: duplicate CBE receipt transaction reference.",
+      canonicalReceiptUrl,
+      receiptData,
+      { canonicalReference: extractedReference, submittedReferenceMismatch }
     );
   }
   log("duplicate_checked", { depositId, isDuplicate: false });
@@ -1120,14 +1271,17 @@ export async function verifyCBEDeposit(params: {
   log("verification_succeeded", {
     depositId,
     amount: receiptAmount,
-    txRefLast4: maskTxRef(transactionReference),
+    txRefLast4: maskTxRef(extractedReference),
+    submittedReferenceMismatch,
   });
 
   return {
     verified: true,
     receiptData,
     adminNote: `Auto-verified: CBE receipt confirmed. Amount: ${receiptAmount} ETB`,
-    receiptUrl,
+    receiptUrl: canonicalReceiptUrl,
     amount: receiptAmount,
+    canonicalReference: extractedReference,
+    submittedReferenceMismatch,
   };
 }
