@@ -25,9 +25,10 @@ function log(event: string, data: Record<string, unknown>) {
 
 // Derive a safe, low-cardinality reason code from a CBE auto-reject admin note.
 // The raw admin note for a receiver-name mismatch embeds the receipt's receiver
-// name, so it must never be written to production console logs. The full note is
-// still stored on the deposit / audit trail via approve_deposit_tx — this is for
-// log output only.
+// name, so it must never be written to production console logs. The raw admin
+// note may be stored on the deposit itself via approve_deposit_tx, but the audit
+// table must only receive safe static messages and must never store raw receiver
+// names — this reason code is for log output only.
 function cbeRejectReasonCode(adminNote: string | null): string {
   const note = adminNote ?? "";
   if (note.includes("invalid CBE receipt link")) return "invalid_cbe_link";
