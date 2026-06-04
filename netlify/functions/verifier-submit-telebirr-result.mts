@@ -120,9 +120,11 @@ export default async (req: Request) => {
 
   log("verifier_result_received", {
     depositId,
-    transactionReference,
+    // Never log full transaction references (rule 8 logging safety): only masked
+    // last-4 values for both the submitted reference and the extracted receipt ID.
+    submittedRefLast4: maskRef(transactionReference),
     receiptFetchStatus,
-    extractedTransactionId,
+    extractedRefLast4: maskRef(extractedTransactionId),
     extractedAmount,
     extractedStatus,
     extractedPaymentDate,
@@ -484,14 +486,18 @@ export default async (req: Request) => {
   if (transactionReference !== canonicalTransactionReference) {
     const canonicalReceiptUrl = `${TELEBIRR_RECEIPT_BASE}/${canonicalTransactionReference}`;
 
-    const { error: canonicalError } = await admin
+    // Return the updated row id so we can CONFIRM a row was actually updated.
+    // Approval must never proceed on an unconfirmed canonical update.
+    const { data: canonicalRow, error: canonicalError } = await admin
       .from("deposits")
       .update({
         transaction_reference: canonicalTransactionReference,
         receipt_url: canonicalReceiptUrl,
       })
       .eq("id", depositId)
-      .eq("status", "pending");
+      .eq("status", "pending")
+      .select("id")
+      .single();
 
     if (canonicalError) {
       if (canonicalError.code === "23505") {
@@ -502,8 +508,25 @@ export default async (req: Request) => {
         return await autoRejectDuplicate("duplicate_extracted_reference");
       }
 
-      // Any other canonical-update failure: hold for manual review, never approve.
+      // PGRST116 (no row returned / not a single row) or any other failure:
+      // the canonical update was NOT confirmed. Hold for manual review and
+      // never approve.
       logError("canonical_update_failed", { depositId, code: canonicalError.code });
+      await saveForManualReview(
+        admin,
+        depositId,
+        "Verifier review: canonical reference update failed; requires manual review.",
+      );
+      return Response.json(
+        { action: "manual_review", deposit_id: depositId, failures: ["canonical_reference_update_failed"] },
+        { status: 500 },
+      );
+    }
+
+    if (!canonicalRow?.id) {
+      // No error but no row was updated (e.g. deposit no longer pending). The
+      // canonical update is unconfirmed — never approve; hold for manual review.
+      logError("canonical_update_no_row", { depositId });
       await saveForManualReview(
         admin,
         depositId,
