@@ -23,6 +23,17 @@ function sanitize(value: unknown, maxLen = 200): string {
   return str.length > maxLen ? str.slice(0, maxLen) + "…" : str;
 }
 
+// Mask a transaction reference for safe logging: never log the full reference,
+// only the last 4 characters (rule 8 logging safety).
+function maskRef(ref: string): string {
+  if (!ref) return "";
+  return ref.length <= 4 ? "****" : `****${ref.slice(-4)}`;
+}
+
+// Canonical TeleBirr receipt URL base. The canonical receipt URL is always
+// derived from the EXTRACTED receipt transaction ID, never the submitted one.
+const TELEBIRR_RECEIPT_BASE = "https://transactioninfo.ethiotelecom.et/receipt";
+
 interface SubmitBody {
   deposit_id?: unknown;
   transaction_reference?: unknown;
@@ -77,6 +88,12 @@ export default async (req: Request) => {
   const transactionReference = typeof body.transaction_reference === "string" ? body.transaction_reference.trim() : "";
   const receiptFetchStatus = typeof body.receipt_fetch_status === "string" ? body.receipt_fetch_status.trim() : "";
   const extractedTransactionId = typeof body.extracted_transaction_id === "string" ? body.extracted_transaction_id.trim() : "";
+  // Canonical receipt transaction reference extracted from the TeleBirr receipt
+  // body by the Android verifier. TeleBirr invoice numbers are uppercase
+  // alphanumeric, so canonicalisation is trim (above) + uppercase. All
+  // duplicate protection and the canonical deposit row use THIS value, never the
+  // user-submitted transaction_reference.
+  const canonicalTransactionReference = extractedTransactionId.toUpperCase();
   const extractedReceiverName = typeof body.extracted_receiver_name === "string" ? body.extracted_receiver_name.trim() : "";
   const extractedStatus = typeof body.extracted_status === "string" ? body.extracted_status.trim() : "";
   const verifierNote = typeof body.verifier_note === "string" ? body.verifier_note.trim() : "";
@@ -298,6 +315,22 @@ export default async (req: Request) => {
     });
   }
 
+  // --- MISSING EXTRACTED TRANSACTION ID ---
+  // Rule 2: the receipt was fetched successfully but the receipt transaction ID
+  // is missing/empty. Never auto-approve in this case; hold the deposit pending
+  // for manual review. Reject paths (wrong receiver / unreadable) above take
+  // precedence; fetch failures keep their own manual-review behavior below.
+  if (receiptFetchStatus === "success" && canonicalTransactionReference === "") {
+    const reason = "Verifier review: TeleBirr receipt transaction ID missing; requires manual review.";
+    log("verifier_manual_review", { depositId, reasonCode: "telebirr_transaction_id_missing" });
+    await saveForManualReview(admin, depositId, reason);
+    return Response.json({
+      action: "manual_review",
+      deposit_id: depositId,
+      failures: ["telebirr_transaction_id_missing"],
+    });
+  }
+
   // --- MANUAL REVIEW ---
   if (manualReviewReasons.length > 0) {
     const reason = `Verifier review: ${manualReviewReasons.join("; ")}.${verifierNote ? ` Note: ${sanitize(verifierNote, 100)}` : ""}`;
@@ -311,7 +344,7 @@ export default async (req: Request) => {
   }
 
   // --- APPROVE ---
-  log("verifier_result_validated", { depositId, extractedAmount, extractedTransactionId });
+  log("verifier_result_validated", { depositId, extractedAmount, refLast4: maskRef(canonicalTransactionReference) });
 
   if (!adminUser) {
     logError("no_admin_found", { depositId });
@@ -326,7 +359,166 @@ export default async (req: Request) => {
     );
   }
 
-  const adminNote = `Auto-approved via TeleBirr receipt verifier. Amount: ${extractedAmount} ETB. TX: ${sanitize(extractedTransactionId, 30)}. Receiver: ${sanitize(extractedReceiverName, 60)}.`;
+  // adminUser is non-null past this point; capture the id so the closure below
+  // does not depend on control-flow narrowing being preserved into the closure.
+  const approverId = adminUser.id;
+
+  // Auto-reject a deposit as a duplicate of an already-used canonical TeleBirr
+  // receipt transaction ID. approve_deposit_tx is the ONLY rejection path and
+  // never credits the wallet. If the reject RPC fails (transport error or
+  // success:false), we DO NOT claim the deposit was rejected — we hold it
+  // pending for manual review instead.
+  const autoRejectDuplicate = async (reasonCode: string): Promise<Response> => {
+    log("verifier_auto_reject", { depositId, reasonCode, refLast4: maskRef(canonicalTransactionReference) });
+
+    const rejectNote = `Verifier rejected: duplicate TeleBirr receipt transaction ID (${reasonCode}).`;
+    const { data: rejectRpcResult, error: rejectRpcError } = await admin.rpc("approve_deposit_tx", {
+      p_deposit_id: depositId,
+      p_admin_id: approverId,
+      p_action: "reject",
+      p_admin_note: rejectNote,
+    });
+
+    if (rejectRpcError) {
+      logError("reject_rpc_error", { depositId, message: rejectRpcError.message, code: rejectRpcError.code });
+      await saveForManualReview(
+        admin,
+        depositId,
+        "Verifier review: duplicate TeleBirr receipt transaction ID detected, but auto-reject failed (RPC error); requires manual review.",
+      );
+      return Response.json(
+        { action: "manual_review", deposit_id: depositId, failures: ["duplicate_reject_rpc_failed"] },
+        { status: 500 },
+      );
+    }
+
+    const rejectTxResult = rejectRpcResult as Record<string, unknown> | null;
+    if (!rejectTxResult?.success) {
+      const errorCode = (rejectTxResult?.error as string) ?? "unknown";
+      if (errorCode === "already_reviewed") {
+        return Response.json(
+          { action: "skipped", deposit_id: depositId, reason: "already_reviewed" },
+          { status: 409 },
+        );
+      }
+      await saveForManualReview(
+        admin,
+        depositId,
+        `Verifier review: duplicate TeleBirr receipt transaction ID detected, but auto-reject returned error: ${errorCode}; requires manual review.`,
+      );
+      return Response.json(
+        { action: "manual_review", deposit_id: depositId, failures: ["duplicate_reject_rpc_failed"] },
+        { status: 500 },
+      );
+    }
+
+    // Reject committed atomically (no wallet credit). Flag auto-verification.
+    await admin
+      .from("deposits")
+      .update({ auto_verified: true, verified_at: new Date().toISOString() })
+      .eq("id", depositId);
+
+    try {
+      const { error: notifError } = await admin.from("notifications").insert({
+        user_id: deposit.user_id,
+        title: "Deposit Rejected",
+        message: `Your deposit of ${deposit.amount} ETB was rejected. Please check the details and submit again.`,
+        metadata: {
+          type: "deposit_rejected",
+          deposit_id: depositId,
+          amount: deposit.amount,
+          auto_verified: true,
+        },
+      });
+      if (notifError) {
+        logError("notification_failed", { depositId, error: notifError.message });
+      }
+    } catch (notifEx) {
+      logError("notification_exception", {
+        depositId,
+        error: notifEx instanceof Error ? notifEx.message : "unknown",
+      });
+    }
+
+    return Response.json({
+      action: "rejected",
+      deposit_id: depositId,
+      reasons: [reasonCode],
+    });
+  };
+
+  // --- DUPLICATE PROTECTION (rule 3 & 4) ---
+  // The duplicate check uses the canonical EXTRACTED receipt transaction ID, not
+  // the user-submitted transaction_reference. If another deposit already used
+  // this canonical reference, auto-reject through approve_deposit_tx.
+  const { data: dupes, error: dupError } = await admin
+    .from("deposits")
+    .select("id")
+    .eq("transaction_reference", canonicalTransactionReference)
+    .neq("id", depositId)
+    .limit(1);
+
+  if (dupError) {
+    logError("duplicate_check_failed", { depositId, message: dupError.message, code: dupError.code });
+    await saveForManualReview(
+      admin,
+      depositId,
+      "Verifier review: duplicate reference check failed; requires manual review.",
+    );
+    return Response.json(
+      { action: "manual_review", deposit_id: depositId, failures: ["duplicate_check_failed"] },
+      { status: 500 },
+    );
+  }
+
+  if (dupes && dupes.length > 0) {
+    log("verifier_duplicate_detected", { depositId, refLast4: maskRef(canonicalTransactionReference) });
+    return await autoRejectDuplicate("duplicate_telebirr_receipt_transaction_id");
+  }
+
+  // --- CANONICALIZE PENDING DEPOSIT ROW BEFORE APPROVAL (rule 5) ---
+  // When the submitted transaction_reference differs from the canonical
+  // extracted reference, update the deposit row so transaction_reference holds
+  // the canonical value (and the unique index protects future duplicates).
+  // Approval only proceeds after this update succeeds. Never approve on failure.
+  if (transactionReference !== canonicalTransactionReference) {
+    const canonicalReceiptUrl = `${TELEBIRR_RECEIPT_BASE}/${canonicalTransactionReference}`;
+
+    const { error: canonicalError } = await admin
+      .from("deposits")
+      .update({
+        transaction_reference: canonicalTransactionReference,
+        receipt_url: canonicalReceiptUrl,
+      })
+      .eq("id", depositId)
+      .eq("status", "pending");
+
+    if (canonicalError) {
+      if (canonicalError.code === "23505") {
+        // The canonical reference is already used by another deposit (caught by
+        // the unique index in a race). Auto-reject as a duplicate extracted
+        // reference — never credit the wallet.
+        log("verifier_canonical_update_duplicate", { depositId, refLast4: maskRef(canonicalTransactionReference) });
+        return await autoRejectDuplicate("duplicate_extracted_reference");
+      }
+
+      // Any other canonical-update failure: hold for manual review, never approve.
+      logError("canonical_update_failed", { depositId, code: canonicalError.code });
+      await saveForManualReview(
+        admin,
+        depositId,
+        "Verifier review: canonical reference update failed; requires manual review.",
+      );
+      return Response.json(
+        { action: "manual_review", deposit_id: depositId, failures: ["canonical_reference_update_failed"] },
+        { status: 500 },
+      );
+    }
+
+    log("verifier_canonical_update_applied", { depositId, refLast4: maskRef(canonicalTransactionReference) });
+  }
+
+  const adminNote = `Auto-approved via TeleBirr receipt verifier. Amount: ${extractedAmount} ETB. TX: ${maskRef(canonicalTransactionReference)}. Receiver: ${sanitize(extractedReceiverName, 60)}.`;
 
   const { data: rpcResult, error: rpcError } = await admin.rpc("approve_deposit_tx", {
     p_deposit_id: depositId,
