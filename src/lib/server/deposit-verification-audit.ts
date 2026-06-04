@@ -48,7 +48,8 @@ export interface RecordDepositVerificationLogInput {
   deposit_id?: string | null;
   user_id?: string | null;
   payment_type?: PaymentMethodType | null;
-  event?: string | null;
+  /** Required: the database column deposit_verification_logs.event is NOT NULL. */
+  event: string;
   action?: DepositVerificationAction | null;
   reason_code?: string | null;
   reason_message_safe?: string | null;
@@ -70,10 +71,19 @@ export type RecordDepositVerificationLogResult =
 
 // Keys whose names suggest sensitive data are dropped from metadata as
 // defense-in-depth, so a careless caller cannot leak secrets via free-form keys.
-const UNSAFE_METADATA_KEY = /receipt|secret|password|token|api[_-]?key|url|raw/i;
+const UNSAFE_METADATA_KEY =
+  /receipt|secret|password|token|api[\s_-]?key|url|raw|receiver|account/i;
 
 // Guard against dumping large blobs (e.g. full receipt text) through metadata.
 const MAX_METADATA_STRING_LENGTH = 512;
+
+// Keep nested structures small and shallow so metadata stays a compact,
+// audit-friendly bag of simple values rather than an arbitrary data dump.
+const MAX_METADATA_ARRAY_LENGTH = 50;
+const MAX_METADATA_DEPTH = 4;
+
+// Sentinel returned by the sanitizer when a value is not safe to store.
+const DROP = Symbol("drop");
 
 /** Keep only the last 4 characters of a transaction reference. */
 function sanitizeTxRefLast4(value: string | null | undefined): string | null {
@@ -92,20 +102,86 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Ensure metadata is a plain object and free of obviously-sensitive keys or
- * oversized string values. Anything unexpected collapses to {}.
+ * A "safe primitive" is the only thing allowed inside metadata arrays: a short
+ * string, a finite number, a boolean, or null. Everything else is rejected.
  */
-function sanitizeMetadata(value: unknown): Record<string, unknown> {
-  if (!isPlainObject(value)) return {};
+function isSafePrimitive(value: unknown): boolean {
+  if (value === null) return true;
+  switch (typeof value) {
+    case "string":
+      return value.length <= MAX_METADATA_STRING_LENGTH;
+    case "number":
+      return Number.isFinite(value);
+    case "boolean":
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Recursively sanitise a single metadata value, returning DROP when the value
+ * is not safe to store. Allowed: short strings, finite numbers, booleans, null,
+ * small arrays of safe primitives, and plain nested objects (within a depth
+ * limit). Dropped: functions, symbols, undefined, bigints, class instances,
+ * Dates, oversized strings, non-finite numbers, and anything too deep/large.
+ */
+function sanitizeMetadataValue(value: unknown, depth: number): unknown {
+  if (value === null) return null;
+
+  switch (typeof value) {
+    case "string":
+      return value.length <= MAX_METADATA_STRING_LENGTH ? value : DROP;
+    case "number":
+      return Number.isFinite(value) ? value : DROP;
+    case "boolean":
+      return value;
+    case "object":
+      break;
+    default:
+      // functions, symbols, undefined, bigint, etc.
+      return DROP;
+  }
+
+  if (Array.isArray(value)) {
+    if (depth >= MAX_METADATA_DEPTH) return DROP;
+    if (value.length > MAX_METADATA_ARRAY_LENGTH) return DROP;
+    // Arrays may only contain safe primitives (no nested objects/arrays).
+    for (const item of value) {
+      if (!isSafePrimitive(item)) return DROP;
+    }
+    return value.slice();
+  }
+
+  // Drop Dates, class instances, and anything with a non-plain prototype.
+  if (!isPlainObject(value)) return DROP;
+  if (depth >= MAX_METADATA_DEPTH) return DROP;
+  return sanitizeMetadataObject(value, depth);
+}
+
+/** Sanitise every entry of a plain object, dropping unsafe keys and values. */
+function sanitizeMetadataObject(
+  value: Record<string, unknown>,
+  depth: number
+): Record<string, unknown> {
   const safe: Record<string, unknown> = {};
   for (const [key, val] of Object.entries(value)) {
     if (UNSAFE_METADATA_KEY.test(key)) continue;
-    if (typeof val === "string" && val.length > MAX_METADATA_STRING_LENGTH) {
-      continue;
-    }
-    safe[key] = val;
+    const cleaned = sanitizeMetadataValue(val, depth + 1);
+    if (cleaned === DROP) continue;
+    safe[key] = cleaned;
   }
   return safe;
+}
+
+/**
+ * Ensure metadata is a plain object holding only safe, simple values. Anything
+ * that is not a plain object collapses to {}; unsafe keys and values within are
+ * dropped recursively (see sanitizeMetadataValue).
+ */
+function sanitizeMetadata(value: unknown): Record<string, unknown> {
+  if (!isPlainObject(value)) return {};
+  return sanitizeMetadataObject(value, 0);
 }
 
 /**
@@ -123,7 +199,7 @@ export async function recordDepositVerificationLog(
       deposit_id: input.deposit_id ?? null,
       user_id: input.user_id ?? null,
       payment_type: input.payment_type ?? null,
-      event: input.event ?? null,
+      event: input.event,
       action: input.action ?? null,
       reason_code: input.reason_code ?? null,
       reason_message_safe: input.reason_message_safe ?? null,
