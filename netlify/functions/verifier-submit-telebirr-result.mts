@@ -1,6 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Config } from "@netlify/functions";
 import { verifyVerifierRequest } from "./lib/verifier-auth.mts";
+import {
+  recordDepositVerificationLog,
+  type DepositVerificationFreshness,
+} from "../../src/lib/server/deposit-verification-audit.js";
 
 function log(step: string, data: Record<string, unknown>) {
   console.log(JSON.stringify({ fn: "verifier-submit-telebirr-result", step, ts: new Date().toISOString(), ...data }));
@@ -33,6 +37,32 @@ function maskRef(ref: string): string {
 // Canonical TeleBirr receipt URL base. The canonical receipt URL is always
 // derived from the EXTRACTED receipt transaction ID, never the submitted one.
 const TELEBIRR_RECEIPT_BASE = "https://transactioninfo.ethiotelecom.et/receipt";
+
+// Static, sanitised messages for the audit trail, keyed by reason code. These
+// are intentionally generic and NEVER contain receiver/account names, full
+// references, receipt text, or receipt URLs — only the safe equivalent of each
+// final-outcome reason. The raw, human-readable reasons (which may embed
+// sanitised receiver names) are kept out of the audit row entirely.
+const SAFE_REASON_MESSAGES: Record<string, string> = {
+  telebirr_receipt_verified: "TeleBirr receipt verified; deposit auto-approved.",
+  receiver_mismatch: "Receiver name did not match the expected account.",
+  unreadable_receipt: "Receipt unreadable: no amount, receiver, or date extracted.",
+  amount_invalid_or_missing: "Receipt amount was invalid or missing.",
+  payment_date_missing: "Payment date was missing from the receipt.",
+  payment_date_unparseable: "Payment date could not be parsed.",
+  payment_date_too_old: "Payment date was too old.",
+  payment_date_future: "Payment date was in the future.",
+  telebirr_transaction_id_missing: "TeleBirr receipt transaction ID was missing.",
+  duplicate_telebirr_receipt_transaction_id: "Duplicate TeleBirr receipt transaction ID.",
+  duplicate_extracted_reference: "Duplicate extracted TeleBirr reference.",
+  duplicate_check_failed: "Duplicate reference check could not be completed.",
+  canonical_reference_update_failed: "Canonical reference update could not be confirmed.",
+  duplicate_reject_rpc_failed: "Duplicate auto-reject could not be completed.",
+  rejection_rpc_failed: "Auto-reject could not be completed.",
+  approval_rpc_failed: "Auto-approval could not be completed.",
+  verifier_fetch_failed: "Receipt fetch failed.",
+  no_admin_available: "No admin account available to action the decision.",
+};
 
 interface SubmitBody {
   deposit_id?: unknown;
@@ -181,12 +211,82 @@ export default async (req: Request) => {
     return Response.json({ error: "not_telebirr", message: "Deposit is not a TeleBirr payment." }, { status: 400 });
   }
 
+  // --- Audit setup (non-blocking) ---
+  // Safe, masked values reused by every final-outcome audit row. The extracted
+  // amount is only recorded when it is a usable positive number; references are
+  // reduced to their last 4 characters HERE, so the full reference is never
+  // passed to the audit helper.
+  const safeAmount = !isNaN(extractedAmount) && extractedAmount > 0 ? extractedAmount : null;
+  const refForLast4 = canonicalTransactionReference || transactionReference;
+  const refLast4ForAudit = refForLast4 ? refForLast4.slice(-4) : null;
+  const submittedReferenceMismatch = canonicalTransactionReference
+    ? transactionReference !== canonicalTransactionReference
+    : null;
+
+  // Verification signals captured during the decision logic below and read at
+  // call-time by recordOutcome (the closure binds the variables, not their
+  // values, so later assignments are visible to it).
+  let receiverMatched: boolean | null = null;
+  let freshnessDecision: DepositVerificationFreshness | null = null;
+  let ageMinutes: number | null = null;
+
+  // Write a single audit row for the authoritative final outcome. This NEVER
+  // blocks or alters approval/rejection/manual-review: the helper is already
+  // non-throwing, and the call is additionally wrapped in try/catch. Only safe
+  // fields are passed — last-4 references, the extracted amount, booleans /
+  // enums / counts — never full references, receipt URLs, receipt text, raw
+  // receiver/account names, or secrets.
+  const recordOutcome = async (outcome: {
+    event:
+      | "telebirr_auto_approved"
+      | "telebirr_auto_rejected"
+      | "telebirr_manual_review";
+    action: "approve" | "reject" | "manual_review";
+    reasonCode: string;
+    metadata?: Record<string, unknown>;
+  }) => {
+    try {
+      await recordDepositVerificationLog({
+        deposit_id: depositId,
+        user_id: deposit.user_id,
+        payment_type: "telebirr",
+        event: outcome.event,
+        action: outcome.action,
+        reason_code: outcome.reasonCode,
+        reason_message_safe: SAFE_REASON_MESSAGES[outcome.reasonCode] ?? null,
+        amount: safeAmount,
+        tx_ref_last4: refLast4ForAudit,
+        receiver_matched: receiverMatched,
+        freshness_decision: freshnessDecision,
+        age_minutes: ageMinutes,
+        actor_type: "verifier",
+        source: "telebirr_verifier",
+        metadata: {
+          receipt_fetch_status: receiptFetchStatus,
+          submitted_reference_mismatch: submittedReferenceMismatch,
+          ...outcome.metadata,
+        },
+      });
+    } catch (auditErr) {
+      logError("audit_log_exception", {
+        depositId,
+        error: auditErr instanceof Error ? auditErr.message : "unknown",
+      });
+    }
+  };
+
   // --- Decision logic ---
   const rejectReasons: string[] = [];
   const manualReviewReasons: string[] = [];
+  // Machine-readable reason codes mirroring the human-readable reasons above,
+  // used only for the audit trail. Receiver-mismatch and unreadable-receipt are
+  // mutually exclusive branches, so a single reject reason code is sufficient.
+  const manualReviewReasonCodes: string[] = [];
+  let rejectReasonCode: string | null = null;
 
   if (receiptFetchStatus === "fetch_failed") {
     manualReviewReasons.push("Receipt fetch failed");
+    manualReviewReasonCodes.push("verifier_fetch_failed");
   } else {
     const hasAmount = !isNaN(extractedAmount) && extractedAmount > 0;
     const hasReceiver = extractedReceiverName !== "";
@@ -194,29 +294,47 @@ export default async (req: Request) => {
 
     if (!hasAmount && !hasReceiver && !hasDate) {
       rejectReasons.push("Unreadable receipt: no amount, receiver, or date could be extracted");
+      rejectReasonCode = "unreadable_receipt";
     } else {
-      if (hasReceiver && normalizeName(extractedReceiverName) !== normalizeName(method.account_name)) {
-        rejectReasons.push(
-          `Receiver name mismatch (expected: ${sanitize(method.account_name, 60)}, got: ${sanitize(extractedReceiverName, 60)})`,
-        );
+      if (hasReceiver) {
+        receiverMatched =
+          normalizeName(extractedReceiverName) === normalizeName(method.account_name);
+        if (!receiverMatched) {
+          rejectReasons.push(
+            `Receiver name mismatch (expected: ${sanitize(method.account_name, 60)}, got: ${sanitize(extractedReceiverName, 60)})`,
+          );
+          rejectReasonCode = "receiver_mismatch";
+        }
       }
 
       if (!hasAmount) {
         manualReviewReasons.push(`Invalid or missing amount: ${sanitize(String(body.extracted_amount ?? ""), 40)}`);
+        manualReviewReasonCodes.push("amount_invalid_or_missing");
       }
 
       if (!hasDate) {
         manualReviewReasons.push("Payment date missing from receipt");
+        manualReviewReasonCodes.push("payment_date_missing");
+        freshnessDecision = "missing";
       } else {
         const paymentDateParsed = parseEthiopiaPaymentDate(extractedPaymentDate);
         if (!paymentDateParsed) {
           manualReviewReasons.push(`Payment date invalid format: ${sanitize(extractedPaymentDate, 40)}`);
+          manualReviewReasonCodes.push("payment_date_unparseable");
+          freshnessDecision = "unparseable";
         } else {
           const ageMs = Date.now() - paymentDateParsed.getTime();
+          ageMinutes = Math.round(ageMs / 60000);
           if (ageMs > 60 * 60 * 1000) {
             manualReviewReasons.push(`Payment date too old: ${sanitize(extractedPaymentDate, 40)} (${Math.round(ageMs / 60000)} min ago)`);
+            manualReviewReasonCodes.push("payment_date_too_old");
+            freshnessDecision = "too_old";
           } else if (ageMs < -5 * 60 * 1000) {
             manualReviewReasons.push(`Payment date is in the future: ${sanitize(extractedPaymentDate, 40)}`);
+            manualReviewReasonCodes.push("payment_date_future");
+            freshnessDecision = "future";
+          } else {
+            freshnessDecision = "fresh";
           }
         }
       }
@@ -240,6 +358,12 @@ export default async (req: Request) => {
       logError("no_admin_found", { depositId });
       const reason = `Verifier review: Auto-reject attempted but no admin available. Reasons: ${rejectReasons.join("; ")}`;
       await saveForManualReview(admin, depositId, reason);
+      await recordOutcome({
+        event: "telebirr_manual_review",
+        action: "manual_review",
+        reasonCode: "no_admin_available",
+        metadata: { decision_path: "auto_reject_no_admin", reject_reason_code: rejectReasonCode },
+      });
       return Response.json(
         { action: "manual_review", deposit_id: depositId, failures: ["no_admin_available", ...rejectReasons] },
         { status: 500 },
@@ -261,6 +385,12 @@ export default async (req: Request) => {
         depositId,
         `Verifier review: Auto-reject failed (RPC error). Reasons: ${rejectReasons.join("; ")}`,
       );
+      await recordOutcome({
+        event: "telebirr_manual_review",
+        action: "manual_review",
+        reasonCode: "rejection_rpc_failed",
+        metadata: { decision_path: "auto_reject_rpc_error", reject_reason_code: rejectReasonCode },
+      });
       return Response.json(
         { action: "manual_review", deposit_id: depositId, failures: ["rpc_failed", ...rejectReasons] },
         { status: 500 },
@@ -281,6 +411,16 @@ export default async (req: Request) => {
         depositId,
         `Verifier review: Auto-reject RPC error: ${errorCode}. Reasons: ${rejectReasons.join("; ")}`,
       );
+      await recordOutcome({
+        event: "telebirr_manual_review",
+        action: "manual_review",
+        reasonCode: "rejection_rpc_failed",
+        metadata: {
+          decision_path: "auto_reject_rpc_business_error",
+          reject_reason_code: rejectReasonCode,
+          rpc_error_code: errorCode,
+        },
+      });
       return Response.json(
         { action: "manual_review", deposit_id: depositId, failures: [errorCode, ...rejectReasons] },
         { status: 500 },
@@ -310,6 +450,13 @@ export default async (req: Request) => {
       });
     }
 
+    await recordOutcome({
+      event: "telebirr_auto_rejected",
+      action: "reject",
+      reasonCode: rejectReasonCode ?? "receiver_mismatch",
+      metadata: { decision_path: "auto_rejected" },
+    });
+
     return Response.json({
       action: "rejected",
       deposit_id: depositId,
@@ -326,6 +473,12 @@ export default async (req: Request) => {
     const reason = "Verifier review: TeleBirr receipt transaction ID missing; requires manual review.";
     log("verifier_manual_review", { depositId, reasonCode: "telebirr_transaction_id_missing" });
     await saveForManualReview(admin, depositId, reason);
+    await recordOutcome({
+      event: "telebirr_manual_review",
+      action: "manual_review",
+      reasonCode: "telebirr_transaction_id_missing",
+      metadata: { decision_path: "transaction_id_missing" },
+    });
     return Response.json({
       action: "manual_review",
       deposit_id: depositId,
@@ -338,6 +491,15 @@ export default async (req: Request) => {
     const reason = `Verifier review: ${manualReviewReasons.join("; ")}.${verifierNote ? ` Note: ${sanitize(verifierNote, 100)}` : ""}`;
     log("verifier_manual_review", { depositId, manualReviewReasons });
     await saveForManualReview(admin, depositId, reason);
+    await recordOutcome({
+      event: "telebirr_manual_review",
+      action: "manual_review",
+      reasonCode: manualReviewReasonCodes[0] ?? "manual_review",
+      metadata: {
+        decision_path: "manual_review",
+        reasons_count: manualReviewReasonCodes.length,
+      },
+    });
     return Response.json({
       action: "manual_review",
       deposit_id: depositId,
@@ -355,6 +517,12 @@ export default async (req: Request) => {
       depositId,
       `Verifier review: Validation passed (${extractedAmount} ETB) but no admin account available for auto-approval.`,
     );
+    await recordOutcome({
+      event: "telebirr_manual_review",
+      action: "manual_review",
+      reasonCode: "no_admin_available",
+      metadata: { decision_path: "approve_no_admin" },
+    });
     return Response.json(
       { action: "manual_review", deposit_id: depositId, failures: ["no_admin_available"] },
       { status: 500 },
@@ -388,6 +556,12 @@ export default async (req: Request) => {
         depositId,
         "Verifier review: duplicate TeleBirr receipt transaction ID detected, but auto-reject failed (RPC error); requires manual review.",
       );
+      await recordOutcome({
+        event: "telebirr_manual_review",
+        action: "manual_review",
+        reasonCode: "duplicate_reject_rpc_failed",
+        metadata: { decision_path: "duplicate_reject_rpc_error", original_reason_code: reasonCode },
+      });
       return Response.json(
         { action: "manual_review", deposit_id: depositId, failures: ["duplicate_reject_rpc_failed"] },
         { status: 500 },
@@ -408,6 +582,16 @@ export default async (req: Request) => {
         depositId,
         `Verifier review: duplicate TeleBirr receipt transaction ID detected, but auto-reject returned error: ${errorCode}; requires manual review.`,
       );
+      await recordOutcome({
+        event: "telebirr_manual_review",
+        action: "manual_review",
+        reasonCode: "duplicate_reject_rpc_failed",
+        metadata: {
+          decision_path: "duplicate_reject_rpc_business_error",
+          original_reason_code: reasonCode,
+          rpc_error_code: errorCode,
+        },
+      });
       return Response.json(
         { action: "manual_review", deposit_id: depositId, failures: ["duplicate_reject_rpc_failed"] },
         { status: 500 },
@@ -442,6 +626,13 @@ export default async (req: Request) => {
       });
     }
 
+    await recordOutcome({
+      event: "telebirr_auto_rejected",
+      action: "reject",
+      reasonCode,
+      metadata: { decision_path: "duplicate_auto_rejected" },
+    });
+
     return Response.json({
       action: "rejected",
       deposit_id: depositId,
@@ -467,6 +658,12 @@ export default async (req: Request) => {
       depositId,
       "Verifier review: duplicate reference check failed; requires manual review.",
     );
+    await recordOutcome({
+      event: "telebirr_manual_review",
+      action: "manual_review",
+      reasonCode: "duplicate_check_failed",
+      metadata: { decision_path: "duplicate_check_failed" },
+    });
     return Response.json(
       { action: "manual_review", deposit_id: depositId, failures: ["duplicate_check_failed"] },
       { status: 500 },
@@ -517,6 +714,12 @@ export default async (req: Request) => {
         depositId,
         "Verifier review: canonical reference update failed; requires manual review.",
       );
+      await recordOutcome({
+        event: "telebirr_manual_review",
+        action: "manual_review",
+        reasonCode: "canonical_reference_update_failed",
+        metadata: { decision_path: "canonical_update_failed" },
+      });
       return Response.json(
         { action: "manual_review", deposit_id: depositId, failures: ["canonical_reference_update_failed"] },
         { status: 500 },
@@ -532,6 +735,12 @@ export default async (req: Request) => {
         depositId,
         "Verifier review: canonical reference update failed; requires manual review.",
       );
+      await recordOutcome({
+        event: "telebirr_manual_review",
+        action: "manual_review",
+        reasonCode: "canonical_reference_update_failed",
+        metadata: { decision_path: "canonical_update_no_row" },
+      });
       return Response.json(
         { action: "manual_review", deposit_id: depositId, failures: ["canonical_reference_update_failed"] },
         { status: 500 },
@@ -558,6 +767,12 @@ export default async (req: Request) => {
       depositId,
       `Verifier review: Validation passed (${extractedAmount} ETB) but RPC approval failed. Requires manual approval.`,
     );
+    await recordOutcome({
+      event: "telebirr_manual_review",
+      action: "manual_review",
+      reasonCode: "approval_rpc_failed",
+      metadata: { decision_path: "approve_rpc_error" },
+    });
     return Response.json(
       { action: "manual_review", deposit_id: depositId, failures: ["rpc_failed"] },
       { status: 500 },
@@ -582,6 +797,12 @@ export default async (req: Request) => {
       depositId,
       `Verifier review: Validation passed (${extractedAmount} ETB) but approval RPC returned error: ${errorCode}. Requires manual review.`,
     );
+    await recordOutcome({
+      event: "telebirr_manual_review",
+      action: "manual_review",
+      reasonCode: "approval_rpc_failed",
+      metadata: { decision_path: "approve_rpc_business_error", rpc_error_code: errorCode },
+    });
     return Response.json(
       { action: "manual_review", deposit_id: depositId, failures: [errorCode] },
       { status: 500 },
@@ -623,6 +844,13 @@ export default async (req: Request) => {
       error: notifEx instanceof Error ? notifEx.message : "unknown",
     });
   }
+
+  await recordOutcome({
+    event: "telebirr_auto_approved",
+    action: "approve",
+    reasonCode: "telebirr_receipt_verified",
+    metadata: { decision_path: "auto_approved" },
+  });
 
   return Response.json({
     action: "approved",
