@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getAdminClient } from "./supabase-admin.js";
-import type { DepositStatus } from "../database.types.js";
+import type { Database, DepositStatus } from "../database.types.js";
 import { throwSafe } from "../errors.js";
 import { verifyCBEDeposit } from "./cbe-verify.js";
 import {
@@ -32,6 +32,8 @@ function log(event: string, data: Record<string, unknown>) {
 function cbeRejectReasonCode(adminNote: string | null): string {
   const note = adminNote ?? "";
   if (note.includes("invalid CBE receipt link")) return "invalid_cbe_link";
+  if (note.includes("duplicate CBE receipt transaction reference"))
+    return "duplicate_extracted_reference";
   if (note.includes("receiver name mismatch")) return "receiver_mismatch";
   if (note.includes("unreadable CBE receipt")) return "unreadable_receipt";
   return "auto_reject";
@@ -51,6 +53,8 @@ function cbeRejectReasonCode(adminNote: string | null): string {
 // Map a CBE manual-review (hold) admin note to a low-cardinality reason code.
 function cbeManualReviewReasonCode(note: string | null): string {
   const n = note ?? "";
+  if (n.includes("transaction reference missing"))
+    return "cbe_transaction_id_missing";
   if (n.includes("duplicate transaction reference")) return "duplicate_reference";
   if (n.includes("payment date missing")) return "payment_date_missing";
   if (n.includes("payment date unparseable")) return "payment_date_unparseable";
@@ -69,6 +73,10 @@ function cbeManualReviewReasonCode(note: string | null): string {
 // Static, PII-free message for a CBE manual-review reason code.
 function safeManualReviewMessage(reasonCode: string): string {
   switch (reasonCode) {
+    case "cbe_transaction_id_missing":
+      return "Held for review: CBE receipt transaction reference missing.";
+    case "canonical_reference_update_failed":
+      return "Held for review: CBE canonical reference update failed.";
     case "duplicate_reference":
       return "Held for review: duplicate CBE transaction reference.";
     case "payment_date_missing":
@@ -103,6 +111,8 @@ function safeRejectMessage(reasonCode: string): string {
   switch (reasonCode) {
     case "invalid_cbe_link":
       return "Auto-rejected: invalid CBE receipt link or transaction reference.";
+    case "duplicate_extracted_reference":
+      return "Auto-rejected: duplicate CBE receipt transaction reference.";
     case "receiver_mismatch":
       return "Auto-rejected: CBE receipt receiver name did not match.";
     case "unreadable_receipt":
@@ -338,6 +348,13 @@ export const submitDepositFn = createServerFn({ method: "POST" })
           paymentMethodId: data.paymentMethodId,
           admin,
         });
+
+        // Audit must mask the canonical (extracted) reference when one exists,
+        // so tx_ref_last4 reflects the receipt's real reference, not the
+        // potentially-mutated submitted one.
+        if (result.canonicalReference) {
+          auditBase.tx_ref_last4 = result.canonicalReference;
+        }
 
         if (result.action === "reject") {
           // Definitive auto-reject (e.g. readable CBE invalid-link response).
@@ -594,6 +611,129 @@ export const submitDepositFn = createServerFn({ method: "POST" })
               metadata: { decision_path: "approve_no_admin" },
             };
           } else {
+            // Canonicalize the pending deposit row before approval so that
+            // deposits.transaction_reference holds the EXTRACTED CBE receipt
+            // reference and the unique index protects against future duplicates.
+            // Only needed when the submitted reference differs from the
+            // extracted canonical reference (otherwise the row is already
+            // canonical). On any failure we never approve and never write the
+            // wallet directly.
+            let approveBlocked = false;
+
+            if (result.submittedReferenceMismatch && result.canonicalReference) {
+              const canonicalReceiptUrl = generateReceiptUrl(
+                "cbe",
+                result.canonicalReference,
+                method.account_last_8 ?? null
+              );
+
+              // transaction_reference exists on the deposits row but is absent
+              // from the generated Update stub type, so the canonical payload is
+              // built and cast at this boundary only. The column is still sent
+              // at runtime; the cast just satisfies the incomplete stub.
+              const canonicalUpdate = {
+                transaction_reference: result.canonicalReference,
+                receipt_url: canonicalReceiptUrl,
+              } as Database["public"]["Tables"]["deposits"]["Update"];
+
+              const { error: canonicalError } = await admin
+                .from("deposits")
+                .update(canonicalUpdate)
+                .eq("id", deposit.id)
+                .eq("status", "pending");
+
+              if (canonicalError) {
+                approveBlocked = true;
+
+                if (canonicalError.code === "23505") {
+                  // The extracted canonical reference is already used by another
+                  // deposit (caught by the unique index). Auto-reject as a
+                  // duplicate extracted reference through the hardened RPC —
+                  // never credit the wallet.
+                  const { data: rejectRpcResult, error: rejectRpcError } =
+                    await admin.rpc("approve_deposit_tx", {
+                      p_deposit_id: deposit.id,
+                      p_admin_id: adminUser.id,
+                      p_action: "reject",
+                      p_admin_note:
+                        "Auto-rejected: duplicate CBE receipt transaction reference.",
+                    });
+                  const rejectTx =
+                    rejectRpcResult as Record<string, unknown> | null;
+
+                  if (!rejectRpcError && rejectTx?.success) {
+                    await admin
+                      .from("deposits")
+                      .update({
+                        auto_verified: true,
+                        verified_at: new Date().toISOString(),
+                      })
+                      .eq("id", deposit.id);
+                  }
+
+                  log("cbe_canonical_update_duplicate", {
+                    depositId: deposit.id,
+                  });
+
+                  auditInput = {
+                    ...auditBase,
+                    event: "cbe_auto_rejected",
+                    action: "reject",
+                    reason_code: "duplicate_extracted_reference",
+                    reason_message_safe: safeRejectMessage(
+                      "duplicate_extracted_reference"
+                    ),
+                    amount: safeReceiptAmount(
+                      result.amount,
+                      result.receiptData?.amount
+                    ),
+                    receiver_matched: true,
+                    metadata: {
+                      decision_path: "canonical_update_duplicate",
+                      submitted_reference_mismatch: true,
+                    },
+                  };
+                } else {
+                  // Non-duplicate update failure — hold for manual review.
+                  await admin
+                    .from("deposits")
+                    .update({
+                      auto_verified: false,
+                      admin_note:
+                        "CBE auto-verification passed but canonical reference update failed. Requires manual review.",
+                    })
+                    .eq("id", deposit.id)
+                    .eq("status", "pending");
+
+                  log("cbe_canonical_update_failed", {
+                    depositId: deposit.id,
+                    errorCode: canonicalError.code,
+                  });
+
+                  auditInput = {
+                    ...auditBase,
+                    event: "cbe_manual_review",
+                    action: "manual_review",
+                    reason_code: "canonical_reference_update_failed",
+                    reason_message_safe: safeManualReviewMessage(
+                      "canonical_reference_update_failed"
+                    ),
+                    amount: safeReceiptAmount(
+                      result.amount,
+                      result.receiptData?.amount
+                    ),
+                    receiver_matched: true,
+                    freshness_decision: "fresh",
+                    metadata: {
+                      decision_path: "canonical_update_failed",
+                      submitted_reference_mismatch: true,
+                    },
+                  };
+                }
+              }
+            }
+
+            if (!approveBlocked) {
             const { data: rpcResult, error: rpcError } = await admin.rpc(
               "approve_deposit_tx",
               {
@@ -687,7 +827,11 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                 amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
                 receiver_matched: true,
                 freshness_decision: "fresh",
-                metadata: { decision_path: "auto_approved" },
+                metadata: {
+                  decision_path: "auto_approved",
+                  submitted_reference_mismatch:
+                    result.submittedReferenceMismatch === true,
+                },
               };
 
               // Notification must not block approval.
@@ -717,6 +861,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                   error: notifEx instanceof Error ? notifEx.message : "unknown",
                 });
               }
+            }
             }
           }
         }
