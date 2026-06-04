@@ -1126,12 +1126,30 @@ export async function verifyCBEDeposit(params: {
   }
 
   // --- Duplicate check uses the EXTRACTED canonical reference ---
-  const { data: dupes } = await admin
+  const { data: dupes, error: dupeError } = await admin
     .from("deposits")
     .select("id")
     .eq("transaction_reference", extractedReference)
     .neq("id", depositId)
     .limit(1);
+
+  // A failed duplicate query must never silently fall through to auto-approval:
+  // we cannot prove the reference is unique, so hold for manual review (no
+  // wallet credit). Log a safe event only — no full references, receipt URL, or
+  // receipt text. The caller maps this note to reason_code duplicate_check_failed
+  // and event cbe_manual_review.
+  if (dupeError) {
+    log("cbe_duplicate_check_failed", {
+      depositId,
+      txRefLast4: maskTxRef(extractedReference),
+    });
+    return fail(
+      "Held for review: CBE duplicate reference check failed.",
+      canonicalReceiptUrl,
+      receiptData,
+      { canonicalReference: extractedReference, submittedReferenceMismatch }
+    );
+  }
 
   if (dupes && dupes.length > 0) {
     log("duplicate_checked", {

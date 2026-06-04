@@ -55,6 +55,8 @@ function cbeManualReviewReasonCode(note: string | null): string {
   const n = note ?? "";
   if (n.includes("transaction reference missing"))
     return "cbe_transaction_id_missing";
+  if (n.includes("duplicate reference check failed"))
+    return "duplicate_check_failed";
   if (n.includes("duplicate transaction reference")) return "duplicate_reference";
   if (n.includes("payment date missing")) return "payment_date_missing";
   if (n.includes("payment date unparseable")) return "payment_date_unparseable";
@@ -77,6 +79,10 @@ function safeManualReviewMessage(reasonCode: string): string {
       return "Held for review: CBE receipt transaction reference missing.";
     case "canonical_reference_update_failed":
       return "Held for review: CBE canonical reference update failed.";
+    case "duplicate_check_failed":
+      return "Held for review: CBE duplicate reference check failed.";
+    case "duplicate_reject_rpc_failed":
+      return "Duplicate CBE receipt reference detected, but auto-reject failed; held for manual review.";
     case "duplicate_reference":
       return "Held for review: duplicate CBE transaction reference.";
     case "payment_date_missing":
@@ -662,6 +668,8 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                     rejectRpcResult as Record<string, unknown> | null;
 
                   if (!rejectRpcError && rejectTx?.success) {
+                    // Reject committed atomically (no wallet credit). Flag
+                    // auto-verification and audit as a definitive auto-reject.
                     await admin
                       .from("deposits")
                       .update({
@@ -669,30 +677,74 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                         verified_at: new Date().toISOString(),
                       })
                       .eq("id", deposit.id);
+
+                    log("cbe_canonical_update_duplicate", {
+                      depositId: deposit.id,
+                    });
+
+                    auditInput = {
+                      ...auditBase,
+                      event: "cbe_auto_rejected",
+                      action: "reject",
+                      reason_code: "duplicate_extracted_reference",
+                      reason_message_safe: safeRejectMessage(
+                        "duplicate_extracted_reference"
+                      ),
+                      amount: safeReceiptAmount(
+                        result.amount,
+                        result.receiptData?.amount
+                      ),
+                      receiver_matched: true,
+                      metadata: {
+                        decision_path: "canonical_update_duplicate",
+                        submitted_reference_mismatch: true,
+                      },
+                    };
+                  } else {
+                    // The duplicate was detected, but the auto-reject RPC failed
+                    // or returned success:false. We must NOT audit this as a
+                    // rejection — the deposit was never actually rejected. Hold
+                    // it pending for manual review instead, and never credit the
+                    // wallet. approve_deposit_tx remains the only approve/reject
+                    // path; we simply leave the row pending here.
+                    const rpcErrorCode = rejectRpcError
+                      ? "rpc_failed"
+                      : (rejectTx?.error as string) ?? "unknown";
+
+                    await admin
+                      .from("deposits")
+                      .update({
+                        auto_verified: false,
+                        admin_note:
+                          "Duplicate CBE receipt reference detected, but auto-reject failed; held for manual review.",
+                      })
+                      .eq("id", deposit.id)
+                      .eq("status", "pending");
+
+                    log("cbe_canonical_update_duplicate_reject_failed", {
+                      depositId: deposit.id,
+                      errorCode: rpcErrorCode,
+                    });
+
+                    auditInput = {
+                      ...auditBase,
+                      event: "cbe_manual_review",
+                      action: "manual_review",
+                      reason_code: "duplicate_reject_rpc_failed",
+                      reason_message_safe: safeManualReviewMessage(
+                        "duplicate_reject_rpc_failed"
+                      ),
+                      amount: safeReceiptAmount(
+                        result.amount,
+                        result.receiptData?.amount
+                      ),
+                      receiver_matched: true,
+                      metadata: {
+                        decision_path: "canonical_update_duplicate_reject_failed",
+                        rpc_error_code: rpcErrorCode,
+                      },
+                    };
                   }
-
-                  log("cbe_canonical_update_duplicate", {
-                    depositId: deposit.id,
-                  });
-
-                  auditInput = {
-                    ...auditBase,
-                    event: "cbe_auto_rejected",
-                    action: "reject",
-                    reason_code: "duplicate_extracted_reference",
-                    reason_message_safe: safeRejectMessage(
-                      "duplicate_extracted_reference"
-                    ),
-                    amount: safeReceiptAmount(
-                      result.amount,
-                      result.receiptData?.amount
-                    ),
-                    receiver_matched: true,
-                    metadata: {
-                      decision_path: "canonical_update_duplicate",
-                      submitted_reference_mismatch: true,
-                    },
-                  };
                 } else {
                   // Non-duplicate update failure — hold for manual review.
                   await admin
