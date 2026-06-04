@@ -183,6 +183,14 @@ function maskReceiptUrl(url: string | null): string | null {
   }
 }
 
+// Mask a submitted transaction reference for log output: keep only the last 4
+// characters so the full reference is never written to production logs. Returns
+// a null/empty-safe value for missing input.
+function maskTransactionReference(ref: string | null | undefined): string | null {
+  if (!ref) return null;
+  return "****" + ref.slice(-4);
+}
+
 function generateReceiptUrl(
   type: string,
   txRef: string,
@@ -232,7 +240,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
     log("deposit_submit_started", {
       userId: data.userId,
       paymentMethodId: data.paymentMethodId,
-      transactionReference: data.transactionReference,
+      transactionReferenceLast4: maskTransactionReference(data.transactionReference),
       amount: data.amount,
     });
 
@@ -256,9 +264,9 @@ export const submitDepositFn = createServerFn({ method: "POST" })
     }
 
     if (method.type === "cbe" && !data.transactionReference.startsWith("FT"))
-      throwSafe("DEPOSIT", 'Please enter a valid CBE transaction ID starting with "FT".', "Invalid CBE tx ref: " + data.transactionReference);
+      throwSafe("DEPOSIT", 'Please enter a valid CBE transaction ID starting with "FT".', "Invalid CBE tx ref last4: " + maskTransactionReference(data.transactionReference));
     if (method.type === "telebirr" && !data.transactionReference.startsWith("D"))
-      throwSafe("DEPOSIT", 'Please enter a valid TeleBirr transaction ID starting with "D".', "Invalid TeleBirr tx ref: " + data.transactionReference);
+      throwSafe("DEPOSIT", 'Please enter a valid TeleBirr transaction ID starting with "D".', "Invalid TeleBirr tx ref last4: " + maskTransactionReference(data.transactionReference));
 
     const { data: existing } = await admin
       .from("deposits")
@@ -270,7 +278,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
       throwSafe(
         "DEPOSIT",
         "This transaction ID has already been used. Please enter a unique transaction ID.",
-        "Duplicate tx ref: " + data.transactionReference,
+        "Duplicate tx ref last4: " + maskTransactionReference(data.transactionReference),
       );
 
     const receiptUrl = generateReceiptUrl(
@@ -319,7 +327,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
 
       log("telebirr_manual_pending", {
         depositId: deposit.id,
-        transactionReference: data.transactionReference,
+        transactionReferenceLast4: maskTransactionReference(data.transactionReference),
         receiptHost: maskReceiptUrl(receiptUrl),
       });
 
