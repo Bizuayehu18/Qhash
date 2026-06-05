@@ -1,7 +1,37 @@
 import { createServerFn } from "@tanstack/react-start";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAdminClient } from "./supabase-admin.js";
-import type { PaymentMethodType } from "../database.types.js";
+import type { Database, PaymentMethodType } from "../database.types.js";
 import { throwSafe } from "../errors.js";
+
+// The committed database.types.ts stub has not yet been regenerated to include
+// the payment_methods.is_archived column (added by a merged migration and
+// already live in production). Augment the typed client locally for the queries
+// that read/write it so the rest of the strongly-typed client stays intact
+// without editing the generated stub.
+type PmTable = Database["public"]["Tables"]["payment_methods"];
+type ArchiveAwareDatabase = Omit<Database, "public"> & {
+  public: Omit<Database["public"], "Tables"> & {
+    Tables: Omit<Database["public"]["Tables"], "payment_methods"> & {
+      payment_methods: {
+        Row: PmTable["Row"] & { is_archived: boolean };
+        Insert: PmTable["Insert"] & { is_archived?: boolean };
+        Update: PmTable["Update"] & { is_archived?: boolean };
+        Relationships: PmTable["Relationships"];
+      };
+    };
+  };
+};
+
+// A payment_methods row including the is_archived flag returned by all listing
+// and mutation server functions in this module.
+export type PaymentMethodRow = PmTable["Row"] & { is_archived: boolean };
+
+type ArchiveFilter = "visible" | "archived" | "all";
+
+function getArchiveAwareClient(): SupabaseClient<ArchiveAwareDatabase> {
+  return getAdminClient() as unknown as SupabaseClient<ArchiveAwareDatabase>;
+}
 
 // Verify a session access token belongs to an active (non-frozen) admin.
 // Used for privileged payment-method operations (activeOnly:false listing and
@@ -42,31 +72,42 @@ function deriveAccountLast8(type: PaymentMethodType, accountNumber: string): str
 export const getPaymentMethodsFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => {
     if (!data || typeof data !== "object") throwSafe("PAYMENT", "Failed to load payment methods.", "Invalid request data");
-    const { activeOnly, accessToken } = data as Record<string, unknown>;
+    const { activeOnly, accessToken, archiveFilter } = data as Record<string, unknown>;
     const activeOnlyResolved = activeOnly !== false;
     if (!activeOnlyResolved && (typeof accessToken !== "string" || !accessToken))
       throwSafe("PAYMENT", "Unauthorized.", "Missing access token for non-active listing");
+    // Admin-only archive view. Default to "visible" so the admin list hides
+    // archived methods unless explicitly requested. Ignored on the public path.
+    const archiveFilterResolved: ArchiveFilter =
+      archiveFilter === "archived" || archiveFilter === "all" ? archiveFilter : "visible";
     return {
       activeOnly: activeOnlyResolved,
       accessToken: typeof accessToken === "string" ? accessToken : undefined,
+      archiveFilter: archiveFilterResolved,
     };
   })
   .handler(async ({ data }) => {
     if (!data.activeOnly) {
       await assertAdminToken(data.accessToken as string);
     }
-    const admin = getAdminClient();
+    const admin = getArchiveAwareClient();
     let query = admin
       .from("payment_methods")
       .select("*")
       .order("type")
       .order("created_at", { ascending: false });
     if (data.activeOnly) {
-      query = query.eq("is_active", true);
+      // Public path: only active, non-archived methods are ever exposed.
+      query = query.eq("is_active", true).eq("is_archived", false);
+    } else if (data.archiveFilter === "visible") {
+      query = query.eq("is_archived", false);
+    } else if (data.archiveFilter === "archived") {
+      query = query.eq("is_archived", true);
     }
+    // archiveFilter "all" applies no is_archived filter.
     const { data: rows, error } = await query;
     if (error) throwSafe("PAYMENT", "Failed to load payment methods.", `DB error: ${error.message}`);
-    return rows ?? [];
+    return (rows ?? []) as PaymentMethodRow[];
   });
 
 export const createPaymentMethodFn = createServerFn({ method: "POST" })
@@ -173,6 +214,40 @@ export const updatePaymentMethodFn = createServerFn({ method: "POST" })
       update.account_number = data.accountNumber;
     if (data.isActive !== undefined) update.is_active = data.isActive;
     if (data.instructions !== undefined) update.instructions = data.instructions;
+    const { data: row, error } = await admin
+      .from("payment_methods")
+      .update(update)
+      .eq("id", data.methodId)
+      .select()
+      .single();
+    if (error) throwSafe("PAYMENT", "Failed to update payment method.", `DB error: ${error.message}`);
+    return row;
+  });
+
+// Soft archive / unarchive a payment method. Archiving hides it from the default
+// admin list and the public deposit page without deleting any historical deposit
+// references; there is intentionally no hard delete.
+export const archivePaymentMethodFn = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => {
+    if (!data || typeof data !== "object") throwSafe("PAYMENT", "Failed to update payment method.", "Invalid request data");
+    const { accessToken, methodId, archived } = data as Record<string, unknown>;
+    if (typeof accessToken !== "string" || !accessToken)
+      throwSafe("PAYMENT", "Unauthorized.", "Missing access token for archive payment method");
+    if (typeof methodId !== "string" || !methodId)
+      throwSafe("PAYMENT", "Failed to update payment method.", "Missing method ID");
+    if (typeof archived !== "boolean")
+      throwSafe("PAYMENT", "Failed to update payment method.", "Missing archived flag");
+    return { accessToken, methodId, archived };
+  })
+  .handler(async ({ data }) => {
+    await assertAdminToken(data.accessToken);
+    const admin = getArchiveAwareClient();
+    // Archiving forces the method inactive so an archived account can never
+    // remain a live deposit target. Unarchiving only restores visibility and
+    // deliberately does NOT auto-enable the method — an admin must re-enable it.
+    const update: PmTable["Update"] & { is_archived: boolean } = data.archived
+      ? { is_archived: true, is_active: false }
+      : { is_archived: false };
     const { data: row, error } = await admin
       .from("payment_methods")
       .update(update)
