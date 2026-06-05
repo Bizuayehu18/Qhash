@@ -108,10 +108,29 @@ function OverviewTab({ userId }: { userId: string | undefined }) {
   useEffect(() => {
     if (!userId) return;
     setLoading(true);
-    getAdminStatsFn({ data: { userId } })
-      .then(setStats)
-      .catch(() => toast.error("Failed to load admin stats"))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        if (!cancelled) {
+          toast.error("Session expired. Please sign in again.");
+          setLoading(false);
+        }
+        return;
+      }
+      try {
+        const data = await getAdminStatsFn({ data: { accessToken } });
+        if (!cancelled) setStats(data);
+      } catch {
+        if (!cancelled) toast.error("Failed to load admin stats");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [userId]);
 
   return (

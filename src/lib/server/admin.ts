@@ -5,31 +5,39 @@ import { supportTickets } from "../../../db/schema.js";
 import { eq, desc } from "drizzle-orm";
 import { throwSafe } from "../errors.js";
 
-function validateUserId(data: unknown): { userId: string } {
+function validateAccessToken(data: unknown): { accessToken: string } {
   if (!data || typeof data !== "object") throwSafe("ADMIN", "Failed to process request.", "Invalid request data");
-  const { userId } = data as Record<string, unknown>;
-  if (typeof userId !== "string" || userId.length === 0)
-    throwSafe("ADMIN", "Failed to process request.", "Missing user ID");
-  return { userId };
+  const { accessToken } = data as Record<string, unknown>;
+  if (typeof accessToken !== "string" || accessToken.length === 0)
+    throwSafe("ADMIN", "Unauthorized.", "Missing access token");
+  return { accessToken };
 }
 
 export const getAdminStatsFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => validateUserId(data))
+  .inputValidator((data: unknown) => validateAccessToken(data))
   .handler(async ({ data }) => {
-    const { userId } = data;
+    const { accessToken } = data;
     const admin = getAdminClient();
 
+    // Admin gate — derive the caller identity from the session access token
+    // (mirrors getDepositVerificationLogsFn). The client-supplied id is never
+    // trusted for authorization.
+    const {
+      data: { user: authUser },
+      error: authError,
+    } = await admin.auth.getUser(accessToken);
+    if (authError || !authUser)
+      throwSafe("ADMIN", "Unauthorized.", "Invalid or expired access token");
+
+    const { data: adminProfile } = await admin
+      .from("profiles")
+      .select("is_admin, is_frozen")
+      .eq("id", authUser.id)
+      .single();
+    if (!adminProfile || adminProfile.is_admin !== true || adminProfile.is_frozen === true)
+      throwSafe("ADMIN", "Unauthorized.", "Non-admin or frozen admin attempted admin stats access");
+
     try {
-      const { data: profile } = await admin
-        .from("profiles")
-        .select("is_admin")
-        .eq("id", userId)
-        .single();
-
-      if (!profile?.is_admin) {
-        throwSafe("ADMIN", "Unauthorized.", "Non-admin user attempted admin stats access");
-      }
-
       const { count: totalUsers } = await admin
         .from("profiles")
         .select("id", { count: "exact", head: true });
