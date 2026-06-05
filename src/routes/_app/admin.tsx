@@ -49,6 +49,13 @@ type AuditLog = Awaited<ReturnType<typeof getDepositVerificationLogsFn>>[number]
 
 const METHOD_LABELS: Record<string, string> = { cbe: "CBE", telebirr: "TeleBirr" };
 
+// Mirror of the server-side CBE last-8 derivation, for a read-only preview only.
+// The authoritative value is always derived on the backend from account_number.
+function cbeLast8Preview(accountNumber: string): string | null {
+  const digits = accountNumber.replace(/\D/g, "");
+  return digits.length >= 8 ? digits.slice(-8) : null;
+}
+
 function AdminPage() {
   const { user, profile } = useAuthStore();
   const navigate = useNavigate();
@@ -420,14 +427,12 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
   const [newName, setNewName] = useState("");
   const [newNumber, setNewNumber] = useState("");
   const [newInstructions, setNewInstructions] = useState("");
-  const [newLast8, setNewLast8] = useState("");
   const [saving, setSaving] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [editingMethod, setEditingMethod] = useState<PaymentMethod | null>(null);
   const [editName, setEditName] = useState("");
   const [editNumber, setEditNumber] = useState("");
   const [editInstructions, setEditInstructions] = useState("");
-  const [editLast8, setEditLast8] = useState("");
   const [editSaving, setEditSaving] = useState(false);
 
   const loadMethods = () => {
@@ -467,12 +472,11 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
           accountName: newName.trim(),
           accountNumber: newNumber.trim(),
           instructions: newInstructions.trim() || null,
-          accountLast8: newLast8.trim() || null,
         },
       });
       toast.success("Payment method created.");
       setShowAdd(false);
-      setNewName(""); setNewNumber(""); setNewInstructions(""); setNewLast8("");
+      setNewName(""); setNewNumber(""); setNewInstructions("");
       loadMethods();
     } catch (err) {
       toast.error(getSafeErrorMessage(err, "PAYMENT").message);
@@ -486,7 +490,6 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
     setEditName(m.account_name);
     setEditNumber(m.account_number);
     setEditInstructions(m.instructions ?? "");
-    setEditLast8((m as PaymentMethod & { account_last_8?: string }).account_last_8 ?? "");
   };
 
   const handleEdit = async () => {
@@ -506,7 +509,6 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
           accountName: editName.trim(),
           accountNumber: editNumber.trim(),
           instructions: editInstructions.trim() || null,
-          accountLast8: editLast8.trim() || null,
         },
       });
       toast.success("Payment method updated.");
@@ -567,13 +569,14 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
           </div>
           <Input label="Account Name" placeholder="e.g. QHash Trading PLC" value={newName} onChange={(e) => setNewName(e.target.value)} />
           <Input label="Account Number" placeholder="e.g. 1000123456789" value={newNumber} onChange={(e) => setNewNumber(e.target.value)} />
-          <Input
-            label="Last 8 Digits of Receiver"
-            placeholder="e.g. 23456789"
-            value={newLast8}
-            onChange={(e) => setNewLast8(e.target.value)}
-            hint="Used for CBE receipt URL generation"
-          />
+          {newType === "cbe" && (
+            <p className="text-[10px] text-gray-500 leading-relaxed -mt-1">
+              CBE receiver last 8 digits will be derived automatically from the account number.
+              {cbeLast8Preview(newNumber) && (
+                <> Derived last8: <span className="font-mono text-gray-400">{cbeLast8Preview(newNumber)}</span></>
+              )}
+            </p>
+          )}
           <Input label="Instructions (optional)" placeholder="e.g. Use username as remark" value={newInstructions} onChange={(e) => setNewInstructions(e.target.value)} />
           <div className="flex gap-2">
             <Button size="sm" loading={saving} disabled={!newName.trim() || !newNumber.trim()} onClick={handleAdd}>Create</Button>
@@ -590,13 +593,14 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
           </div>
           <Input label="Account Name" value={editName} onChange={(e) => setEditName(e.target.value)} />
           <Input label="Account Number" value={editNumber} onChange={(e) => setEditNumber(e.target.value)} />
-          <Input
-            label="Last 8 Digits of Receiver"
-            placeholder="e.g. 23456789"
-            value={editLast8}
-            onChange={(e) => setEditLast8(e.target.value)}
-            hint="Used for CBE receipt URL generation"
-          />
+          {editingMethod.type === "cbe" && (
+            <p className="text-[10px] text-gray-500 leading-relaxed -mt-1">
+              CBE receiver last 8 digits will be derived automatically from the account number.
+              {cbeLast8Preview(editNumber) && (
+                <> Derived last8: <span className="font-mono text-gray-400">{cbeLast8Preview(editNumber)}</span></>
+              )}
+            </p>
+          )}
           <Input label="Instructions (optional)" value={editInstructions} onChange={(e) => setEditInstructions(e.target.value)} />
           <Button size="sm" loading={editSaving} disabled={!editName.trim() || !editNumber.trim()} onClick={handleEdit}>Save Changes</Button>
         </div>
