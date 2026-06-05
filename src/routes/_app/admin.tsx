@@ -243,12 +243,19 @@ function DepositsTab({ userId }: { userId: string | undefined }) {
   const [selectedDeposit, setSelectedDeposit] = useState<AdminDeposit | null>(null);
 
   const loadDeposits = () => {
-    if (!userId) return;
     setLoading(true);
-    getAdminDepositsFn({ data: { userId, statusFilter: filter } })
-      .then(setDeposits)
-      .catch(() => toast.error("Failed to load deposits"))
-      .finally(() => setLoading(false));
+    supabase.auth.getSession().then(({ data: sessionData }) => {
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        setLoading(false);
+        toast.error("Session expired. Please sign in again.");
+        return;
+      }
+      getAdminDepositsFn({ data: { accessToken, statusFilter: filter } })
+        .then(setDeposits)
+        .catch(() => toast.error("Failed to load deposits"))
+        .finally(() => setLoading(false));
+    });
   };
 
   useEffect(() => { loadDeposits(); }, [userId, filter]);
