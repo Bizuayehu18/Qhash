@@ -26,6 +26,19 @@ async function assertAdminToken(accessToken: string) {
     throwSafe("PAYMENT", "Unauthorized.", "Non-admin or frozen admin attempted payment methods listing");
 }
 
+// Derive the receiver's last-8 digits used for CBE receipt URL generation.
+// For CBE the value is computed from the account number (never client-supplied);
+// for TeleBirr there is no such concept, so it is always null.
+function deriveAccountLast8(type: PaymentMethodType, accountNumber: string): string | null {
+  if (type === "cbe") {
+    const digits = accountNumber.replace(/\D/g, "");
+    if (digits.length < 8)
+      throwSafe("PAYMENT", "CBE account number must contain at least 8 digits.", "CBE account number has fewer than 8 digits");
+    return digits.slice(-8);
+  }
+  return null;
+}
+
 export const getPaymentMethodsFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => {
     if (!data || typeof data !== "object") throwSafe("PAYMENT", "Failed to load payment methods.", "Invalid request data");
@@ -69,7 +82,6 @@ export const createPaymentMethodFn = createServerFn({ method: "POST" })
       throwSafe("PAYMENT", "Account name is required.", "Missing account name");
     if (typeof accountNumber !== "string" || !accountNumber.trim())
       throwSafe("PAYMENT", "Account number is required.", "Missing account number");
-    const { accountLast8 } = data as Record<string, unknown>;
     return {
       accessToken,
       type: type as PaymentMethodType,
@@ -79,14 +91,12 @@ export const createPaymentMethodFn = createServerFn({ method: "POST" })
         typeof instructions === "string" && instructions.trim()
           ? instructions.trim()
           : null,
-      accountLast8:
-        typeof accountLast8 === "string" && accountLast8.trim()
-          ? accountLast8.trim()
-          : null,
     };
   })
   .handler(async ({ data }) => {
     await assertAdminToken(data.accessToken);
+    // Derive last-8 server-side: CBE from the account number, TeleBirr is null.
+    const accountLast8 = deriveAccountLast8(data.type, data.accountNumber);
     const admin = getAdminClient();
     const { data: row, error } = await admin
       .from("payment_methods")
@@ -95,7 +105,7 @@ export const createPaymentMethodFn = createServerFn({ method: "POST" })
         account_name: data.accountName,
         account_number: data.accountNumber,
         instructions: data.instructions,
-        account_last_8: data.accountLast8,
+        account_last_8: accountLast8,
       })
       .select()
       .single();
@@ -110,7 +120,7 @@ export const createPaymentMethodFn = createServerFn({ method: "POST" })
 export const updatePaymentMethodFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => {
     if (!data || typeof data !== "object") throwSafe("PAYMENT", "Failed to update payment method.", "Invalid request data");
-    const { accessToken, methodId, accountName, accountNumber, isActive, instructions, accountLast8 } =
+    const { accessToken, methodId, accountName, accountNumber, isActive, instructions } =
       data as Record<string, unknown>;
     if (typeof accessToken !== "string" || !accessToken)
       throwSafe("PAYMENT", "Unauthorized.", "Missing access token for update payment method");
@@ -124,30 +134,45 @@ export const updatePaymentMethodFn = createServerFn({ method: "POST" })
       accountNumber:
         typeof accountNumber === "string" ? accountNumber.trim() : undefined,
       isActive: typeof isActive === "boolean" ? isActive : undefined,
+      // undefined = do not update, null = explicitly clear, string = set trimmed
+      // value (blank trims to null so admins can clear instructions).
       instructions:
-        typeof instructions === "string" ? instructions.trim() || null : undefined,
-      accountLast8:
-        typeof accountLast8 === "string" ? accountLast8.trim() || null : undefined,
+        instructions === undefined
+          ? undefined
+          : instructions === null
+            ? null
+            : typeof instructions === "string"
+              ? instructions.trim() || null
+              : undefined,
     };
   })
   .handler(async ({ data }) => {
     await assertAdminToken(data.accessToken);
     const admin = getAdminClient();
+    // Load the existing row so account_last_8 can be re-derived (and bad legacy
+    // rows repaired) on any edit or toggle, using the stored immutable type.
+    const { data: existing, error: loadError } = await admin
+      .from("payment_methods")
+      .select("id, type, account_number")
+      .eq("id", data.methodId)
+      .single();
+    if (loadError || !existing)
+      throwSafe("PAYMENT", "Payment method not found.", "No payment method for id: " + data.methodId);
+    const nextAccountNumber =
+      data.accountNumber !== undefined ? data.accountNumber : existing.account_number;
+    const accountLast8 = deriveAccountLast8(existing.type as PaymentMethodType, nextAccountNumber);
     const update: {
       account_name?: string;
       account_number?: string;
       is_active?: boolean;
       instructions?: string | null;
       account_last_8?: string | null;
-    } = {};
+    } = { account_last_8: accountLast8 };
     if (data.accountName !== undefined) update.account_name = data.accountName;
     if (data.accountNumber !== undefined)
       update.account_number = data.accountNumber;
     if (data.isActive !== undefined) update.is_active = data.isActive;
     if (data.instructions !== undefined) update.instructions = data.instructions;
-    if (data.accountLast8 !== undefined) update.account_last_8 = data.accountLast8;
-    if (Object.keys(update).length === 0)
-      throwSafe("PAYMENT", "No fields to update.", "Empty update payload");
     const { data: row, error } = await admin
       .from("payment_methods")
       .update(update)
