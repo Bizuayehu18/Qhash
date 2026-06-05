@@ -3,20 +3,11 @@ import { getAdminClient } from "./supabase-admin.js";
 import type { PaymentMethodType } from "../database.types.js";
 import { throwSafe } from "../errors.js";
 
-async function assertAdmin(userId: string) {
-  const admin = getAdminClient();
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("is_admin")
-    .eq("id", userId)
-    .single();
-  if (!profile?.is_admin) throwSafe("ADMIN", "Unauthorized.", "Non-admin user: " + userId);
-}
-
 // Verify a session access token belongs to an active (non-frozen) admin.
-// Used only for the privileged activeOnly:false listing; the caller identity is
-// derived from the token server-side and the client-supplied id is never
-// trusted (mirrors getAdminDepositsFn / getAdminStatsFn).
+// Used for privileged payment-method operations (activeOnly:false listing and
+// create/update); the caller identity is derived from the token server-side and
+// the client-supplied id is never trusted (mirrors getAdminDepositsFn /
+// getAdminStatsFn).
 async function assertAdminToken(accessToken: string) {
   const admin = getAdminClient();
   const {
@@ -68,9 +59,10 @@ export const getPaymentMethodsFn = createServerFn({ method: "POST" })
 export const createPaymentMethodFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => {
     if (!data || typeof data !== "object") throwSafe("PAYMENT", "Failed to create payment method.", "Invalid request data");
-    const { userId, type, accountName, accountNumber, instructions } =
+    const { accessToken, type, accountName, accountNumber, instructions } =
       data as Record<string, unknown>;
-    if (typeof userId !== "string" || !userId) throwSafe("PAYMENT", "Failed to create payment method.", "Missing user ID");
+    if (typeof accessToken !== "string" || !accessToken)
+      throwSafe("PAYMENT", "Unauthorized.", "Missing access token for create payment method");
     if (type !== "cbe" && type !== "telebirr")
       throwSafe("PAYMENT", "Invalid payment method type.", "Invalid type: " + String(type));
     if (typeof accountName !== "string" || !accountName.trim())
@@ -79,7 +71,7 @@ export const createPaymentMethodFn = createServerFn({ method: "POST" })
       throwSafe("PAYMENT", "Account number is required.", "Missing account number");
     const { accountLast8 } = data as Record<string, unknown>;
     return {
-      userId,
+      accessToken,
       type: type as PaymentMethodType,
       accountName: accountName.trim(),
       accountNumber: accountNumber.trim(),
@@ -94,7 +86,7 @@ export const createPaymentMethodFn = createServerFn({ method: "POST" })
     };
   })
   .handler(async ({ data }) => {
-    await assertAdmin(data.userId);
+    await assertAdminToken(data.accessToken);
     const admin = getAdminClient();
     const { data: row, error } = await admin
       .from("payment_methods")
@@ -118,13 +110,14 @@ export const createPaymentMethodFn = createServerFn({ method: "POST" })
 export const updatePaymentMethodFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => {
     if (!data || typeof data !== "object") throwSafe("PAYMENT", "Failed to update payment method.", "Invalid request data");
-    const { userId, methodId, accountName, accountNumber, isActive, instructions, accountLast8 } =
+    const { accessToken, methodId, accountName, accountNumber, isActive, instructions, accountLast8 } =
       data as Record<string, unknown>;
-    if (typeof userId !== "string" || !userId) throwSafe("PAYMENT", "Failed to update payment method.", "Missing user ID");
+    if (typeof accessToken !== "string" || !accessToken)
+      throwSafe("PAYMENT", "Unauthorized.", "Missing access token for update payment method");
     if (typeof methodId !== "string" || !methodId)
       throwSafe("PAYMENT", "Failed to update payment method.", "Missing method ID");
     return {
-      userId,
+      accessToken,
       methodId,
       accountName:
         typeof accountName === "string" ? accountName.trim() : undefined,
@@ -138,7 +131,7 @@ export const updatePaymentMethodFn = createServerFn({ method: "POST" })
     };
   })
   .handler(async ({ data }) => {
-    await assertAdmin(data.userId);
+    await assertAdminToken(data.accessToken);
     const admin = getAdminClient();
     const update: {
       account_name?: string;

@@ -454,9 +454,15 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
     if (!userId || !newName.trim() || !newNumber.trim()) return;
     setSaving(true);
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        toast.error("Session expired. Please sign in again.");
+        return;
+      }
       await createPaymentMethodFn({
         data: {
-          userId,
+          accessToken,
           type: newType,
           accountName: newName.trim(),
           accountNumber: newNumber.trim(),
@@ -487,9 +493,15 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
     if (!userId || !editingMethod || !editName.trim() || !editNumber.trim()) return;
     setEditSaving(true);
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        toast.error("Session expired. Please sign in again.");
+        return;
+      }
       await updatePaymentMethodFn({
         data: {
-          userId,
+          accessToken,
           methodId: editingMethod.id,
           accountName: editName.trim(),
           accountNumber: editNumber.trim(),
@@ -511,7 +523,13 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
     if (!userId) return;
     setTogglingId(method.id);
     try {
-      await updatePaymentMethodFn({ data: { userId, methodId: method.id, isActive: !method.is_active } });
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        toast.error("Session expired. Please sign in again.");
+        return;
+      }
+      await updatePaymentMethodFn({ data: { accessToken, methodId: method.id, isActive: !method.is_active } });
       toast.success(method.is_active ? "Disabled." : "Enabled.");
       loadMethods();
     } catch {
