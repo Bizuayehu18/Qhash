@@ -13,13 +13,44 @@ async function assertAdmin(userId: string) {
   if (!profile?.is_admin) throwSafe("ADMIN", "Unauthorized.", "Non-admin user: " + userId);
 }
 
+// Verify a session access token belongs to an active (non-frozen) admin.
+// Used only for the privileged activeOnly:false listing; the caller identity is
+// derived from the token server-side and the client-supplied id is never
+// trusted (mirrors getAdminDepositsFn / getAdminStatsFn).
+async function assertAdminToken(accessToken: string) {
+  const admin = getAdminClient();
+  const {
+    data: { user: authUser },
+    error: authError,
+  } = await admin.auth.getUser(accessToken);
+  if (authError || !authUser)
+    throwSafe("PAYMENT", "Unauthorized.", "Invalid or expired access token");
+
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("is_admin, is_frozen")
+    .eq("id", authUser.id)
+    .single();
+  if (!profile || profile.is_admin !== true || profile.is_frozen === true)
+    throwSafe("PAYMENT", "Unauthorized.", "Non-admin or frozen admin attempted payment methods listing");
+}
+
 export const getPaymentMethodsFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => {
     if (!data || typeof data !== "object") throwSafe("PAYMENT", "Failed to load payment methods.", "Invalid request data");
-    const { activeOnly } = data as Record<string, unknown>;
-    return { activeOnly: activeOnly !== false };
+    const { activeOnly, accessToken } = data as Record<string, unknown>;
+    const activeOnlyResolved = activeOnly !== false;
+    if (!activeOnlyResolved && (typeof accessToken !== "string" || !accessToken))
+      throwSafe("PAYMENT", "Unauthorized.", "Missing access token for non-active listing");
+    return {
+      activeOnly: activeOnlyResolved,
+      accessToken: typeof accessToken === "string" ? accessToken : undefined,
+    };
   })
   .handler(async ({ data }) => {
+    if (!data.activeOnly) {
+      await assertAdminToken(data.accessToken as string);
+    }
     const admin = getAdminClient();
     let query = admin
       .from("payment_methods")
