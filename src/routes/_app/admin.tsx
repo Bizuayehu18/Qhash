@@ -22,6 +22,8 @@ import {
   Clock,
   AlertTriangle,
   ScrollText,
+  Archive,
+  ArchiveRestore,
 } from "lucide-react";
 import { toast } from "sonner";
 import { getSafeErrorMessage } from "@/lib/errors.js";
@@ -33,6 +35,7 @@ import {
   getPaymentMethodsFn,
   createPaymentMethodFn,
   updatePaymentMethodFn,
+  archivePaymentMethodFn,
 } from "@/lib/server/payment-methods.js";
 import { getAdminDepositsFn } from "@/lib/server/deposits.js";
 import { getDepositVerificationLogsFn } from "@/lib/server/deposit-audit-logs.js";
@@ -422,6 +425,7 @@ function DepositsTab({ userId }: { userId: string | undefined }) {
 function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
   const [loading, setLoading] = useState(true);
+  const [archiveFilter, setArchiveFilter] = useState<"visible" | "archived" | "all">("visible");
   const [showAdd, setShowAdd] = useState(false);
   const [newType, setNewType] = useState<PaymentMethodType>("cbe");
   const [newName, setNewName] = useState("");
@@ -429,6 +433,7 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
   const [newInstructions, setNewInstructions] = useState("");
   const [saving, setSaving] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [archivingId, setArchivingId] = useState<string | null>(null);
   const [editingMethod, setEditingMethod] = useState<PaymentMethod | null>(null);
   const [editName, setEditName] = useState("");
   const [editNumber, setEditNumber] = useState("");
@@ -446,14 +451,14 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
         setLoading(false);
         return;
       }
-      getPaymentMethodsFn({ data: { activeOnly: false, accessToken } })
+      getPaymentMethodsFn({ data: { activeOnly: false, accessToken, archiveFilter } })
         .then((m) => setMethods(m as PaymentMethod[]))
         .catch(() => toast.error("Failed to load payment methods"))
         .finally(() => setLoading(false));
     })();
   };
 
-  useEffect(() => { loadMethods(); }, [userId]);
+  useEffect(() => { loadMethods(); }, [userId, archiveFilter]);
 
   const handleAdd = async () => {
     if (!userId || !newName.trim() || !newNumber.trim()) return;
@@ -541,6 +546,30 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
     }
   };
 
+  const handleArchive = async (method: PaymentMethod, archived: boolean) => {
+    if (!userId) return;
+    const confirmMessage = archived
+      ? "Archive this payment method? It will be hidden from the default list and disabled, but deposit history will remain."
+      : "Unarchive this payment method? It will return to the visible list but will remain inactive until enabled.";
+    if (!window.confirm(confirmMessage)) return;
+    setArchivingId(method.id);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        toast.error("Session expired. Please sign in again.");
+        return;
+      }
+      await archivePaymentMethodFn({ data: { accessToken, methodId: method.id, archived } });
+      toast.success(archived ? "Archived." : "Unarchived.");
+      loadMethods();
+    } catch (err) {
+      toast.error(getSafeErrorMessage(err, "PAYMENT").message);
+    } finally {
+      setArchivingId(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -548,6 +577,27 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
         <Button size="sm" onClick={() => setShowAdd(!showAdd)}>
           <Plus size={13} /> Add
         </Button>
+      </div>
+
+      {/* Archive filter */}
+      <div className="flex gap-2 overflow-x-auto hide-scrollbar -mx-4 px-4 pb-1">
+        {([
+          { key: "visible", label: "Visible" },
+          { key: "archived", label: "Archived" },
+          { key: "all", label: "All" },
+        ] as const).map((f) => (
+          <button
+            key={f.key}
+            onClick={() => setArchiveFilter(f.key)}
+            className={`shrink-0 px-3 py-1.5 rounded-full text-[11px] border transition-colors card-press ${
+              archiveFilter === f.key
+                ? "bg-[rgba(0,255,65,0.08)] text-[#00ff41] border-[rgba(0,255,65,0.3)]"
+                : "text-gray-500 border-[#1f1f1f]"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
       </div>
 
       {showAdd && (
@@ -615,7 +665,13 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
           {methods.map((m) => (
             <div
               key={m.id}
-              className={`flex items-center gap-3 bg-[#111] rounded-xl border p-3 ${m.is_active ? "border-[#1a1a1a]" : "border-[#1a1a1a] opacity-50"}`}
+              className={`flex items-center gap-3 bg-[#111] rounded-xl border p-3 ${
+                m.is_archived
+                  ? "border-dashed border-[#2a2a2a] opacity-60"
+                  : m.is_active
+                    ? "border-[#1a1a1a]"
+                    : "border-[#1a1a1a] opacity-50"
+              }`}
             >
               <span className="text-gray-500">
                 {m.type === "cbe" ? <Building2 size={16} /> : <Smartphone size={16} />}
@@ -623,25 +679,52 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-medium text-gray-200 truncate">{m.account_name}</span>
-                  <Badge variant={m.is_active ? "neon" : "default"}>{m.is_active ? "Active" : "Off"}</Badge>
+                  {m.is_archived ? (
+                    <Badge variant="default">Archived</Badge>
+                  ) : (
+                    <Badge variant={m.is_active ? "neon" : "default"}>{m.is_active ? "Active" : "Off"}</Badge>
+                  )}
                 </div>
                 <p className="text-[10px] text-gray-500 font-mono mt-0.5">{METHOD_LABELS[m.type]} — {m.account_number}</p>
               </div>
-              <button
-                onClick={() => startEdit(m)}
-                className="p-2 rounded-lg text-gray-600 hover:text-gray-300 transition-colors card-press"
-              >
-                <Pencil size={13} />
-              </button>
-              <button
-                onClick={() => toggleActive(m)}
-                disabled={togglingId === m.id}
-                className={`p-2 rounded-lg transition-colors card-press ${
-                  m.is_active ? "text-gray-500 hover:text-red-400" : "text-gray-600 hover:text-[#00ff41]"
-                }`}
-              >
-                {togglingId === m.id ? <Spinner size="sm" /> : <Power size={14} />}
-              </button>
+              {m.is_archived ? (
+                <button
+                  onClick={() => handleArchive(m, false)}
+                  disabled={archivingId === m.id}
+                  title="Unarchive"
+                  className="p-2 rounded-lg text-gray-600 hover:text-[#00ff41] transition-colors card-press"
+                >
+                  {archivingId === m.id ? <Spinner size="sm" /> : <ArchiveRestore size={14} />}
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => startEdit(m)}
+                    title="Edit"
+                    className="p-2 rounded-lg text-gray-600 hover:text-gray-300 transition-colors card-press"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    onClick={() => toggleActive(m)}
+                    disabled={togglingId === m.id}
+                    title={m.is_active ? "Disable" : "Enable"}
+                    className={`p-2 rounded-lg transition-colors card-press ${
+                      m.is_active ? "text-gray-500 hover:text-red-400" : "text-gray-600 hover:text-[#00ff41]"
+                    }`}
+                  >
+                    {togglingId === m.id ? <Spinner size="sm" /> : <Power size={14} />}
+                  </button>
+                  <button
+                    onClick={() => handleArchive(m, true)}
+                    disabled={archivingId === m.id}
+                    title="Archive"
+                    className="p-2 rounded-lg text-gray-600 hover:text-amber-400 transition-colors card-press"
+                  >
+                    {archivingId === m.id ? <Spinner size="sm" /> : <Archive size={14} />}
+                  </button>
+                </>
+              )}
             </div>
           ))}
         </div>
