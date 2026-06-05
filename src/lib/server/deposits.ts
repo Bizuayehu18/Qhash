@@ -1032,23 +1032,35 @@ export const getUserDepositsFn = createServerFn({ method: "POST" })
 export const getAdminDepositsFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => {
     if (!data || typeof data !== "object") throwSafe("ADMIN", "Failed to load deposits.", "Invalid request data");
-    const { userId, statusFilter } = data as Record<string, unknown>;
-    if (typeof userId !== "string" || !userId)
-      throwSafe("ADMIN", "Failed to load deposits.", "Missing user ID");
+    const { accessToken, statusFilter } = data as Record<string, unknown>;
+    if (typeof accessToken !== "string" || !accessToken)
+      throwSafe("ADMIN", "Unauthorized.", "Missing access token");
     return {
-      userId,
+      accessToken,
       statusFilter:
         typeof statusFilter === "string" ? statusFilter : undefined,
     };
   })
   .handler(async ({ data }) => {
     const admin = getAdminClient();
+
+    // Admin gate — derive the caller identity from the session access token
+    // (mirrors getAdminStatsFn / getDepositVerificationLogsFn). The
+    // client-supplied id is never trusted for authorization.
+    const {
+      data: { user: authUser },
+      error: authError,
+    } = await admin.auth.getUser(data.accessToken);
+    if (authError || !authUser)
+      throwSafe("ADMIN", "Unauthorized.", "Invalid or expired access token");
+
     const { data: profile } = await admin
       .from("profiles")
-      .select("is_admin")
-      .eq("id", data.userId)
+      .select("is_admin, is_frozen")
+      .eq("id", authUser.id)
       .single();
-    if (!profile?.is_admin) throwSafe("ADMIN", "Unauthorized.", "Non-admin user attempted admin deposits access");
+    if (!profile || profile.is_admin !== true || profile.is_frozen === true)
+      throwSafe("ADMIN", "Unauthorized.", "Non-admin or frozen admin attempted admin deposits access");
 
     let query = admin
       .from("deposits")

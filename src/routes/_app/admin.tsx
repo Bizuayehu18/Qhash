@@ -245,10 +245,23 @@ function DepositsTab({ userId }: { userId: string | undefined }) {
   const loadDeposits = () => {
     if (!userId) return;
     setLoading(true);
-    getAdminDepositsFn({ data: { userId, statusFilter: filter } })
-      .then(setDeposits)
-      .catch(() => toast.error("Failed to load deposits"))
-      .finally(() => setLoading(false));
+    (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        toast.error("Session expired. Please sign in again.");
+        setLoading(false);
+        return;
+      }
+      try {
+        const data = await getAdminDepositsFn({ data: { accessToken, statusFilter: filter } });
+        setDeposits(data);
+      } catch {
+        toast.error("Failed to load deposits");
+      } finally {
+        setLoading(false);
+      }
+    })();
   };
 
   useEffect(() => { loadDeposits(); }, [userId, filter]);
