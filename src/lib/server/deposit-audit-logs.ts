@@ -11,8 +11,10 @@ import { throwSafe } from "../errors.js";
 // columns for display in the admin audit panel.
 //
 // Safety contract:
-//   * Admin-only: the handler re-checks profiles.is_admin via the service-role
-//     client before returning any rows (mirrors getAdminDepositsFn).
+//   * Admin-only: the handler derives the caller identity from the session
+//     access token (admin.auth.getUser) and re-checks profiles.is_admin /
+//     is_frozen via the service-role client before returning any rows
+//     (mirrors purchasePlanFn). The client never supplies the authorization id.
 //   * Selects only safe columns. It never reads full receipt text, full receipt
 //     URLs, full transaction references, secrets, or raw receiver / account
 //     names — those are not columns on this table, and tx_ref_last4 is already
@@ -64,9 +66,9 @@ export const getDepositVerificationLogsFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => {
     if (!data || typeof data !== "object")
       throwSafe("ADMIN", "Failed to load audit logs.", "Invalid request data");
-    const { userId, paymentType, limit } = data as Record<string, unknown>;
-    if (typeof userId !== "string" || !userId)
-      throwSafe("ADMIN", "Failed to load audit logs.", "Missing user ID");
+    const { accessToken, paymentType, limit } = data as Record<string, unknown>;
+    if (typeof accessToken !== "string" || !accessToken)
+      throwSafe("ADMIN", "Unauthorized.", "Missing access token");
 
     // Only the two known payment types (or undefined = all) are accepted.
     const normalisedPaymentType =
@@ -80,7 +82,7 @@ export const getDepositVerificationLogsFn = createServerFn({ method: "POST" })
         : DEFAULT_LIMIT;
 
     return {
-      userId,
+      accessToken,
       paymentType: normalisedPaymentType,
       limit: parsedLimit,
     };
@@ -88,17 +90,25 @@ export const getDepositVerificationLogsFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const admin = getAdminClient();
 
-    // Admin gate — identical pattern to getAdminDepositsFn.
+    // Admin gate — derive the caller identity from the session access token
+    // (mirrors purchasePlanFn). The client-supplied id is never trusted.
+    const {
+      data: { user: authUser },
+      error: authError,
+    } = await admin.auth.getUser(data.accessToken);
+    if (authError || !authUser)
+      throwSafe("ADMIN", "Unauthorized.", "Invalid or expired access token");
+
     const { data: profile } = await admin
       .from("profiles")
-      .select("is_admin")
-      .eq("id", data.userId)
+      .select("is_admin, is_frozen")
+      .eq("id", authUser.id)
       .single();
-    if (!profile?.is_admin)
+    if (!profile || profile.is_admin !== true || profile.is_frozen === true)
       throwSafe(
         "ADMIN",
         "Unauthorized.",
-        "Non-admin user attempted audit log access"
+        "Non-admin or frozen admin attempted audit log access"
       );
 
     // The generated Database types do not include this table, so the table name
