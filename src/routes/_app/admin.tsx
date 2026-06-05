@@ -603,16 +603,35 @@ function AuditLogsTab({ userId }: { userId: string | undefined }) {
   useEffect(() => {
     if (!userId) return;
     setLoading(true);
-    getDepositVerificationLogsFn({
-      data: {
-        userId,
-        paymentType: paymentType === "all" ? undefined : paymentType,
-        limit: AUDIT_LIMIT,
-      },
-    })
-      .then(setLogs)
-      .catch(() => toast.error("Failed to load audit logs"))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        if (!cancelled) {
+          toast.error("Session expired. Please sign in again.");
+          setLoading(false);
+        }
+        return;
+      }
+      try {
+        const rows = await getDepositVerificationLogsFn({
+          data: {
+            accessToken,
+            paymentType: paymentType === "all" ? undefined : paymentType,
+            limit: AUDIT_LIMIT,
+          },
+        });
+        if (!cancelled) setLogs(rows);
+      } catch {
+        if (!cancelled) toast.error("Failed to load audit logs");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [userId, paymentType]);
 
   const actionConfig: Record<string, { variant: "success" | "warning" | "danger" | "default" }> = {
