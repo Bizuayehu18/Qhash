@@ -433,10 +433,19 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
   const loadMethods = () => {
     if (!userId) return;
     setLoading(true);
-    getPaymentMethodsFn({ data: { activeOnly: false } })
-      .then((m) => setMethods(m as PaymentMethod[]))
-      .catch(() => toast.error("Failed to load payment methods"))
-      .finally(() => setLoading(false));
+    (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        toast.error("Session expired. Please sign in again.");
+        setLoading(false);
+        return;
+      }
+      getPaymentMethodsFn({ data: { activeOnly: false, accessToken } })
+        .then((m) => setMethods(m as PaymentMethod[]))
+        .catch(() => toast.error("Failed to load payment methods"))
+        .finally(() => setLoading(false));
+    })();
   };
 
   useEffect(() => { loadMethods(); }, [userId]);
