@@ -17,13 +17,13 @@ function validatePurchaseInput(data: unknown): {
   return { planId, accessToken };
 }
 
-function validateUserId(data: unknown): { userId: string } {
+function validateAccessToken(data: unknown): { accessToken: string } {
   if (!data || typeof data !== "object")
-    throwSafe("PURCHASE", "Failed to process request. Please try again.", "Invalid request data");
-  const { userId } = data as Record<string, unknown>;
-  if (typeof userId !== "string" || userId.length === 0)
-    throwSafe("PURCHASE", "Failed to process request. Please try again.", "Missing user ID");
-  return { userId };
+    throwSafe("PURCHASE", "Failed to load investments. Please try again.", "Invalid request data");
+  const { accessToken } = data as Record<string, unknown>;
+  if (typeof accessToken !== "string" || accessToken.length === 0)
+    throwSafe("PURCHASE", "Failed to load investments. Please try again.", "Missing access token");
+  return { accessToken };
 }
 
 export const purchasePlanFn = createServerFn({ method: "POST" })
@@ -271,16 +271,25 @@ export const purchasePlanFn = createServerFn({ method: "POST" })
   });
 
 export const getInvestmentsFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => validateUserId(data))
+  .inputValidator((data: unknown) => validateAccessToken(data))
   .handler(async ({ data }) => {
-    const { userId } = data;
+    const { accessToken } = data;
     const admin = getAdminClient();
+
+    // Derive the caller identity from the session access token. The client
+    // never supplies the user id used for the investments query below.
+    const {
+      data: { user: authUser },
+      error: authError,
+    } = await admin.auth.getUser(accessToken);
+    if (authError || !authUser)
+      throwSafe("PURCHASE", "Failed to load investments. Please try again.", "Invalid or expired access token");
 
     try {
       const { data: all, error } = await admin
         .from("investments")
         .select("*")
-        .eq("user_id", userId)
+        .eq("user_id", authUser.id)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
