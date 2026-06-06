@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { getWalletBalanceFn } from "@/lib/server/wallet.js";
 import { getSafeErrorMessage } from "@/lib/errors.js";
+import { supabase } from "@/lib/supabase.js";
 
 const POLL_INTERVAL_MS = 30_000;
 
@@ -28,9 +29,18 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   _pollUserId: null,
 
   fetchWallet: async (userId: string) => {
+    // Signature kept for polling callers; identity is now derived server-side
+    // from the session access token rather than this client-passed userId.
+    void userId;
     set({ loading: get().balance === null, error: null });
     try {
-      const { balance } = await getWalletBalanceFn({ data: { userId } });
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        set({ loading: false, error: "Session expired. Please sign in again." });
+        return;
+      }
+      const { balance } = await getWalletBalanceFn({ data: { accessToken } });
       set({ balance, loading: false, lastFetchedAt: Date.now(), error: null });
     } catch (err) {
       console.error("[QHash] Wallet fetch error:", err);
