@@ -13,11 +13,11 @@ const VALID_TYPES = new Set<string>([
   "referral_investment_bonus",
 ]);
 
-function validateInput(data: unknown): { userId: string; type?: string } {
+function validateInput(data: unknown): { accessToken: string; type?: string } {
   if (!data || typeof data !== "object") throwSafe("SERVER", "Failed to load transactions.", "Invalid request data");
-  const { userId, type } = data as Record<string, unknown>;
-  if (typeof userId !== "string" || userId.length === 0)
-    throwSafe("SERVER", "Failed to load transactions.", "Missing user ID");
+  const { accessToken, type } = data as Record<string, unknown>;
+  if (typeof accessToken !== "string" || accessToken.length === 0)
+    throwSafe("SERVER", "Failed to load transactions.", "Missing access token");
   if (
     type !== undefined &&
     type !== null &&
@@ -26,20 +26,29 @@ function validateInput(data: unknown): { userId: string; type?: string } {
   ) {
     throwSafe("SERVER", "Failed to load transactions.", "Invalid type filter: " + type);
   }
-  return { userId, type: typeof type === "string" ? type : undefined };
+  return { accessToken, type: typeof type === "string" ? type : undefined };
 }
 
 export const getTransactionsFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => validateInput(data))
   .handler(async ({ data }) => {
-    const { userId, type } = data;
+    const { accessToken, type } = data;
     const admin = getAdminClient();
+
+    // Derive the caller identity from the session access token. The client
+    // never supplies the user id used for the transactions query below.
+    const {
+      data: { user: authUser },
+      error: authError,
+    } = await admin.auth.getUser(accessToken);
+    if (authError || !authUser)
+      throwSafe("SERVER", "Failed to load transactions.", "Invalid or expired access token");
 
     try {
       let query = admin
         .from("transactions")
         .select("*")
-        .eq("user_id", userId)
+        .eq("user_id", authUser.id)
         .order("created_at", { ascending: false })
         .limit(50);
 
