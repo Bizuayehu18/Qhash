@@ -8,6 +8,7 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
+import { supabase } from "@/lib/supabase.js";
 import { getTransactionsFn } from "@/lib/server/transactions.js";
 
 export const Route = createFileRoute("/_app/withdraw")({
@@ -35,8 +36,16 @@ function WithdrawPage() {
   useEffect(() => {
     if (!user?.id) return;
     setLoadingHistory(true);
-    getTransactionsFn({ data: { userId: user.id, type: "withdrawal" } })
-      .then(setWithdrawals)
+    (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        setWithdrawals([]);
+        return;
+      }
+      const rows = await getTransactionsFn({ data: { accessToken, type: "withdrawal" } });
+      setWithdrawals(rows);
+    })()
       .catch((err) => {
         console.error("Failed to load withdrawal history:", err);
       })

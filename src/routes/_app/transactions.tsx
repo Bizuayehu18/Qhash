@@ -4,6 +4,7 @@ import { Receipt, Clock, CheckCircle2, XCircle, AlertCircle } from "lucide-react
 import { TxIcon, txLabel, isOutgoingTx } from "@/components/ui/TransactionHelpers.js";
 import { formatDateTime } from "@/lib/format.js";
 import { useAuthStore } from "@/store/authStore.js";
+import { supabase } from "@/lib/supabase.js";
 import { getTransactionsFn } from "@/lib/server/transactions.js";
 import { getSafeErrorMessage } from "@/lib/errors.js";
 
@@ -62,8 +63,16 @@ function TransactionsPage() {
     if (!user?.id) return;
     setLoading(true);
     setError(null);
-    getTransactionsFn({ data: { userId: user.id, type: activeFilter } })
-      .then(setTransactions)
+    (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        setError("Session expired. Please sign in again.");
+        return;
+      }
+      const rows = await getTransactionsFn({ data: { accessToken, type: activeFilter } });
+      setTransactions(rows);
+    })()
       .catch((err) => {
         console.error("Transactions load failed:", err);
         setError(getSafeErrorMessage(err, "SERVER").message);
