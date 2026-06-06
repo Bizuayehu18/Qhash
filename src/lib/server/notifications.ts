@@ -66,11 +66,11 @@ export const getUnreadCountFn = createServerFn({ method: "POST" })
 export const markNotificationsReadFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => {
     if (!data || typeof data !== "object") throwSafe("SERVER", "Failed to update notifications.", "Invalid request data");
-    const { userId, notificationIds } = data as Record<string, unknown>;
-    if (typeof userId !== "string" || !userId)
-      throwSafe("SERVER", "Failed to update notifications.", "Missing user ID");
+    const { accessToken, notificationIds } = data as Record<string, unknown>;
+    if (typeof accessToken !== "string" || accessToken.length === 0)
+      throwSafe("SERVER", "Failed to update notifications.", "Missing access token");
     return {
-      userId,
+      accessToken,
       notificationIds: Array.isArray(notificationIds)
         ? (notificationIds as string[])
         : undefined,
@@ -78,17 +78,27 @@ export const markNotificationsReadFn = createServerFn({ method: "POST" })
   })
   .handler(async ({ data }) => {
     const admin = getAdminClient();
+
+    // Derive the caller identity from the session access token. The client
+    // never supplies the user id used for the notifications update below.
+    const {
+      data: { user: authUser },
+      error: authError,
+    } = await admin.auth.getUser(data.accessToken);
+    if (authError || !authUser)
+      throwSafe("SERVER", "Failed to update notifications.", "Invalid or expired access token");
+
     if (data.notificationIds && data.notificationIds.length > 0) {
       await admin
         .from("notifications")
         .update({ is_read: true })
-        .eq("user_id", data.userId)
+        .eq("user_id", authUser.id)
         .in("id", data.notificationIds);
     } else {
       await admin
         .from("notifications")
         .update({ is_read: true })
-        .eq("user_id", data.userId)
+        .eq("user_id", authUser.id)
         .eq("is_read", false);
     }
     return { success: true };

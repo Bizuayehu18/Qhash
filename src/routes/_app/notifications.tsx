@@ -64,7 +64,13 @@ function NotificationsPage() {
     if (!user?.id) return;
     setMarkingAll(true);
     try {
-      await markNotificationsReadFn({ data: { userId: user.id } });
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        toast.error("Session expired. Please sign in again.");
+        return;
+      }
+      await markNotificationsReadFn({ data: { accessToken } });
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
       toast.success("All notifications marked as read.");
     } catch {
