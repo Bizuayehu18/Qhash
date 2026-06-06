@@ -2,20 +2,31 @@ import { createServerFn } from "@tanstack/react-start";
 import { getAdminClient } from "./supabase-admin.js";
 import { throwSafe } from "../errors.js";
 
-function validateUserId(data: unknown): { userId: string } {
+function validateAccessToken(data: unknown): { accessToken: string } {
   if (!data || typeof data !== "object")
     throwSafe("REFERRAL", "Failed to load team stats.", "Invalid request data");
-  const { userId } = data as Record<string, unknown>;
-  if (typeof userId !== "string" || userId.length === 0)
-    throwSafe("REFERRAL", "Failed to load team stats.", "Missing user ID");
-  return { userId };
+  const { accessToken } = data as Record<string, unknown>;
+  if (typeof accessToken !== "string" || accessToken.length === 0)
+    throwSafe("REFERRAL", "Failed to load team stats.", "Missing access token");
+  return { accessToken };
 }
 
 export const loadReferralStatsFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => validateUserId(data))
+  .inputValidator((data: unknown) => validateAccessToken(data))
   .handler(async ({ data }) => {
-    const { userId } = data;
+    const { accessToken } = data;
     const admin = getAdminClient();
+
+    // Derive the caller identity from the session access token (mirrors
+    // getAdminStatsFn / assertAdminToken). The client never supplies the
+    // referrer id used for the referral queries below.
+    const {
+      data: { user: authUser },
+      error: authError,
+    } = await admin.auth.getUser(accessToken);
+    if (authError || !authUser)
+      throwSafe("REFERRAL", "Failed to load team stats.", "Invalid or expired access token");
+    const userId = authUser.id;
 
     try {
       const { data: referralRows, error: refError } = await admin
