@@ -10,6 +10,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore.js";
+import { supabase } from "@/lib/supabase.js";
 import { Card } from "@/components/ui/Card.js";
 import { Spinner } from "@/components/ui/Spinner.js";
 import { loadReferralStatsFn } from "@/lib/server/referrals.js";
@@ -40,7 +41,14 @@ function useReferralData() {
     async function load() {
       setLoading(true);
       try {
-        const result = await loadReferralStatsFn({ data: { userId: user!.id } });
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData?.session?.access_token;
+        if (!accessToken) {
+          setStats({ total: 0, active: 0, earned: 0 });
+          setLoading(false);
+          return;
+        }
+        const result = await loadReferralStatsFn({ data: { accessToken } });
         setStats({
           total: result.total,
           active: result.active,
