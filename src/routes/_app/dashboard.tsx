@@ -22,6 +22,7 @@ import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
 import { loadDashboardFn } from "@/lib/server/dashboard.js";
 import { getPlansFn } from "@/lib/server/plans.js";
+import { supabase } from "@/lib/supabase.js";
 import { getSafeErrorMessage } from "@/lib/errors.js";
 import type { Plan } from "@/lib/database.types.js";
 
@@ -66,20 +67,29 @@ function DashboardPage() {
     if (!user?.id) return;
     setLoading(true);
     setError(null);
-    Promise.all([
-      loadDashboardFn({ data: { userId: user.id } }),
-      getPlansFn(),
-    ])
-      .then(([d, p]) => {
-        setData(d);
-        setPlans(p);
-        setWalletBalance(d.wallet.balance);
-      })
-      .catch((err) => {
-        console.error("Dashboard load failed:", err);
-        setError(getSafeErrorMessage(err, "SERVER").message);
-      })
-      .finally(() => setLoading(false));
+    (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        setError("Session expired. Please sign in again.");
+        setLoading(false);
+        return;
+      }
+      Promise.all([
+        loadDashboardFn({ data: { accessToken } }),
+        getPlansFn(),
+      ])
+        .then(([d, p]) => {
+          setData(d);
+          setPlans(p);
+          setWalletBalance(d.wallet.balance);
+        })
+        .catch((err) => {
+          console.error("Dashboard load failed:", err);
+          setError(getSafeErrorMessage(err, "SERVER").message);
+        })
+        .finally(() => setLoading(false));
+    })();
   }, [user?.id, setWalletBalance]);
 
   if (loading) return <DashboardSkeleton />;
@@ -95,13 +105,22 @@ function DashboardPage() {
             if (!user?.id) return;
             setLoading(true);
             setError(null);
-            loadDashboardFn({ data: { userId: user.id } })
-              .then((d) => {
-                setData(d);
-                setWalletBalance(d.wallet.balance);
-              })
-              .catch((err) => setError(getSafeErrorMessage(err, "SERVER").message))
-              .finally(() => setLoading(false));
+            (async () => {
+              const { data: sessionData } = await supabase.auth.getSession();
+              const accessToken = sessionData?.session?.access_token;
+              if (!accessToken) {
+                setError("Session expired. Please sign in again.");
+                setLoading(false);
+                return;
+              }
+              loadDashboardFn({ data: { accessToken } })
+                .then((d) => {
+                  setData(d);
+                  setWalletBalance(d.wallet.balance);
+                })
+                .catch((err) => setError(getSafeErrorMessage(err, "SERVER").message))
+                .finally(() => setLoading(false));
+            })();
           }}
         >
           Retry

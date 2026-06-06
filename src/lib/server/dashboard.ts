@@ -2,12 +2,12 @@ import { createServerFn } from "@tanstack/react-start";
 import { getAdminClient } from "./supabase-admin.js";
 import { throwSafe } from "../errors.js";
 
-function validateUserId(data: unknown): { userId: string } {
+function validateAccessToken(data: unknown): { accessToken: string } {
   if (!data || typeof data !== "object") throwSafe("SERVER", "Failed to load dashboard.", "Invalid request data");
-  const { userId } = data as Record<string, unknown>;
-  if (typeof userId !== "string" || userId.length === 0)
-    throwSafe("SERVER", "Failed to load dashboard.", "Missing user ID");
-  return { userId };
+  const { accessToken } = data as Record<string, unknown>;
+  if (typeof accessToken !== "string" || accessToken.length === 0)
+    throwSafe("SERVER", "Failed to load dashboard.", "Missing access token");
+  return { accessToken };
 }
 
 async function getOrCreateWallet(userId: string) {
@@ -32,10 +32,21 @@ async function getOrCreateWallet(userId: string) {
 }
 
 export const loadDashboardFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => validateUserId(data))
+  .inputValidator((data: unknown) => validateAccessToken(data))
   .handler(async ({ data }) => {
-    const { userId } = data;
+    const { accessToken } = data;
     const admin = getAdminClient();
+
+    // Derive the caller identity from the session access token. The client
+    // never supplies the user id used for the wallet/investment/transaction
+    // queries below.
+    const {
+      data: { user: authUser },
+      error: authError,
+    } = await admin.auth.getUser(accessToken);
+    if (authError || !authUser)
+      throwSafe("SERVER", "Failed to load dashboard.", "Invalid or expired access token");
+    const userId = authUser.id;
 
     try {
       const wallet = await getOrCreateWallet(userId);
