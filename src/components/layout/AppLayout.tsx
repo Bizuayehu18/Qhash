@@ -5,6 +5,7 @@ import {
   Hash, Bell, Wallet,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
+import { supabase } from '@/lib/supabase.js'
 import { getUnreadCountFn } from '@/lib/server/notifications.js'
 
 interface BottomTab {
@@ -29,8 +30,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!user?.id) return
-    const fetchCount = () => {
-      getUnreadCountFn({ data: { userId: user.id } })
+    const fetchCount = async () => {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const accessToken = sessionData?.session?.access_token
+      if (!accessToken) {
+        setUnreadCount(0)
+        return
+      }
+      getUnreadCountFn({ data: { accessToken } })
         .then(({ count }) => setUnreadCount(count))
         .catch(() => {})
     }
