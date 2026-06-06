@@ -5,17 +5,27 @@ import { throwSafe } from "../errors.js";
 export const getNotificationsFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => {
     if (!data || typeof data !== "object") throwSafe("SERVER", "Failed to load notifications.", "Invalid request data");
-    const { userId } = data as Record<string, unknown>;
-    if (typeof userId !== "string" || !userId)
-      throwSafe("SERVER", "Failed to load notifications.", "Missing user ID");
-    return { userId };
+    const { accessToken } = data as Record<string, unknown>;
+    if (typeof accessToken !== "string" || accessToken.length === 0)
+      throwSafe("SERVER", "Failed to load notifications.", "Missing access token");
+    return { accessToken };
   })
   .handler(async ({ data }) => {
     const admin = getAdminClient();
+
+    // Derive the caller identity from the session access token. The client
+    // never supplies the user id used for the notifications query below.
+    const {
+      data: { user: authUser },
+      error: authError,
+    } = await admin.auth.getUser(data.accessToken);
+    if (authError || !authUser)
+      throwSafe("SERVER", "Failed to load notifications.", "Invalid or expired access token");
+
     const { data: rows, error } = await admin
       .from("notifications")
       .select("*")
-      .eq("user_id", data.userId)
+      .eq("user_id", authUser.id)
       .order("created_at", { ascending: false })
       .limit(30);
 
@@ -26,17 +36,27 @@ export const getNotificationsFn = createServerFn({ method: "POST" })
 export const getUnreadCountFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => {
     if (!data || typeof data !== "object") throwSafe("SERVER", "Failed to load notifications.", "Invalid request data");
-    const { userId } = data as Record<string, unknown>;
-    if (typeof userId !== "string" || !userId)
-      throwSafe("SERVER", "Failed to load notifications.", "Missing user ID");
-    return { userId };
+    const { accessToken } = data as Record<string, unknown>;
+    if (typeof accessToken !== "string" || accessToken.length === 0)
+      throwSafe("SERVER", "Failed to load notifications.", "Missing access token");
+    return { accessToken };
   })
   .handler(async ({ data }) => {
     const admin = getAdminClient();
+
+    // Derive the caller identity from the session access token. The client
+    // never supplies the user id used for the unread-count query below. Keep
+    // the badge stable by returning { count: 0 } on auth failure.
+    const {
+      data: { user: authUser },
+      error: authError,
+    } = await admin.auth.getUser(data.accessToken);
+    if (authError || !authUser) return { count: 0 };
+
     const { count, error } = await admin
       .from("notifications")
       .select("id", { count: "exact", head: true })
-      .eq("user_id", data.userId)
+      .eq("user_id", authUser.id)
       .eq("is_read", false);
 
     if (error) return { count: 0 };

@@ -12,6 +12,7 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { formatDateTime } from "@/lib/format.js";
 import { useAuthStore } from "@/store/authStore.js";
+import { supabase } from "@/lib/supabase.js";
 import {
   getNotificationsFn,
   markNotificationsReadFn,
@@ -39,8 +40,18 @@ function NotificationsPage() {
   const loadNotifications = () => {
     if (!user?.id) return;
     setLoading(true);
-    getNotificationsFn({ data: { userId: user.id } })
-      .then(setNotifications)
+    supabase.auth
+      .getSession()
+      .then(({ data: sessionData }) => {
+        const accessToken = sessionData?.session?.access_token;
+        if (!accessToken) {
+          setNotifications([]);
+          return;
+        }
+        return getNotificationsFn({ data: { accessToken } }).then(
+          setNotifications,
+        );
+      })
       .catch(() => toast.error("Failed to load notifications"))
       .finally(() => setLoading(false));
   };
