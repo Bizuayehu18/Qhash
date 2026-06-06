@@ -33,8 +33,8 @@ function ProfilePage() {
   const menuItems = [
     { to: "/transactions", label: "Transactions", icon: Receipt, desc: "View all activity" },
     { to: "/notifications", label: "Notifications", icon: Bell, desc: "Alerts & updates" },
-    { to: "/withdraw", label: "Withdraw", icon: Wallet, desc: "Cash out earnings" },
-    { to: "/support", label: "Support", icon: HeadphonesIcon, desc: "Get help" },
+    { to: "/withdraw", label: "Withdraw", icon: Wallet, desc: "Cash out earnings", soon: true },
+    { to: "/support", label: "Support", icon: HeadphonesIcon, desc: "Get help", soon: true },
     ...(profile?.is_admin
       ? [{ to: "/admin", label: "Admin Panel", icon: ShieldCheck, desc: "Manage platform" }]
       : []),
@@ -77,6 +77,11 @@ function ProfilePage() {
               <p className="text-sm font-medium text-gray-200">{item.label}</p>
               <p className="text-[10px] text-gray-600">{item.desc}</p>
             </div>
+            {item.soon && (
+              <span className="text-[9px] font-semibold text-[#00ff41] bg-[rgba(0,255,65,0.1)] border border-[rgba(0,255,65,0.2)] rounded-full px-2 py-0.5">
+                Soon
+              </span>
+            )}
             <ChevronRight size={14} className="text-gray-700" />
           </Link>
         ))}

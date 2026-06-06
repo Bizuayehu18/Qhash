@@ -1,13 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Button } from "@/components/ui/Button.js";
-import { Input } from "@/components/ui/Input.js";
 import { Badge } from "@/components/ui/Badge.js";
-import { HeadphonesIcon, MessageSquare } from "lucide-react";
+import { HeadphonesIcon, MessageSquare, Info } from "lucide-react";
 import { useState, useEffect } from "react";
-import { toast } from "sonner";
-import { getSafeErrorMessage } from "@/lib/errors.js";
 import { useAuthStore } from "@/store/authStore.js";
-import { submitTicketFn, getTicketsFn } from "@/lib/server/support.js";
+import { getTicketsFn } from "@/lib/server/support.js";
 
 export const Route = createFileRoute("/_app/support")({
   component: SupportPage,
@@ -17,9 +13,6 @@ type Ticket = Awaited<ReturnType<typeof getTicketsFn>>[number];
 
 function SupportPage() {
   const { user } = useAuthStore();
-  const [subject, setSubject] = useState("");
-  const [message, setMessage] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -34,26 +27,6 @@ function SupportPage() {
       .finally(() => setLoading(false));
   }, [user?.id]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user?.id || !subject.trim() || !message.trim()) return;
-
-    setSubmitting(true);
-    try {
-      const { ticket } = await submitTicketFn({
-        data: { userId: user.id, subject, message },
-      });
-      setTickets((prev) => [ticket, ...prev]);
-      toast.success("Ticket submitted. We'll respond within 24 hours.");
-      setSubject("");
-      setMessage("");
-    } catch (err) {
-      toast.error(getSafeErrorMessage(err, "SUPPORT").message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   return (
     <div className="space-y-5">
       <div>
@@ -61,37 +34,19 @@ function SupportPage() {
         <p className="text-xs text-gray-500 mt-1">Get help from our team</p>
       </div>
 
-      {/* Submit ticket */}
+      {/* Coming soon notice */}
       <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4">
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-3">
           <HeadphonesIcon size={14} className="text-[#00ff41]" />
           <span className="text-xs font-semibold">Submit a Ticket</span>
         </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <Input
-            label="Subject"
-            type="text"
-            placeholder="Brief description of your issue"
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            required
-          />
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-gray-300">Message</label>
-            <textarea
-              rows={4}
-              placeholder="Describe your issue in detail..."
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              required
-              className="w-full bg-[#0a0a0a] border border-[#1f1f1f] rounded-xl text-sm text-gray-100 placeholder:text-gray-600 px-3 py-2.5 resize-none focus:outline-none focus:border-[rgba(0,255,65,0.5)] transition-colors"
-            />
-          </div>
-          <Button type="submit" fullWidth disabled={!subject.trim() || !message.trim()} loading={submitting}>
-            Send Ticket
-          </Button>
-        </form>
+        <div className="flex gap-2.5 p-3 rounded-xl bg-[rgba(0,255,65,0.04)] border border-[rgba(0,255,65,0.1)]">
+          <Info size={15} className="text-[#00ff41] shrink-0 mt-0.5" />
+          <p className="text-[11px] text-gray-400 leading-relaxed">
+            Support tickets are coming soon. Please contact admin through the official
+            Telegram/support channel for now.
+          </p>
+        </div>
       </div>
 
       {/* Tickets list */}

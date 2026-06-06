@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/Input.js";
 import { Spinner } from "@/components/ui/Spinner.js";
 import { ArrowUpCircle, Info } from "lucide-react";
 import { useState, useEffect } from "react";
-import { toast } from "sonner";
 import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
 import { supabase } from "@/lib/supabase.js";
@@ -52,15 +51,22 @@ function WithdrawPage() {
       .finally(() => setLoadingHistory(false));
   }, [user?.id]);
 
-  const handleSubmit = () => {
-    toast.info("Withdrawals are not yet available. This feature is coming soon.");
-  };
-
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-lg font-bold">Withdraw</h1>
         <p className="text-xs text-gray-500 mt-1">Request a withdrawal</p>
+      </div>
+
+      {/* Coming soon notice */}
+      <div className="bg-[rgba(0,255,65,0.04)] rounded-xl border border-[rgba(0,255,65,0.2)] p-4 flex gap-2.5">
+        <Info size={15} className="text-[#00ff41] shrink-0 mt-0.5" />
+        <div>
+          <p className="text-xs font-semibold text-[#00ff41]">Coming soon</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">
+            Withdrawals are coming soon. This feature is not available yet.
+          </p>
+        </div>
       </div>
 
       {/* Balance */}
@@ -76,7 +82,7 @@ function WithdrawPage() {
       </div>
 
       {/* Withdraw form */}
-      <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4 space-y-4">
+      <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4 space-y-4 opacity-60">
         <div className="flex items-center gap-2 mb-1">
           <ArrowUpCircle size={14} className="text-[#00ff41]" />
           <span className="text-xs font-semibold">Withdrawal Request</span>
@@ -90,6 +96,7 @@ function WithdrawPage() {
           onChange={(e) => setAmount(e.target.value)}
           min="500"
           step="0.01"
+          disabled
         />
         <Input
           label="Bank Account / Mobile Money"
@@ -97,6 +104,7 @@ function WithdrawPage() {
           placeholder="Enter your receiving account"
           value={address}
           onChange={(e) => setAddress(e.target.value)}
+          disabled
         />
 
         <div className="p-3 rounded-xl bg-[rgba(0,255,65,0.04)] border border-[rgba(0,255,65,0.1)] flex gap-2 text-[11px] text-gray-400">
@@ -104,14 +112,14 @@ function WithdrawPage() {
           Withdrawals are processed within 24 hours. Minimum 500 ETB. 2% fee applies.
         </div>
 
-        <Button fullWidth disabled={!amount || !address} onClick={handleSubmit}>
-          Submit Withdrawal
+        <Button fullWidth disabled>
+          Coming Soon
         </Button>
       </div>
 
       {/* History */}
       <div>
-        <h2 className="text-sm font-semibold mb-3">History</h2>
+        <h2 className="text-sm font-semibold mb-3">Withdrawal History</h2>
         {loadingHistory ? (
           <div className="space-y-2">
             {[1, 2, 3].map((i) => <div key={i} className="skeleton h-14 rounded-xl" />)}
