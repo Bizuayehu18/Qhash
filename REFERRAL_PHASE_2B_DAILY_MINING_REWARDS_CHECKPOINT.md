@@ -72,8 +72,13 @@ part of this phase.
   `referral_daily_bonus`.
 - Do **not** modify deposit / CBE / TeleBirr / payment-method logic from this phase.
 
-## Known Future Hardening
+## Completed Follow-up Hardening
 
-- `trigger-daily-earnings.mts` should later check `is_frozen` for admins before manual
-  trigger execution.
-- That hardening should be a **separate small phase**, not part of this checkpoint.
+- `trigger-daily-earnings.mts` now checks `is_frozen` for admins before manual trigger
+  execution.
+- Frozen admins are rejected with `{ error: "admin_frozen", message: "Admin account is frozen." }`
+  and HTTP `403`.
+- This hardening was completed after this checkpoint as a separate small phase.
+- The scheduled daily earnings function was not changed.
+- The shared earnings-processing flow was not changed.
+- The mining referral reward logic was not changed.
