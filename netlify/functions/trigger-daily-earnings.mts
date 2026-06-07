@@ -61,7 +61,7 @@ export default async (req: Request) => {
 
   const { data: profile } = await admin
     .from("profiles")
-    .select("is_admin")
+    .select("is_admin, is_frozen")
     .eq("id", userData.user.id)
     .single();
 
@@ -72,6 +72,17 @@ export default async (req: Request) => {
     });
     return Response.json(
       { error: "forbidden", message: "Admin access required." },
+      { status: 403 }
+    );
+  }
+
+  if (profile.is_frozen === true) {
+    logError("auth", {
+      error: "admin_frozen",
+      user_id: userData.user.id,
+    });
+    return Response.json(
+      { error: "admin_frozen", message: "Admin account is frozen." },
       { status: 403 }
     );
   }
