@@ -991,19 +991,31 @@ export const submitDepositFn = createServerFn({ method: "POST" })
 export const getUserDepositsFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => {
     if (!data || typeof data !== "object") throwSafe("DEPOSIT", "Unable to load deposits.", "Invalid request data");
-    const { userId } = data as Record<string, unknown>;
-    if (typeof userId !== "string" || !userId)
-      throwSafe("DEPOSIT", "Unable to load deposits.", "Missing user ID");
-    return { userId };
+    const { accessToken } = data as Record<string, unknown>;
+    if (typeof accessToken !== "string" || !accessToken)
+      throwSafe("DEPOSIT", "Unable to load deposits.", "Missing access token");
+    return { accessToken };
   })
   .handler(async ({ data }) => {
     const admin = getAdminClient();
+
+    // Derive the caller identity from the session access token — the
+    // client-supplied id is never trusted for selecting deposit rows
+    // (mirrors getAdminDepositsFn). The deposits query is then scoped to the
+    // authenticated user's own id only.
+    const {
+      data: { user: authUser },
+      error: authError,
+    } = await admin.auth.getUser(data.accessToken);
+    if (authError || !authUser)
+      throwSafe("DEPOSIT", "Unable to load deposits.", "Invalid or expired access token");
+
     const { data: deposits, error } = await admin
       .from("deposits")
       .select(
         "id, amount, status, transaction_reference, receipt_url, created_at, payment_method_id"
       )
-      .eq("user_id", data.userId)
+      .eq("user_id", authUser.id)
       .order("created_at", { ascending: false })
       .limit(50);
 
