@@ -19,6 +19,7 @@ import { getSafeErrorMessage } from "@/lib/errors.js";
 import { formatDateTime } from "@/lib/format.js";
 import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
+import { supabase } from "@/lib/supabase.js";
 import { getPaymentMethodsFn } from "@/lib/server/payment-methods.js";
 import { submitDepositFn, getUserDepositsFn } from "@/lib/server/deposits.js";
 import type { PaymentMethodType } from "@/lib/database.types.js";
@@ -70,11 +71,27 @@ function DepositPage() {
 
   useEffect(() => {
     if (!user?.id) return;
+    let cancelled = false;
     setLoadingHistory(true);
-    getUserDepositsFn({ data: { userId: user.id } })
-      .then(setDeposits)
-      .catch(() => {})
-      .finally(() => setLoadingHistory(false));
+    (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        if (!cancelled) setLoadingHistory(false);
+        return;
+      }
+      try {
+        const result = await getUserDepositsFn({ data: { accessToken } });
+        if (!cancelled) setDeposits(result);
+      } catch {
+        // ignore — history load failures are non-blocking
+      } finally {
+        if (!cancelled) setLoadingHistory(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [user?.id]);
 
   const resetForm = () => {
@@ -120,9 +137,16 @@ function DepositPage() {
 
       toast.success("Deposit submitted. It will be verified by admin shortly.");
       resetForm();
-      getUserDepositsFn({ data: { userId: user.id } })
-        .then(setDeposits)
-        .catch(() => {});
+      (async () => {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData?.session?.access_token;
+        if (!accessToken) return;
+        try {
+          setDeposits(await getUserDepositsFn({ data: { accessToken } }));
+        } catch {
+          // ignore — history refresh failures are non-blocking
+        }
+      })();
       fetchWallet(user.id);
     } catch (err) {
       toast.error(getSafeErrorMessage(err, "DEPOSIT").message);
