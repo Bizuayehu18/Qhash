@@ -14,12 +14,102 @@
 -- - net_amount = amount - fee_amount.
 -- - User-facing wording must not mention "admin".
 -- - withdrawal_processing_hours is display guidance only.
+--
+-- Important:
+-- This migration also creates public.withdrawals if it does not exist,
+-- because Netlify Database migration environment may not already have it.
 -- =========================================================
 
 begin;
 
 -- ---------------------------------------------------------
--- 1) Add fee columns to withdrawals table
+-- 0) Ensure required enum types exist
+-- ---------------------------------------------------------
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_type t
+    join pg_namespace n on n.oid = t.typnamespace
+    where n.nspname = 'public'
+      and t.typname = 'payment_method_type'
+  ) then
+    create type public.payment_method_type as enum ('cbe', 'telebirr');
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_type t
+    join pg_namespace n on n.oid = t.typnamespace
+    where n.nspname = 'public'
+      and t.typname = 'withdrawal_status'
+  ) then
+    create type public.withdrawal_status as enum ('pending', 'approved', 'rejected');
+  end if;
+end $$;
+
+-- ---------------------------------------------------------
+-- 1) Ensure withdrawals table exists
+-- ---------------------------------------------------------
+
+create table if not exists public.withdrawals (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  amount numeric not null check (amount > 0),
+  method public.payment_method_type not null,
+  account_name text not null,
+  account_number text not null,
+  status public.withdrawal_status not null default 'pending',
+  admin_note text,
+  reviewed_by uuid references public.profiles(id) on delete set null,
+  reviewed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_withdrawals_user_id
+  on public.withdrawals(user_id);
+
+create index if not exists idx_withdrawals_status
+  on public.withdrawals(status);
+
+create index if not exists idx_withdrawals_created_at
+  on public.withdrawals(created_at desc);
+
+-- ---------------------------------------------------------
+-- 2) Ensure updated_at trigger exists for withdrawals
+-- ---------------------------------------------------------
+
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_trigger
+    where tgname = 'set_withdrawals_updated_at'
+  ) then
+    create trigger set_withdrawals_updated_at
+    before update on public.withdrawals
+    for each row
+    execute function public.set_updated_at();
+  end if;
+end $$;
+
+-- ---------------------------------------------------------
+-- 3) Add fee columns to withdrawals table
 -- ---------------------------------------------------------
 
 alter table public.withdrawals
@@ -37,7 +127,7 @@ comment on column public.withdrawals.net_amount is
   'Net amount payable to the user after fee deduction.';
 
 -- ---------------------------------------------------------
--- 2) Ensure app settings exist
+-- 4) Ensure app settings exist
 -- ---------------------------------------------------------
 
 insert into public.app_settings (key, value)
@@ -49,7 +139,7 @@ values
 on conflict (key) do nothing;
 
 -- ---------------------------------------------------------
--- 3) User request withdrawal transaction
+-- 5) User request withdrawal transaction
 -- ---------------------------------------------------------
 
 create or replace function public.request_withdrawal_tx(
@@ -235,7 +325,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------
--- 4) Approve withdrawal transaction
+-- 6) Approve withdrawal transaction
 -- ---------------------------------------------------------
 
 create or replace function public.approve_withdrawal_tx(
@@ -330,7 +420,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------
--- 5) Reject withdrawal transaction
+-- 7) Reject withdrawal transaction
 -- ---------------------------------------------------------
 
 create or replace function public.reject_withdrawal_tx(
@@ -455,7 +545,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------
--- 6) Lock down function execution
+-- 8) Lock down function execution
 -- ---------------------------------------------------------
 
 revoke all on function public.request_withdrawal_tx(
