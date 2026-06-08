@@ -1,6 +1,15 @@
 -- =========================================================
 -- QHash Withdrawal Phase W2
--- Wallet-safe withdrawal RPC functions
+-- Netlify Database-compatible wallet-safe withdrawal RPCs
+--
+-- Important Netlify DB compatibility:
+-- - Existing Netlify migrations use TEXT user IDs:
+--   profiles.id text
+--   wallets.user_id text
+--   transactions.user_id text
+--   transactions.reference_id text
+-- - Therefore this migration uses text IDs for withdrawals
+--   and RPC parameters.
 --
 -- Design:
 -- - User request deducts wallet immediately.
@@ -14,10 +23,6 @@
 -- - net_amount = amount - fee_amount.
 -- - User-facing wording must not mention "admin".
 -- - withdrawal_processing_hours is display guidance only.
---
--- Important:
--- This migration also creates public.withdrawals if it does not exist,
--- because Netlify Database migration environment may not already have it.
 -- =========================================================
 
 begin;
@@ -58,17 +63,20 @@ end $$;
 
 create table if not exists public.withdrawals (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.profiles(id) on delete cascade,
+  user_id text not null,
   amount numeric not null check (amount > 0),
   method public.payment_method_type not null,
   account_name text not null,
   account_number text not null,
   status public.withdrawal_status not null default 'pending',
   admin_note text,
-  reviewed_by uuid references public.profiles(id) on delete set null,
+  reviewed_by text,
   reviewed_at timestamptz,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  fee_percent numeric not null default 5,
+  fee_amount numeric not null default 0,
+  net_amount numeric not null default 0
 );
 
 create index if not exists idx_withdrawals_user_id
@@ -109,7 +117,7 @@ begin
 end $$;
 
 -- ---------------------------------------------------------
--- 3) Add fee columns to withdrawals table
+-- 3) Ensure fee columns exist if withdrawals table existed already
 -- ---------------------------------------------------------
 
 alter table public.withdrawals
@@ -143,7 +151,7 @@ on conflict (key) do nothing;
 -- ---------------------------------------------------------
 
 create or replace function public.request_withdrawal_tx(
-  p_user_id uuid,
+  p_user_id text,
   p_amount numeric,
   p_method public.payment_method_type,
   p_account_name text,
@@ -165,7 +173,7 @@ declare
   v_withdrawals_paused boolean := false;
   v_raw_setting text;
 begin
-  if p_user_id is null then
+  if p_user_id is null or length(trim(p_user_id)) = 0 then
     raise exception 'missing_user_id';
   end if;
 
@@ -300,7 +308,7 @@ begin
     'withdrawal',
     p_amount,
     'pending',
-    v_withdrawal_id,
+    v_withdrawal_id::text,
     v_wallet.balance,
     v_wallet.balance - p_amount
   );
@@ -329,7 +337,7 @@ $$;
 -- ---------------------------------------------------------
 
 create or replace function public.approve_withdrawal_tx(
-  p_admin_id uuid,
+  p_admin_id text,
   p_withdrawal_id uuid,
   p_admin_note text default null
 )
@@ -343,7 +351,7 @@ declare
   v_withdrawal record;
   v_payable_amount numeric := 0;
 begin
-  if p_admin_id is null or p_withdrawal_id is null then
+  if p_admin_id is null or length(trim(p_admin_id)) = 0 or p_withdrawal_id is null then
     raise exception 'missing_required_id';
   end if;
 
@@ -392,7 +400,7 @@ begin
   update public.transactions
   set status = 'completed'
   where type = 'withdrawal'
-    and reference_id = p_withdrawal_id
+    and reference_id = p_withdrawal_id::text
     and status = 'pending';
 
   insert into public.notifications (
@@ -424,7 +432,7 @@ $$;
 -- ---------------------------------------------------------
 
 create or replace function public.reject_withdrawal_tx(
-  p_admin_id uuid,
+  p_admin_id text,
   p_withdrawal_id uuid,
   p_admin_note text default null
 )
@@ -438,7 +446,7 @@ declare
   v_withdrawal record;
   v_wallet record;
 begin
-  if p_admin_id is null or p_withdrawal_id is null then
+  if p_admin_id is null or length(trim(p_admin_id)) = 0 or p_withdrawal_id is null then
     raise exception 'missing_required_id';
   end if;
 
@@ -497,7 +505,7 @@ begin
   update public.transactions
   set status = 'failed'
   where type = 'withdrawal'
-    and reference_id = p_withdrawal_id
+    and reference_id = p_withdrawal_id::text
     and status = 'pending';
 
   -- Record refund as admin adjustment for auditability.
@@ -515,7 +523,7 @@ begin
     'admin_adjustment',
     v_withdrawal.amount,
     'completed',
-    p_withdrawal_id,
+    p_withdrawal_id::text,
     v_wallet.balance,
     v_wallet.balance + v_withdrawal.amount
   );
@@ -549,7 +557,7 @@ $$;
 -- ---------------------------------------------------------
 
 revoke all on function public.request_withdrawal_tx(
-  uuid,
+  text,
   numeric,
   public.payment_method_type,
   text,
@@ -557,19 +565,19 @@ revoke all on function public.request_withdrawal_tx(
 ) from public, anon, authenticated;
 
 revoke all on function public.approve_withdrawal_tx(
-  uuid,
+  text,
   uuid,
   text
 ) from public, anon, authenticated;
 
 revoke all on function public.reject_withdrawal_tx(
-  uuid,
+  text,
   uuid,
   text
 ) from public, anon, authenticated;
 
 grant execute on function public.request_withdrawal_tx(
-  uuid,
+  text,
   numeric,
   public.payment_method_type,
   text,
@@ -577,13 +585,13 @@ grant execute on function public.request_withdrawal_tx(
 ) to service_role;
 
 grant execute on function public.approve_withdrawal_tx(
-  uuid,
+  text,
   uuid,
   text
 ) to service_role;
 
 grant execute on function public.reject_withdrawal_tx(
-  uuid,
+  text,
   uuid,
   text
 ) to service_role;
