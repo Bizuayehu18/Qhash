@@ -209,13 +209,13 @@ export const submitDepositFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => {
     if (!data || typeof data !== "object") throwSafe("DEPOSIT", "Unable to process deposit. Please try again.", "Invalid request data");
     const {
-      userId,
+      accessToken,
       amount,
       paymentMethodId,
       transactionReference,
     } = data as Record<string, unknown>;
-    if (typeof userId !== "string" || !userId)
-      throwSafe("DEPOSIT", "Unable to process deposit. Please try again.", "Missing user ID");
+    if (typeof accessToken !== "string" || !accessToken)
+      throwSafe("DEPOSIT", "Unable to submit deposit.", "Missing access token");
     if (typeof paymentMethodId !== "string" || !paymentMethodId)
       throwSafe("DEPOSIT", "Please select a payment method.", "Missing payment method ID");
     if (typeof transactionReference !== "string" || !transactionReference.trim())
@@ -228,7 +228,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
       throwSafe("DEPOSIT", "Minimum deposit is 100 ETB.", "Amount below minimum: " + parsedAmount);
 
     return {
-      userId,
+      accessToken,
       amount: !isNaN(parsedAmount) && parsedAmount > 0 ? parsedAmount : 0,
       paymentMethodId,
       transactionReference: transactionReference.trim(),
@@ -237,8 +237,28 @@ export const submitDepositFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const admin = getAdminClient();
 
+    // Derive the depositor identity from the session access token. Deposit
+    // submission must never trust a client-passed user id.
+    const {
+      data: { user: authUser },
+      error: authError,
+    } = await admin.auth.getUser(data.accessToken);
+    if (authError || !authUser)
+      throwSafe("DEPOSIT", "Unable to submit deposit.", "Invalid or expired access token");
+
+    const authUserId = authUser.id;
+
+    // Reject frozen or unavailable accounts before inserting a deposit row.
+    const { data: profile, error: profileError } = await admin
+      .from("profiles")
+      .select("is_frozen")
+      .eq("id", authUserId)
+      .single();
+    if (profileError || !profile || profile.is_frozen === true)
+      throwSafe("DEPOSIT", "Unable to submit deposit.", "Account is frozen or unavailable");
+
     log("deposit_submit_started", {
-      userId: data.userId,
+      userId: authUserId,
       paymentMethodId: data.paymentMethodId,
       transactionReferenceLast4: maskTransactionReference(data.transactionReference),
       amount: data.amount,
@@ -290,7 +310,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
     const { data: deposit, error } = await admin
       .from("deposits")
       .insert({
-        user_id: data.userId,
+        user_id: authUserId,
         amount: data.amount,
         payment_method_id: data.paymentMethodId,
         transaction_reference: data.transactionReference,
@@ -346,7 +366,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
       // or alters the deposit decision.
       const auditBase = {
         deposit_id: deposit.id,
-        user_id: data.userId,
+        user_id: authUserId,
         payment_type: "cbe" as const,
         tx_ref_last4: data.transactionReference,
         actor_type: "system" as const,
@@ -357,7 +377,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
       try {
         const result = await verifyCBEDeposit({
           depositId: deposit.id,
-          userId: data.userId,
+          userId: authUserId,
           transactionReference: data.transactionReference,
           paymentMethodId: data.paymentMethodId,
           admin,
@@ -504,7 +524,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                 const { error: notifError } = await admin
                   .from("notifications")
                   .insert({
-                    user_id: data.userId,
+                    user_id: authUserId,
                     title: "Deposit Rejected",
                     message: `Your deposit of ${deposit.amount} ETB was rejected. Please check the details and submit again.`,
                     metadata: {
@@ -899,7 +919,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                 const { error: notifError } = await admin
                   .from("notifications")
                   .insert({
-                    user_id: data.userId,
+                    user_id: authUserId,
                     title: "Deposit Approved",
                     message: `Your deposit of ${result.amount} ETB has been approved and credited to your wallet.`,
                     metadata: {
