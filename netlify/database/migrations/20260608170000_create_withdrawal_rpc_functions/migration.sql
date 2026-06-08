@@ -553,8 +553,18 @@ end;
 $$;
 
 -- ---------------------------------------------------------
--- 8) Lock down function execution
 -- ---------------------------------------------------------
+-- 8) Function execution permissions
+-- ---------------------------------------------------------
+--
+-- Do not reference Supabase-only roles here.
+-- Netlify Database migration environments may not have:
+-- - anon
+-- - authenticated
+-- - service_role
+--
+-- Production Supabase permissions were already applied manually.
+-- This migration must remain portable for Netlify Database builds.
 
 revoke all on function public.request_withdrawal_tx(
   text,
@@ -562,38 +572,18 @@ revoke all on function public.request_withdrawal_tx(
   public.payment_method_type,
   text,
   text
-) from public, anon, authenticated;
+) from public;
 
 revoke all on function public.approve_withdrawal_tx(
   text,
   uuid,
   text
-) from public, anon, authenticated;
+) from public;
 
 revoke all on function public.reject_withdrawal_tx(
   text,
   uuid,
   text
-) from public, anon, authenticated;
-
-grant execute on function public.request_withdrawal_tx(
-  text,
-  numeric,
-  public.payment_method_type,
-  text,
-  text
-) to service_role;
-
-grant execute on function public.approve_withdrawal_tx(
-  text,
-  uuid,
-  text
-) to service_role;
-
-grant execute on function public.reject_withdrawal_tx(
-  text,
-  uuid,
-  text
-) to service_role;
+) from public;
 
 commit;
