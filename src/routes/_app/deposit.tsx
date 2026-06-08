@@ -124,11 +124,18 @@ function DepositPage() {
       return;
     }
 
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (!accessToken) {
+      toast.error("Session expired. Please sign in again.");
+      return;
+    }
+
     setSubmitting(true);
     try {
       await submitDepositFn({
         data: {
-          userId: user.id,
+          accessToken,
           amount: numAmount,
           paymentMethodId: selectedMethod.id,
           transactionReference: ref,
