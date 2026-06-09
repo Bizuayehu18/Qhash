@@ -22,8 +22,6 @@ import {
   Clock,
   AlertTriangle,
   ScrollText,
-  Archive,
-  ArchiveRestore,
 } from "lucide-react";
 import { toast } from "sonner";
 import { getSafeErrorMessage } from "@/lib/errors.js";
@@ -35,10 +33,14 @@ import {
   getPaymentMethodsFn,
   createPaymentMethodFn,
   updatePaymentMethodFn,
-  archivePaymentMethodFn,
 } from "@/lib/server/payment-methods.js";
 import { getAdminDepositsFn } from "@/lib/server/deposits.js";
 import { getDepositVerificationLogsFn } from "@/lib/server/deposit-audit-logs.js";
+import {
+  getAdminWithdrawalsFn,
+  approveWithdrawalFn,
+  rejectWithdrawalFn,
+} from "@/lib/server/withdrawals.js";
 import type { PaymentMethodType } from "@/lib/database.types.js";
 
 export const Route = createFileRoute("/_app/admin")({
@@ -49,20 +51,14 @@ type AdminStats = Awaited<ReturnType<typeof getAdminStatsFn>>;
 type AdminDeposit = Awaited<ReturnType<typeof getAdminDepositsFn>>[number];
 type PaymentMethod = Awaited<ReturnType<typeof getPaymentMethodsFn>>[number];
 type AuditLog = Awaited<ReturnType<typeof getDepositVerificationLogsFn>>[number];
+type AdminWithdrawal = Awaited<ReturnType<typeof getAdminWithdrawalsFn>>[number];
 
 const METHOD_LABELS: Record<string, string> = { cbe: "CBE", telebirr: "TeleBirr" };
-
-// Mirror of the server-side CBE last-8 derivation, for a read-only preview only.
-// The authoritative value is always derived on the backend from account_number.
-function cbeLast8Preview(accountNumber: string): string | null {
-  const digits = accountNumber.replace(/\D/g, "");
-  return digits.length >= 8 ? digits.slice(-8) : null;
-}
 
 function AdminPage() {
   const { user, profile } = useAuthStore();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<"overview" | "deposits" | "payment-methods" | "audit">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "deposits" | "withdrawals" | "payment-methods" | "audit">("overview");
 
   useEffect(() => {
     if (profile && !profile.is_admin) navigate({ to: "/dashboard" });
@@ -86,6 +82,7 @@ function AdminPage() {
         {([
           { key: "overview", label: "Overview" },
           { key: "deposits", label: "Deposits" },
+          { key: "withdrawals", label: "Withdrawals" },
           { key: "payment-methods", label: "Payments" },
           { key: "audit", label: "Verification Audit" },
         ] as const).map((tab) => (
@@ -105,6 +102,7 @@ function AdminPage() {
 
       {activeTab === "overview" && <OverviewTab userId={user?.id} />}
       {activeTab === "deposits" && <DepositsTab userId={user?.id} />}
+      {activeTab === "withdrawals" && <WithdrawalsTab userId={user?.id} />}
       {activeTab === "payment-methods" && <PaymentMethodsTab userId={user?.id} />}
       {activeTab === "audit" && <AuditLogsTab userId={user?.id} />}
     </div>
@@ -118,29 +116,10 @@ function OverviewTab({ userId }: { userId: string | undefined }) {
   useEffect(() => {
     if (!userId) return;
     setLoading(true);
-    let cancelled = false;
-    (async () => {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-      if (!accessToken) {
-        if (!cancelled) {
-          toast.error("Session expired. Please sign in again.");
-          setLoading(false);
-        }
-        return;
-      }
-      try {
-        const data = await getAdminStatsFn({ data: { accessToken } });
-        if (!cancelled) setStats(data);
-      } catch {
-        if (!cancelled) toast.error("Failed to load admin stats");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    getAdminStatsFn({ data: { userId } })
+      .then(setStats)
+      .catch(() => toast.error("Failed to load admin stats"))
+      .finally(() => setLoading(false));
   }, [userId]);
 
   return (
@@ -255,23 +234,10 @@ function DepositsTab({ userId }: { userId: string | undefined }) {
   const loadDeposits = () => {
     if (!userId) return;
     setLoading(true);
-    (async () => {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-      if (!accessToken) {
-        toast.error("Session expired. Please sign in again.");
-        setLoading(false);
-        return;
-      }
-      try {
-        const data = await getAdminDepositsFn({ data: { accessToken, statusFilter: filter } });
-        setDeposits(data);
-      } catch {
-        toast.error("Failed to load deposits");
-      } finally {
-        setLoading(false);
-      }
-    })();
+    getAdminDepositsFn({ data: { userId, statusFilter: filter } })
+      .then(setDeposits)
+      .catch(() => toast.error("Failed to load deposits"))
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => { loadDeposits(); }, [userId, filter]);
@@ -422,66 +388,326 @@ function DepositsTab({ userId }: { userId: string | undefined }) {
   );
 }
 
-function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
-  const [methods, setMethods] = useState<PaymentMethod[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [archiveFilter, setArchiveFilter] = useState<"visible" | "archived" | "all">("visible");
-  const [showAdd, setShowAdd] = useState(false);
-  const [newType, setNewType] = useState<PaymentMethodType>("cbe");
-  const [newName, setNewName] = useState("");
-  const [newNumber, setNewNumber] = useState("");
-  const [newInstructions, setNewInstructions] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [togglingId, setTogglingId] = useState<string | null>(null);
-  const [archivingId, setArchivingId] = useState<string | null>(null);
-  const [editingMethod, setEditingMethod] = useState<PaymentMethod | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editNumber, setEditNumber] = useState("");
-  const [editInstructions, setEditInstructions] = useState("");
-  const [editSaving, setEditSaving] = useState(false);
 
-  const loadMethods = () => {
+function WithdrawalsTab({ userId }: { userId: string | undefined }) {
+  const [withdrawals, setWithdrawals] = useState<AdminWithdrawal[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<"all" | "pending" | "approved" | "rejected">("pending");
+  const [selectedWithdrawal, setSelectedWithdrawal] = useState<AdminWithdrawal | null>(null);
+  const [adminNote, setAdminNote] = useState("");
+  const [actionLoading, setActionLoading] = useState(false);
+
+  const loadWithdrawals = () => {
     if (!userId) return;
+
     setLoading(true);
+
     (async () => {
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData?.session?.access_token;
+
       if (!accessToken) {
         toast.error("Session expired. Please sign in again.");
         setLoading(false);
         return;
       }
-      getPaymentMethodsFn({ data: { activeOnly: false, accessToken, archiveFilter } })
-        .then((m) => setMethods(m as PaymentMethod[]))
-        .catch(() => toast.error("Failed to load payment methods"))
-        .finally(() => setLoading(false));
+
+      try {
+        const rows = await getAdminWithdrawalsFn({
+          data: {
+            accessToken,
+            statusFilter: filter,
+          },
+        });
+        setWithdrawals(rows);
+      } catch (err) {
+        toast.error(getSafeErrorMessage(err, "ADMIN").message);
+      } finally {
+        setLoading(false);
+      }
     })();
   };
 
-  useEffect(() => { loadMethods(); }, [userId, archiveFilter]);
+  useEffect(() => { loadWithdrawals(); }, [userId, filter]);
+
+  const handleReview = async (withdrawalId: string, action: "approve" | "reject") => {
+    if (actionLoading) return;
+
+    const confirmed = window.confirm(
+      action === "approve"
+        ? "Approve this withdrawal request?"
+        : "Reject this withdrawal request and refund the full amount to the user wallet?",
+    );
+
+    if (!confirmed) return;
+
+    setActionLoading(true);
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+
+      if (!accessToken) {
+        throw new Error("Session expired. Please sign in again.");
+      }
+
+      if (action === "approve") {
+        await approveWithdrawalFn({
+          data: {
+            accessToken,
+            withdrawalId,
+            adminNote: adminNote.trim() || null,
+          },
+        });
+        toast.success("Withdrawal approved.");
+      } else {
+        await rejectWithdrawalFn({
+          data: {
+            accessToken,
+            withdrawalId,
+            adminNote: adminNote.trim() || null,
+          },
+        });
+        toast.success("Withdrawal rejected and refunded.");
+      }
+
+      setSelectedWithdrawal(null);
+      setAdminNote("");
+      loadWithdrawals();
+    } catch (err) {
+      toast.error(getSafeErrorMessage(err, "ADMIN").message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => toast.success("Copied!"));
+  };
+
+  const pendingCount = withdrawals.filter((w) => w.status === "pending").length;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2 overflow-x-auto hide-scrollbar -mx-4 px-4 pb-1">
+        {(["all", "pending", "approved", "rejected"] as const).map((f) => (
+          <button
+            key={f}
+            onClick={() => { setFilter(f); setSelectedWithdrawal(null); setAdminNote(""); }}
+            className={`shrink-0 px-3 py-1.5 rounded-full text-[11px] border transition-colors card-press ${
+              filter === f
+                ? "bg-[rgba(0,255,65,0.08)] text-[#00ff41] border-[rgba(0,255,65,0.3)]"
+                : "text-gray-500 border-[#1f1f1f]"
+            }`}
+          >
+            {f === "all" ? "All" : f.charAt(0).toUpperCase() + f.slice(1)}
+            {f === "pending" && pendingCount > 0 && (
+              <span className="ml-1 text-[9px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded-full">
+                {pendingCount}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {selectedWithdrawal && (
+        <WithdrawalDetailPanel
+          withdrawal={selectedWithdrawal}
+          adminNote={adminNote}
+          setAdminNote={setAdminNote}
+          actionLoading={actionLoading}
+          onReview={handleReview}
+          onClose={() => { setSelectedWithdrawal(null); setAdminNote(""); }}
+          onCopy={copyToClipboard}
+        />
+      )}
+
+      {loading ? (
+        <div className="space-y-2">{[1, 2, 3].map((i) => <div key={i} className="skeleton h-16 rounded-xl" />)}</div>
+      ) : withdrawals.length === 0 ? (
+        <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-8 text-center text-xs text-gray-600">No withdrawals found.</div>
+      ) : (
+        <div className="bg-[#111] rounded-xl border border-[#1a1a1a] divide-y divide-[#1a1a1a]">
+          {withdrawals.map((w) => (
+            <button
+              key={w.id}
+              onClick={() => { setSelectedWithdrawal(w); setAdminNote(w.admin_note ?? ""); }}
+              className="w-full text-left px-4 py-3 card-press"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-xs font-medium text-gray-200 truncate">@{w.username}</p>
+                    {w.status === "pending" && <Clock size={10} className="text-yellow-400" />}
+                  </div>
+                  <p className="text-[10px] text-gray-600">{w.phone || "No phone"}</p>
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    {METHOD_LABELS[w.method] ?? w.method} &middot; {w.account_name} &middot; {w.account_last4 ? `****${w.account_last4}` : "No account"}
+                  </p>
+                </div>
+                <div className="text-right shrink-0 space-y-1">
+                  <p className="text-xs text-red-400 font-mono">{formatEtb(w.amount)}</p>
+                  <WithdrawalStatusBadge status={w.status} />
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WithdrawalDetailPanel({
+  withdrawal,
+  adminNote,
+  setAdminNote,
+  actionLoading,
+  onReview,
+  onClose,
+  onCopy,
+}: {
+  withdrawal: AdminWithdrawal;
+  adminNote: string;
+  setAdminNote: (v: string) => void;
+  actionLoading: boolean;
+  onReview: (id: string, action: "approve" | "reject") => void;
+  onClose: () => void;
+  onCopy: (text: string) => void;
+}) {
+  return (
+    <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold">Withdrawal Details</span>
+        <button onClick={onClose} className="text-[10px] text-gray-500">Close</button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 text-xs">
+        <DetailRow label="User" value={`@${withdrawal.username}`} />
+        <DetailRow label="Phone" value={withdrawal.phone || "—"} />
+        <DetailRow label="Amount" value={formatEtb(withdrawal.amount)} highlight />
+        <DetailRow label="Net payout" value={formatEtb(withdrawal.net_amount ?? 0)} highlight />
+        <DetailRow label="Fee" value={formatEtb(withdrawal.fee_amount ?? 0)} />
+        <DetailRow label="Method" value={METHOD_LABELS[withdrawal.method] ?? withdrawal.method} />
+        <DetailRow label="Account Name" value={withdrawal.account_name} />
+        <DetailRow label="Status" value={withdrawal.status} />
+        <div className="col-span-2">
+          <span className="text-gray-500 text-[10px] block mb-1">Account Number</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-200 font-mono break-all">{withdrawal.account_number || "—"}</span>
+            {withdrawal.account_number && (
+              <button
+                onClick={() => onCopy(withdrawal.account_number)}
+                className="p-1 rounded text-gray-600 hover:text-gray-300 transition-colors shrink-0"
+              >
+                <Copy size={11} />
+              </button>
+            )}
+          </div>
+        </div>
+        <DetailRow label="Requested" value={formatDateTime(withdrawal.created_at)} />
+        <DetailRow label="Reviewed" value={withdrawal.reviewed_at ? formatDateTime(withdrawal.reviewed_at) : "—"} />
+      </div>
+
+      {withdrawal.admin_note && withdrawal.status !== "pending" && (
+        <div className="text-[11px] text-gray-500">
+          <span className="text-gray-600">Note:</span> {withdrawal.admin_note}
+        </div>
+      )}
+
+      {withdrawal.status === "pending" && (
+        <div className="pt-3 border-t border-[#1f1f1f] space-y-3">
+          <Input
+            label="Review Note (optional)"
+            placeholder="e.g. Paid to customer account"
+            value={adminNote}
+            onChange={(e) => setAdminNote(e.target.value)}
+          />
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              loading={actionLoading}
+              onClick={() => onReview(withdrawal.id, "approve")}
+              className="flex-1"
+            >
+              <CheckCircle size={13} /> Approve
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              loading={actionLoading}
+              onClick={() => onReview(withdrawal.id, "reject")}
+              className="flex-1"
+            >
+              <XCircle size={13} /> Reject
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WithdrawalStatusBadge({ status }: { status: string }) {
+  const statusConfig: Record<string, { label: string; variant: "success" | "warning" | "danger" | "default" }> = {
+    approved: { label: "Approved", variant: "success" },
+    pending: { label: "Pending", variant: "warning" },
+    rejected: { label: "Rejected", variant: "danger" },
+  };
+  const sc = statusConfig[status] ?? { label: status, variant: "default" as const };
+  return <Badge variant={sc.variant}>{sc.label}</Badge>;
+}
+
+function formatEtb(value: number): string {
+  return `${Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ETB`;
+}
+
+function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
+  const [methods, setMethods] = useState<PaymentMethod[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newType, setNewType] = useState<PaymentMethodType>("cbe");
+  const [newName, setNewName] = useState("");
+  const [newNumber, setNewNumber] = useState("");
+  const [newInstructions, setNewInstructions] = useState("");
+  const [newLast8, setNewLast8] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [editingMethod, setEditingMethod] = useState<PaymentMethod | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editNumber, setEditNumber] = useState("");
+  const [editInstructions, setEditInstructions] = useState("");
+  const [editLast8, setEditLast8] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+
+  const loadMethods = () => {
+    if (!userId) return;
+    setLoading(true);
+    getPaymentMethodsFn({ data: { activeOnly: false } })
+      .then((m) => setMethods(m as PaymentMethod[]))
+      .catch(() => toast.error("Failed to load payment methods"))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { loadMethods(); }, [userId]);
 
   const handleAdd = async () => {
     if (!userId || !newName.trim() || !newNumber.trim()) return;
     setSaving(true);
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-      if (!accessToken) {
-        toast.error("Session expired. Please sign in again.");
-        return;
-      }
       await createPaymentMethodFn({
         data: {
-          accessToken,
+          userId,
           type: newType,
           accountName: newName.trim(),
           accountNumber: newNumber.trim(),
           instructions: newInstructions.trim() || null,
+          accountLast8: newLast8.trim() || null,
         },
       });
       toast.success("Payment method created.");
       setShowAdd(false);
-      setNewName(""); setNewNumber(""); setNewInstructions("");
+      setNewName(""); setNewNumber(""); setNewInstructions(""); setNewLast8("");
       loadMethods();
     } catch (err) {
       toast.error(getSafeErrorMessage(err, "PAYMENT").message);
@@ -495,25 +721,21 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
     setEditName(m.account_name);
     setEditNumber(m.account_number);
     setEditInstructions(m.instructions ?? "");
+    setEditLast8((m as PaymentMethod & { account_last_8?: string }).account_last_8 ?? "");
   };
 
   const handleEdit = async () => {
     if (!userId || !editingMethod || !editName.trim() || !editNumber.trim()) return;
     setEditSaving(true);
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-      if (!accessToken) {
-        toast.error("Session expired. Please sign in again.");
-        return;
-      }
       await updatePaymentMethodFn({
         data: {
-          accessToken,
+          userId,
           methodId: editingMethod.id,
           accountName: editName.trim(),
           accountNumber: editNumber.trim(),
           instructions: editInstructions.trim() || null,
+          accountLast8: editLast8.trim() || null,
         },
       });
       toast.success("Payment method updated.");
@@ -530,43 +752,13 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
     if (!userId) return;
     setTogglingId(method.id);
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-      if (!accessToken) {
-        toast.error("Session expired. Please sign in again.");
-        return;
-      }
-      await updatePaymentMethodFn({ data: { accessToken, methodId: method.id, isActive: !method.is_active } });
+      await updatePaymentMethodFn({ data: { userId, methodId: method.id, isActive: !method.is_active } });
       toast.success(method.is_active ? "Disabled." : "Enabled.");
       loadMethods();
     } catch {
       toast.error("Failed to update.");
     } finally {
       setTogglingId(null);
-    }
-  };
-
-  const handleArchive = async (method: PaymentMethod, archived: boolean) => {
-    if (!userId) return;
-    const confirmMessage = archived
-      ? "Archive this payment method? It will be hidden from the default list and disabled, but deposit history will remain."
-      : "Unarchive this payment method? It will return to the visible list but will remain inactive until enabled.";
-    if (!window.confirm(confirmMessage)) return;
-    setArchivingId(method.id);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-      if (!accessToken) {
-        toast.error("Session expired. Please sign in again.");
-        return;
-      }
-      await archivePaymentMethodFn({ data: { accessToken, methodId: method.id, archived } });
-      toast.success(archived ? "Archived." : "Unarchived.");
-      loadMethods();
-    } catch (err) {
-      toast.error(getSafeErrorMessage(err, "PAYMENT").message);
-    } finally {
-      setArchivingId(null);
     }
   };
 
@@ -577,27 +769,6 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
         <Button size="sm" onClick={() => setShowAdd(!showAdd)}>
           <Plus size={13} /> Add
         </Button>
-      </div>
-
-      {/* Archive filter */}
-      <div className="flex gap-2 overflow-x-auto hide-scrollbar -mx-4 px-4 pb-1">
-        {([
-          { key: "visible", label: "Visible" },
-          { key: "archived", label: "Archived" },
-          { key: "all", label: "All" },
-        ] as const).map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setArchiveFilter(f.key)}
-            className={`shrink-0 px-3 py-1.5 rounded-full text-[11px] border transition-colors card-press ${
-              archiveFilter === f.key
-                ? "bg-[rgba(0,255,65,0.08)] text-[#00ff41] border-[rgba(0,255,65,0.3)]"
-                : "text-gray-500 border-[#1f1f1f]"
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
       </div>
 
       {showAdd && (
@@ -619,14 +790,13 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
           </div>
           <Input label="Account Name" placeholder="e.g. QHash Trading PLC" value={newName} onChange={(e) => setNewName(e.target.value)} />
           <Input label="Account Number" placeholder="e.g. 1000123456789" value={newNumber} onChange={(e) => setNewNumber(e.target.value)} />
-          {newType === "cbe" && (
-            <p className="text-[10px] text-gray-500 leading-relaxed -mt-1">
-              CBE receiver last 8 digits will be derived automatically from the account number.
-              {cbeLast8Preview(newNumber) && (
-                <> Derived last8: <span className="font-mono text-gray-400">{cbeLast8Preview(newNumber)}</span></>
-              )}
-            </p>
-          )}
+          <Input
+            label="Last 8 Digits of Receiver"
+            placeholder="e.g. 23456789"
+            value={newLast8}
+            onChange={(e) => setNewLast8(e.target.value)}
+            hint="Used for CBE receipt URL generation"
+          />
           <Input label="Instructions (optional)" placeholder="e.g. Use username as remark" value={newInstructions} onChange={(e) => setNewInstructions(e.target.value)} />
           <div className="flex gap-2">
             <Button size="sm" loading={saving} disabled={!newName.trim() || !newNumber.trim()} onClick={handleAdd}>Create</Button>
@@ -643,14 +813,13 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
           </div>
           <Input label="Account Name" value={editName} onChange={(e) => setEditName(e.target.value)} />
           <Input label="Account Number" value={editNumber} onChange={(e) => setEditNumber(e.target.value)} />
-          {editingMethod.type === "cbe" && (
-            <p className="text-[10px] text-gray-500 leading-relaxed -mt-1">
-              CBE receiver last 8 digits will be derived automatically from the account number.
-              {cbeLast8Preview(editNumber) && (
-                <> Derived last8: <span className="font-mono text-gray-400">{cbeLast8Preview(editNumber)}</span></>
-              )}
-            </p>
-          )}
+          <Input
+            label="Last 8 Digits of Receiver"
+            placeholder="e.g. 23456789"
+            value={editLast8}
+            onChange={(e) => setEditLast8(e.target.value)}
+            hint="Used for CBE receipt URL generation"
+          />
           <Input label="Instructions (optional)" value={editInstructions} onChange={(e) => setEditInstructions(e.target.value)} />
           <Button size="sm" loading={editSaving} disabled={!editName.trim() || !editNumber.trim()} onClick={handleEdit}>Save Changes</Button>
         </div>
@@ -665,13 +834,7 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
           {methods.map((m) => (
             <div
               key={m.id}
-              className={`flex items-center gap-3 bg-[#111] rounded-xl border p-3 ${
-                m.is_archived
-                  ? "border-dashed border-[#2a2a2a] opacity-60"
-                  : m.is_active
-                    ? "border-[#1a1a1a]"
-                    : "border-[#1a1a1a] opacity-50"
-              }`}
+              className={`flex items-center gap-3 bg-[#111] rounded-xl border p-3 ${m.is_active ? "border-[#1a1a1a]" : "border-[#1a1a1a] opacity-50"}`}
             >
               <span className="text-gray-500">
                 {m.type === "cbe" ? <Building2 size={16} /> : <Smartphone size={16} />}
@@ -679,52 +842,25 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-medium text-gray-200 truncate">{m.account_name}</span>
-                  {m.is_archived ? (
-                    <Badge variant="default">Archived</Badge>
-                  ) : (
-                    <Badge variant={m.is_active ? "neon" : "default"}>{m.is_active ? "Active" : "Off"}</Badge>
-                  )}
+                  <Badge variant={m.is_active ? "neon" : "default"}>{m.is_active ? "Active" : "Off"}</Badge>
                 </div>
                 <p className="text-[10px] text-gray-500 font-mono mt-0.5">{METHOD_LABELS[m.type]} — {m.account_number}</p>
               </div>
-              {m.is_archived ? (
-                <button
-                  onClick={() => handleArchive(m, false)}
-                  disabled={archivingId === m.id}
-                  title="Unarchive"
-                  className="p-2 rounded-lg text-gray-600 hover:text-[#00ff41] transition-colors card-press"
-                >
-                  {archivingId === m.id ? <Spinner size="sm" /> : <ArchiveRestore size={14} />}
-                </button>
-              ) : (
-                <>
-                  <button
-                    onClick={() => startEdit(m)}
-                    title="Edit"
-                    className="p-2 rounded-lg text-gray-600 hover:text-gray-300 transition-colors card-press"
-                  >
-                    <Pencil size={13} />
-                  </button>
-                  <button
-                    onClick={() => toggleActive(m)}
-                    disabled={togglingId === m.id}
-                    title={m.is_active ? "Disable" : "Enable"}
-                    className={`p-2 rounded-lg transition-colors card-press ${
-                      m.is_active ? "text-gray-500 hover:text-red-400" : "text-gray-600 hover:text-[#00ff41]"
-                    }`}
-                  >
-                    {togglingId === m.id ? <Spinner size="sm" /> : <Power size={14} />}
-                  </button>
-                  <button
-                    onClick={() => handleArchive(m, true)}
-                    disabled={archivingId === m.id}
-                    title="Archive"
-                    className="p-2 rounded-lg text-gray-600 hover:text-amber-400 transition-colors card-press"
-                  >
-                    {archivingId === m.id ? <Spinner size="sm" /> : <Archive size={14} />}
-                  </button>
-                </>
-              )}
+              <button
+                onClick={() => startEdit(m)}
+                className="p-2 rounded-lg text-gray-600 hover:text-gray-300 transition-colors card-press"
+              >
+                <Pencil size={13} />
+              </button>
+              <button
+                onClick={() => toggleActive(m)}
+                disabled={togglingId === m.id}
+                className={`p-2 rounded-lg transition-colors card-press ${
+                  m.is_active ? "text-gray-500 hover:text-red-400" : "text-gray-600 hover:text-[#00ff41]"
+                }`}
+              >
+                {togglingId === m.id ? <Spinner size="sm" /> : <Power size={14} />}
+              </button>
             </div>
           ))}
         </div>
@@ -749,35 +885,16 @@ function AuditLogsTab({ userId }: { userId: string | undefined }) {
   useEffect(() => {
     if (!userId) return;
     setLoading(true);
-    let cancelled = false;
-    (async () => {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-      if (!accessToken) {
-        if (!cancelled) {
-          toast.error("Session expired. Please sign in again.");
-          setLoading(false);
-        }
-        return;
-      }
-      try {
-        const rows = await getDepositVerificationLogsFn({
-          data: {
-            accessToken,
-            paymentType: paymentType === "all" ? undefined : paymentType,
-            limit: AUDIT_LIMIT,
-          },
-        });
-        if (!cancelled) setLogs(rows);
-      } catch {
-        if (!cancelled) toast.error("Failed to load audit logs");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    getDepositVerificationLogsFn({
+      data: {
+        userId,
+        paymentType: paymentType === "all" ? undefined : paymentType,
+        limit: AUDIT_LIMIT,
+      },
+    })
+      .then(setLogs)
+      .catch(() => toast.error("Failed to load audit logs"))
+      .finally(() => setLoading(false));
   }, [userId, paymentType]);
 
   const actionConfig: Record<string, { variant: "success" | "warning" | "danger" | "default" }> = {
