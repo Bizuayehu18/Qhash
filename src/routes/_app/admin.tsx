@@ -761,14 +761,22 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
     if (!userId || !newName.trim() || !newNumber.trim()) return;
     setSaving(true);
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+
+      if (!accessToken) {
+        toast.error("Session expired. Please sign in again.");
+        setSaving(false);
+        return;
+      }
+
       await createPaymentMethodFn({
         data: {
-          userId,
+          accessToken,
           type: newType,
           accountName: newName.trim(),
           accountNumber: newNumber.trim(),
           instructions: newInstructions.trim() || null,
-          accountLast8: newLast8.trim() || null,
         },
       });
       toast.success("Payment method created.");
@@ -794,14 +802,22 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
     if (!userId || !editingMethod || !editName.trim() || !editNumber.trim()) return;
     setEditSaving(true);
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+
+      if (!accessToken) {
+        toast.error("Session expired. Please sign in again.");
+        setEditSaving(false);
+        return;
+      }
+
       await updatePaymentMethodFn({
         data: {
-          userId,
+          accessToken,
           methodId: editingMethod.id,
           accountName: editName.trim(),
           accountNumber: editNumber.trim(),
           instructions: editInstructions.trim() || null,
-          accountLast8: editLast8.trim() || null,
         },
       });
       toast.success("Payment method updated.");
@@ -818,11 +834,20 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
     if (!userId) return;
     setTogglingId(method.id);
     try {
-      await updatePaymentMethodFn({ data: { userId, methodId: method.id, isActive: !method.is_active } });
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+
+      if (!accessToken) {
+        toast.error("Session expired. Please sign in again.");
+        setTogglingId(null);
+        return;
+      }
+
+      await updatePaymentMethodFn({ data: { accessToken, methodId: method.id, isActive: !method.is_active } });
       toast.success(method.is_active ? "Disabled." : "Enabled.");
       loadMethods();
-    } catch {
-      toast.error("Failed to update.");
+    } catch (err) {
+      toast.error(getSafeErrorMessage(err, "PAYMENT").message);
     } finally {
       setTogglingId(null);
     }
@@ -950,17 +975,35 @@ function AuditLogsTab({ userId }: { userId: string | undefined }) {
 
   useEffect(() => {
     if (!userId) return;
+
     setLoading(true);
-    getDepositVerificationLogsFn({
-      data: {
-        userId,
-        paymentType: paymentType === "all" ? undefined : paymentType,
-        limit: AUDIT_LIMIT,
-      },
-    })
-      .then(setLogs)
-      .catch(() => toast.error("Failed to load audit logs"))
-      .finally(() => setLoading(false));
+
+    (async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData?.session?.access_token;
+
+        if (!accessToken) {
+          toast.error("Session expired. Please sign in again.");
+          setLoading(false);
+          return;
+        }
+
+        const rows = await getDepositVerificationLogsFn({
+          data: {
+            accessToken,
+            paymentType: paymentType === "all" ? undefined : paymentType,
+            limit: AUDIT_LIMIT,
+          },
+        });
+
+        setLogs(rows);
+      } catch (err) {
+        toast.error(getSafeErrorMessage(err, "ADMIN").message);
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, [userId, paymentType]);
 
   const actionConfig: Record<string, { variant: "success" | "warning" | "danger" | "default" }> = {
