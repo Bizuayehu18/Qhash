@@ -3,28 +3,73 @@ import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
 import { Spinner } from "@/components/ui/Spinner.js";
-import { ArrowUpCircle, Info } from "lucide-react";
-import { useState, useEffect } from "react";
+import {
+  ArrowUpCircle,
+  Building2,
+  CheckCircle,
+  Clock,
+  Info,
+  Smartphone,
+  XCircle,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { getSafeErrorMessage } from "@/lib/errors.js";
+import { supabase } from "@/lib/supabase.js";
+import { submitWithdrawalFn, getUserWithdrawalsFn } from "@/lib/server/withdrawals.js";
 import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
-import { supabase } from "@/lib/supabase.js";
-import { getTransactionsFn } from "@/lib/server/transactions.js";
 
 export const Route = createFileRoute("/_app/withdraw")({
   component: WithdrawPage,
 });
 
-type Transaction = Awaited<ReturnType<typeof getTransactionsFn>>[number];
+type WithdrawalMethod = "cbe" | "telebirr";
+type UserWithdrawal = Awaited<ReturnType<typeof getUserWithdrawalsFn>>[number];
+
+const MIN_WITHDRAWAL_AMOUNT = 200;
+const WITHDRAWAL_FEE_PERCENT = 5;
+
+const METHOD_LABELS: Record<WithdrawalMethod, string> = {
+  cbe: "CBE",
+  telebirr: "TeleBirr",
+};
+
+const METHOD_ICONS: Record<WithdrawalMethod, React.ReactNode> = {
+  cbe: <Building2 size={14} />,
+  telebirr: <Smartphone size={14} />,
+};
 
 function WithdrawPage() {
   const { user } = useAuthStore();
-  const [amount, setAmount] = useState("");
-  const [address, setAddress] = useState("");
   const walletBalance = useWalletStore((s) => s.balance);
   const loadingBalance = useWalletStore((s) => s.loading);
   const fetchWallet = useWalletStore((s) => s.fetchWallet);
-  const [withdrawals, setWithdrawals] = useState<Transaction[]>([]);
+
+  const [amount, setAmount] = useState("");
+  const [method, setMethod] = useState<WithdrawalMethod>("cbe");
+  const [accountName, setAccountName] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [withdrawals, setWithdrawals] = useState<UserWithdrawal[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
+
+  const parsedAmount = useMemo(() => {
+    const value = Number(amount);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  }, [amount]);
+
+  const feeAmount = useMemo(
+    () => (parsedAmount > 0 ? (parsedAmount * WITHDRAWAL_FEE_PERCENT) / 100 : 0),
+    [parsedAmount],
+  );
+
+  const netAmount = useMemo(
+    () => Math.max(parsedAmount - feeAmount, 0),
+    [parsedAmount, feeAmount],
+  );
+
+  const hasEnoughBalance = walletBalance === null || parsedAmount <= walletBalance;
 
   useEffect(() => {
     if (user?.id && walletBalance === null) {
@@ -32,60 +77,170 @@ function WithdrawPage() {
     }
   }, [user?.id, walletBalance, fetchWallet]);
 
-  useEffect(() => {
-    if (!user?.id) return;
+  const loadWithdrawals = useCallback(async () => {
+    if (!user?.id) {
+      setWithdrawals([]);
+      setLoadingHistory(false);
+      return;
+    }
+
     setLoadingHistory(true);
-    (async () => {
+
+    try {
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData?.session?.access_token;
+
       if (!accessToken) {
         setWithdrawals([]);
         return;
       }
-      const rows = await getTransactionsFn({ data: { accessToken, type: "withdrawal" } });
+
+      const rows = await getUserWithdrawalsFn({ data: { accessToken } });
       setWithdrawals(rows);
-    })()
-      .catch((err) => {
-        console.error("Failed to load withdrawal history:", err);
-      })
-      .finally(() => setLoadingHistory(false));
+    } catch (err) {
+      console.error("[QHash] Failed to load withdrawal history:", err);
+      toast.error(getSafeErrorMessage(err, "WITHDRAWAL").message);
+    } finally {
+      setLoadingHistory(false);
+    }
   }, [user?.id]);
+
+  useEffect(() => {
+    void loadWithdrawals();
+  }, [loadWithdrawals]);
+
+  const resetForm = () => {
+    setAmount("");
+    setMethod("cbe");
+    setAccountName("");
+    setAccountNumber("");
+  };
+
+  const handleSubmit = async () => {
+    if (submitting) return;
+
+    const trimmedAccountName = accountName.trim();
+    const trimmedAccountNumber = accountNumber.trim();
+
+    if (!user?.id) {
+      toast.error("Please log in again.");
+      return;
+    }
+
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      toast.error("Please enter a valid withdrawal amount.");
+      return;
+    }
+
+    if (parsedAmount < MIN_WITHDRAWAL_AMOUNT) {
+      toast.error(`Minimum withdrawal amount is ${MIN_WITHDRAWAL_AMOUNT} ETB.`);
+      return;
+    }
+
+    if (!hasEnoughBalance) {
+      toast.error("Insufficient wallet balance.");
+      return;
+    }
+
+    if (trimmedAccountName.length < 2) {
+      toast.error("Please enter a valid account name.");
+      return;
+    }
+
+    if (trimmedAccountNumber.length < 5) {
+      toast.error("Please enter a valid account number.");
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+
+      if (!accessToken) {
+        toast.error("Your session has expired. Please log in again.");
+        return;
+      }
+
+      await submitWithdrawalFn({
+        data: {
+          accessToken,
+          amount: parsedAmount,
+          method,
+          accountName: trimmedAccountName,
+          accountNumber: trimmedAccountNumber,
+        },
+      });
+
+      toast.success("Withdrawal request submitted.");
+      resetForm();
+      await Promise.all([
+        loadWithdrawals(),
+        fetchWallet(user.id),
+      ]);
+    } catch (err) {
+      console.error("[QHash] Withdrawal submit failed:", err);
+      toast.error(getSafeErrorMessage(err, "WITHDRAWAL").message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-lg font-bold">Withdraw</h1>
-        <p className="text-xs text-gray-500 mt-1">Request a withdrawal</p>
+        <p className="text-xs text-gray-500 mt-1">Request a withdrawal to your CBE or TeleBirr account</p>
       </div>
 
-      {/* Coming soon notice */}
       <div className="bg-[rgba(0,255,65,0.04)] rounded-xl border border-[rgba(0,255,65,0.2)] p-4 flex gap-2.5">
         <Info size={15} className="text-[#00ff41] shrink-0 mt-0.5" />
         <div>
-          <p className="text-xs font-semibold text-[#00ff41]">Coming soon</p>
+          <p className="text-xs font-semibold text-[#00ff41]">Withdrawals are processed within 24 hours.</p>
           <p className="text-[11px] text-gray-400 mt-0.5">
-            Withdrawals are coming soon. This feature is not available yet.
+            Minimum withdrawal is {MIN_WITHDRAWAL_AMOUNT} ETB. A {WITHDRAWAL_FEE_PERCENT}% withdrawal fee applies.
           </p>
         </div>
       </div>
 
-      {/* Balance */}
       <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-4 flex items-center justify-between">
         <span className="text-xs text-gray-500">Available Balance</span>
         {loadingBalance ? (
           <Spinner size="sm" />
         ) : (
           <span className="text-sm font-bold text-[#00ff41]">
-            {walletBalance?.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "0.00"} ETB
+            {formatMoney(walletBalance ?? 0)} ETB
           </span>
         )}
       </div>
 
-      {/* Withdraw form */}
-      <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4 space-y-4 opacity-60">
+      <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4 space-y-4">
         <div className="flex items-center gap-2 mb-1">
           <ArrowUpCircle size={14} className="text-[#00ff41]" />
           <span className="text-xs font-semibold">Withdrawal Request</span>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium text-gray-300">Withdrawal Method</label>
+          <div className="grid grid-cols-2 gap-2 mt-2">
+            {(["cbe", "telebirr"] as WithdrawalMethod[]).map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setMethod(value)}
+                className={[
+                  "h-10 rounded-lg border text-sm flex items-center justify-center gap-2 transition-all",
+                  method === value
+                    ? "border-[rgba(0,255,65,0.55)] bg-[rgba(0,255,65,0.08)] text-[#00ff41]"
+                    : "border-[#2a2a2a] bg-[#0b0b0b] text-gray-400 hover:border-[#3a3a3a]",
+                ].join(" ")}
+              >
+                {METHOD_ICONS[value]}
+                {METHOD_LABELS[value]}
+              </button>
+            ))}
+          </div>
         </div>
 
         <Input
@@ -94,35 +249,81 @@ function WithdrawPage() {
           placeholder="0.00"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
-          min="500"
+          min={MIN_WITHDRAWAL_AMOUNT}
           step="0.01"
-          disabled
+          inputMode="decimal"
         />
+
         <Input
-          label="Bank Account / Mobile Money"
+          label={method === "cbe" ? "CBE Account Name" : "TeleBirr Account Name"}
           type="text"
-          placeholder="Enter your receiving account"
-          value={address}
-          onChange={(e) => setAddress(e.target.value)}
-          disabled
+          placeholder="Enter account holder name"
+          value={accountName}
+          onChange={(e) => setAccountName(e.target.value)}
         />
+
+        <Input
+          label={method === "cbe" ? "CBE Account Number" : "TeleBirr Phone Number"}
+          type="text"
+          placeholder={method === "cbe" ? "Enter CBE account number" : "Enter TeleBirr phone number"}
+          value={accountNumber}
+          onChange={(e) => setAccountNumber(e.target.value)}
+        />
+
+        {parsedAmount > 0 && (
+          <div className="rounded-xl border border-[#1a1a1a] bg-[#0b0b0b] p-3 space-y-2">
+            <SummaryRow label="Withdrawal amount" value={`${formatMoney(parsedAmount)} ETB`} />
+            <SummaryRow label={`${WITHDRAWAL_FEE_PERCENT}% fee`} value={`${formatMoney(feeAmount)} ETB`} />
+            <div className="border-t border-[#1a1a1a] pt-2">
+              <SummaryRow label="You will receive" value={`${formatMoney(netAmount)} ETB`} highlight />
+            </div>
+          </div>
+        )}
+
+        {!hasEnoughBalance && (
+          <div className="p-3 rounded-xl bg-red-500/5 border border-red-500/20 text-[11px] text-red-400">
+            Insufficient wallet balance for this withdrawal amount.
+          </div>
+        )}
 
         <div className="p-3 rounded-xl bg-[rgba(0,255,65,0.04)] border border-[rgba(0,255,65,0.1)] flex gap-2 text-[11px] text-gray-400">
           <Info size={13} className="text-[#00ff41] shrink-0 mt-0.5" />
-          Withdrawals are processed within 24 hours. Minimum 500 ETB. 2% fee applies.
+          <span>Withdrawals are processed within 24 hours.</span>
         </div>
 
-        <Button fullWidth disabled>
-          Coming Soon
+        <Button
+          fullWidth
+          loading={submitting}
+          disabled={
+            submitting ||
+            parsedAmount < MIN_WITHDRAWAL_AMOUNT ||
+            !hasEnoughBalance ||
+            accountName.trim().length < 2 ||
+            accountNumber.trim().length < 5
+          }
+          onClick={handleSubmit}
+        >
+          Submit Withdrawal
         </Button>
       </div>
 
-      {/* History */}
       <div>
-        <h2 className="text-sm font-semibold mb-3">Withdrawal History</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold">Withdrawal History</h2>
+          {!loadingHistory && withdrawals.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void loadWithdrawals()}
+              className="text-[11px] text-[#00ff41] hover:underline"
+            >
+              Refresh
+            </button>
+          )}
+        </div>
+
         {loadingHistory ? (
           <div className="space-y-2">
-            {[1, 2, 3].map((i) => <div key={i} className="skeleton h-14 rounded-xl" />)}
+            {[1, 2, 3].map((i) => <div key={i} className="skeleton h-16 rounded-xl" />)}
           </div>
         ) : withdrawals.length === 0 ? (
           <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-8 text-center text-xs text-gray-600">
@@ -130,17 +331,45 @@ function WithdrawPage() {
           </div>
         ) : (
           <div className="bg-[#111] rounded-xl border border-[#1a1a1a] divide-y divide-[#1a1a1a]">
-            {withdrawals.map((tx) => (
-              <div key={tx.id} className="flex items-center justify-between px-4 py-3">
-                <div>
-                  <span className="text-xs font-mono text-red-400">
-                    -{Math.abs(tx.amount).toLocaleString("en-US", { minimumFractionDigits: 2 })} ETB
-                  </span>
-                  <p className="text-[10px] text-gray-600 mt-0.5">
-                    {new Date(tx.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                  </p>
+            {withdrawals.map((withdrawal) => (
+              <div key={withdrawal.id} className="px-4 py-3 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <span className="text-xs font-mono text-red-400">
+                      -{formatMoney(withdrawal.amount)} ETB
+                    </span>
+                    <p className="text-[10px] text-gray-600 mt-0.5">
+                      {formatDate(withdrawal.created_at)}
+                    </p>
+                  </div>
+                  <WithdrawalStatusBadge status={withdrawal.status} />
                 </div>
-                <TxStatusBadge status={tx.status} />
+
+                <div className="grid grid-cols-2 gap-2 text-[10px] text-gray-500">
+                  <div>
+                    <span className="text-gray-600">Method</span>
+                    <p className="text-gray-400">{METHOD_LABELS[withdrawal.method] ?? withdrawal.method}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Account</span>
+                    <p className="text-gray-400">
+                      {withdrawal.account_name}
+                      {withdrawal.account_last4 ? ` • ${withdrawal.account_last4}` : ""}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Fee</span>
+                    <p className="text-gray-400">
+                      {formatMoney(withdrawal.fee_amount ?? 0)} ETB
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Net</span>
+                    <p className="text-gray-400">
+                      {formatMoney(withdrawal.net_amount ?? Math.max(withdrawal.amount - (withdrawal.fee_amount ?? 0), 0))} ETB
+                    </p>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -150,12 +379,74 @@ function WithdrawPage() {
   );
 }
 
-function TxStatusBadge({ status }: { status: string }) {
-  const config: Record<string, { label: string; variant: "success" | "warning" | "danger" | "default" }> = {
-    completed: { label: "Completed", variant: "success" },
-    pending: { label: "Pending", variant: "warning" },
-    failed: { label: "Failed", variant: "danger" },
+function SummaryRow({
+  label,
+  value,
+  highlight = false,
+}: {
+  label: string;
+  value: string;
+  highlight?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between text-xs">
+      <span className="text-gray-500">{label}</span>
+      <span className={highlight ? "font-semibold text-[#00ff41]" : "text-gray-300"}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function WithdrawalStatusBadge({ status }: { status: string }) {
+  const config: Record<string, {
+    label: string;
+    variant: "success" | "warning" | "danger" | "default";
+    icon: React.ReactNode;
+  }> = {
+    approved: {
+      label: "Approved",
+      variant: "success",
+      icon: <CheckCircle size={12} />,
+    },
+    pending: {
+      label: "Pending",
+      variant: "warning",
+      icon: <Clock size={12} />,
+    },
+    rejected: {
+      label: "Rejected",
+      variant: "danger",
+      icon: <XCircle size={12} />,
+    },
   };
-  const { label, variant } = config[status] ?? { label: status, variant: "default" as const };
-  return <Badge variant={variant}>{label}</Badge>;
+
+  const item = config[status] ?? {
+    label: status,
+    variant: "default" as const,
+    icon: <Clock size={12} />,
+  };
+
+  return (
+    <Badge variant={item.variant} className="gap-1">
+      {item.icon}
+      {item.label}
+    </Badge>
+  );
+}
+
+function formatMoney(value: number): string {
+  return Number(value || 0).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatDate(value: string | null): string {
+  if (!value) return "";
+  return new Date(value).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
