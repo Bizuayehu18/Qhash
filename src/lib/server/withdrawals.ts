@@ -347,3 +347,389 @@ export const getUserWithdrawalsFn = createServerFn({ method: "POST" })
       );
     }
   });
+
+type AdminWithdrawalStatusFilter = "all" | "pending" | "approved" | "rejected";
+
+type AdminWithdrawalInput = {
+  accessToken: string;
+  statusFilter?: AdminWithdrawalStatusFilter;
+};
+
+type AdminWithdrawalActionInput = {
+  accessToken: string;
+  withdrawalId: string;
+  adminNote: string | null;
+};
+
+type AdminWithdrawalRow = {
+  id: string;
+  user_id: string;
+  amount: number;
+  method: WithdrawalMethod;
+  account_name: string;
+  account_number: string | null;
+  status: WithdrawalStatus;
+  created_at: string;
+  reviewed_at: string | null;
+  updated_at: string;
+  fee_percent: number | null;
+  fee_amount: number | null;
+  net_amount: number | null;
+  admin_note: string | null;
+};
+
+type AdminWithdrawalProfile = {
+  id: string;
+  username: string | null;
+  phone: string | null;
+};
+
+type AdminWithdrawalSafeRow = {
+  id: string;
+  user_id: string;
+  username: string;
+  phone: string;
+  amount: number;
+  method: WithdrawalMethod;
+  account_name: string;
+  account_number: string;
+  account_last4: string;
+  status: WithdrawalStatus;
+  created_at: string;
+  reviewed_at: string | null;
+  updated_at: string;
+  fee_percent: number | null;
+  fee_amount: number | null;
+  net_amount: number | null;
+  admin_note: string | null;
+};
+
+type WithdrawalActionRpcArgs = {
+  p_admin_id: string;
+  p_withdrawal_id: string;
+  p_admin_note: string | null;
+};
+
+type WithdrawalActionRpcResult = {
+  success?: boolean;
+  withdrawal_id?: string;
+  status?: WithdrawalStatus | string;
+  amount?: number;
+  fee_amount?: number;
+  net_amount?: number;
+  balance_before?: number;
+  balance_after?: number;
+  refunded_amount?: number;
+  [key: string]: unknown;
+};
+
+type ApproveWithdrawalRpcClient = {
+  rpc(
+    fn: "approve_withdrawal_tx",
+    args: WithdrawalActionRpcArgs,
+  ): Promise<{
+    data: WithdrawalActionRpcResult | null;
+    error: DbError | null;
+  }>;
+};
+
+type RejectWithdrawalRpcClient = {
+  rpc(
+    fn: "reject_withdrawal_tx",
+    args: WithdrawalActionRpcArgs,
+  ): Promise<{
+    data: WithdrawalActionRpcResult | null;
+    error: DbError | null;
+  }>;
+};
+
+function validateAdminWithdrawalsInput(data: unknown): AdminWithdrawalInput {
+  if (!data || typeof data !== "object") {
+    throwSafe("ADMIN", "Failed to load withdrawals.", "Invalid request data");
+  }
+
+  const { accessToken, statusFilter } = data as Record<string, unknown>;
+
+  if (typeof accessToken !== "string" || accessToken.trim().length === 0) {
+    throwSafe("ADMIN", "Unauthorized.", "Missing access token");
+  }
+
+  const normalizedStatus =
+    typeof statusFilter === "string" ? statusFilter : "all";
+
+  if (
+    normalizedStatus !== "all" &&
+    normalizedStatus !== "pending" &&
+    normalizedStatus !== "approved" &&
+    normalizedStatus !== "rejected"
+  ) {
+    throwSafe("ADMIN", "Failed to load withdrawals.", `Invalid withdrawal status filter: ${normalizedStatus}`);
+  }
+
+  return {
+    accessToken: accessToken.trim(),
+    statusFilter: normalizedStatus,
+  };
+}
+
+function validateAdminWithdrawalActionInput(data: unknown): AdminWithdrawalActionInput {
+  if (!data || typeof data !== "object") {
+    throwSafe("ADMIN", "Withdrawal review failed.", "Invalid request data");
+  }
+
+  const { accessToken, withdrawalId, adminNote } = data as Record<string, unknown>;
+
+  if (typeof accessToken !== "string" || accessToken.trim().length === 0) {
+    throwSafe("ADMIN", "Unauthorized.", "Missing access token");
+  }
+
+  if (typeof withdrawalId !== "string" || withdrawalId.trim().length === 0) {
+    throwSafe("ADMIN", "Withdrawal review failed.", "Missing withdrawal id");
+  }
+
+  return {
+    accessToken: accessToken.trim(),
+    withdrawalId: withdrawalId.trim(),
+    adminNote: typeof adminNote === "string" && adminNote.trim().length > 0
+      ? adminNote.trim()
+      : null,
+  };
+}
+
+async function requireActiveAdmin(accessToken: string): Promise<string> {
+  const admin = getAdminClient();
+
+  const {
+    data: { user: authUser },
+    error: authError,
+  } = await admin.auth.getUser(accessToken);
+
+  if (authError || !authUser) {
+    throwSafe("ADMIN", "Unauthorized.", "Invalid or expired access token");
+  }
+
+  const { data: profile, error: profileError } = await admin
+    .from("profiles")
+    .select("id, is_admin, is_frozen")
+    .eq("id", authUser.id)
+    .single();
+
+  if (profileError || !profile || profile.is_admin !== true || profile.is_frozen === true) {
+    throwSafe("ADMIN", "Unauthorized.", "Non-admin or frozen admin attempted withdrawal access");
+  }
+
+  return authUser.id;
+}
+
+export const getAdminWithdrawalsFn = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => validateAdminWithdrawalsInput(data))
+  .handler(async ({ data }) => {
+    const admin = getAdminClient();
+    await requireActiveAdmin(data.accessToken);
+
+    try {
+      let query = (admin as any)
+        .from("withdrawals")
+        .select(
+          [
+            "id",
+            "user_id",
+            "amount",
+            "method",
+            "account_name",
+            "account_number",
+            "status",
+            "created_at",
+            "reviewed_at",
+            "updated_at",
+            "fee_percent",
+            "fee_amount",
+            "net_amount",
+            "admin_note",
+          ].join(", "),
+        )
+        .order("created_at", { ascending: false })
+        .limit(100);
+
+      if (data.statusFilter && data.statusFilter !== "all") {
+        query = query.eq("status", data.statusFilter);
+      }
+
+      const { data: rows, error } = await query;
+
+      if (error) {
+        console.error(
+          "[QHash] Admin withdrawal list DB error:",
+          JSON.stringify({ error: safeDbMessage(error) }),
+        );
+
+        throwSafe(
+          "ADMIN",
+          "Failed to load withdrawals.",
+          `Admin withdrawal list query failed: ${safeDbMessage(error)}`,
+        );
+      }
+
+      const withdrawals = (rows ?? []) as AdminWithdrawalRow[];
+      const userIds = [...new Set(withdrawals.map((row) => row.user_id))];
+
+      let profiles: AdminWithdrawalProfile[] = [];
+
+      if (userIds.length > 0) {
+        const { data: profileRows, error: profileError } = await (admin as any)
+          .from("profiles")
+          .select("id, username, phone")
+          .in("id", userIds);
+
+        if (profileError) {
+          console.error(
+            "[QHash] Admin withdrawal profiles DB error:",
+            JSON.stringify({ error: safeDbMessage(profileError) }),
+          );
+        } else {
+          profiles = (profileRows ?? []) as AdminWithdrawalProfile[];
+        }
+      }
+
+      return withdrawals.map((row): AdminWithdrawalSafeRow => {
+        const profile = profiles.find((p) => p.id === row.user_id);
+
+        return {
+          id: row.id,
+          user_id: row.user_id,
+          username: profile?.username ?? "Unknown",
+          phone: profile?.phone ?? "",
+          amount: row.amount,
+          method: row.method,
+          account_name: row.account_name,
+          account_number: row.account_number ?? "",
+          account_last4: maskLast4(row.account_number),
+          status: row.status,
+          created_at: row.created_at,
+          reviewed_at: row.reviewed_at,
+          updated_at: row.updated_at,
+          fee_percent: row.fee_percent ?? null,
+          fee_amount: row.fee_amount ?? null,
+          net_amount: row.net_amount ?? null,
+          admin_note: row.admin_note ?? null,
+        };
+      });
+    } catch (err) {
+      console.error(
+        "[QHash] Admin withdrawal list error:",
+        JSON.stringify({
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+
+      throwSafe(
+        "ADMIN",
+        "Failed to load withdrawals.",
+        `Admin withdrawal list failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  });
+
+export const approveWithdrawalFn = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => validateAdminWithdrawalActionInput(data))
+  .handler(async ({ data }) => {
+    const admin = getAdminClient();
+    const adminId = await requireActiveAdmin(data.accessToken);
+
+    try {
+      const { data: result, error } = await (admin as unknown as ApproveWithdrawalRpcClient).rpc(
+        "approve_withdrawal_tx",
+        {
+          p_admin_id: adminId,
+          p_withdrawal_id: data.withdrawalId,
+          p_admin_note: data.adminNote,
+        },
+      );
+
+      if (error) {
+        console.error(
+          "[QHash] Approve withdrawal RPC error:",
+          JSON.stringify({
+            admin_id: adminId,
+            withdrawal_id: data.withdrawalId,
+            error: safeDbMessage(error),
+          }),
+        );
+
+        throwSafe(
+          "ADMIN",
+          "Withdrawal approval failed.",
+          `approve_withdrawal_tx failed: ${safeDbMessage(error)}`,
+        );
+      }
+
+      return result ?? { success: false };
+    } catch (err) {
+      console.error(
+        "[QHash] Approve withdrawal error:",
+        JSON.stringify({
+          admin_id: adminId,
+          withdrawal_id: data.withdrawalId,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+
+      throwSafe(
+        "ADMIN",
+        "Withdrawal approval failed.",
+        `Withdrawal approval failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  });
+
+export const rejectWithdrawalFn = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => validateAdminWithdrawalActionInput(data))
+  .handler(async ({ data }) => {
+    const admin = getAdminClient();
+    const adminId = await requireActiveAdmin(data.accessToken);
+
+    try {
+      const { data: result, error } = await (admin as unknown as RejectWithdrawalRpcClient).rpc(
+        "reject_withdrawal_tx",
+        {
+          p_admin_id: adminId,
+          p_withdrawal_id: data.withdrawalId,
+          p_admin_note: data.adminNote,
+        },
+      );
+
+      if (error) {
+        console.error(
+          "[QHash] Reject withdrawal RPC error:",
+          JSON.stringify({
+            admin_id: adminId,
+            withdrawal_id: data.withdrawalId,
+            error: safeDbMessage(error),
+          }),
+        );
+
+        throwSafe(
+          "ADMIN",
+          "Withdrawal rejection failed.",
+          `reject_withdrawal_tx failed: ${safeDbMessage(error)}`,
+        );
+      }
+
+      return result ?? { success: false };
+    } catch (err) {
+      console.error(
+        "[QHash] Reject withdrawal error:",
+        JSON.stringify({
+          admin_id: adminId,
+          withdrawal_id: data.withdrawalId,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+
+      throwSafe(
+        "ADMIN",
+        "Withdrawal rejection failed.",
+        `Withdrawal rejection failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  });
