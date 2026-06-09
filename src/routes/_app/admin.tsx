@@ -256,10 +256,32 @@ function DepositsTab({ userId }: { userId: string | undefined }) {
   const loadDeposits = () => {
     if (!userId) return;
     setLoading(true);
-    getAdminDepositsFn({ data: { userId, statusFilter: filter } })
-      .then(setDeposits)
-      .catch(() => toast.error("Failed to load deposits"))
-      .finally(() => setLoading(false));
+
+    (async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData?.session?.access_token;
+
+        if (!accessToken) {
+          toast.error("Session expired. Please sign in again.");
+          setLoading(false);
+          return;
+        }
+
+        const rows = await getAdminDepositsFn({
+          data: {
+            accessToken,
+            statusFilter: filter,
+          },
+        });
+
+        setDeposits(rows);
+      } catch (err) {
+        toast.error(getSafeErrorMessage(err, "ADMIN").message);
+      } finally {
+        setLoading(false);
+      }
+    })();
   };
 
   useEffect(() => { loadDeposits(); }, [userId, filter]);
@@ -705,10 +727,32 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
   const loadMethods = () => {
     if (!userId) return;
     setLoading(true);
-    getPaymentMethodsFn({ data: { activeOnly: false } })
-      .then((m) => setMethods(m as PaymentMethod[]))
-      .catch(() => toast.error("Failed to load payment methods"))
-      .finally(() => setLoading(false));
+
+    (async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData?.session?.access_token;
+
+        if (!accessToken) {
+          toast.error("Session expired. Please sign in again.");
+          setLoading(false);
+          return;
+        }
+
+        const rows = await getPaymentMethodsFn({
+          data: {
+            activeOnly: false,
+            accessToken,
+          },
+        });
+
+        setMethods(rows as PaymentMethod[]);
+      } catch (err) {
+        toast.error(getSafeErrorMessage(err, "PAYMENT").message);
+      } finally {
+        setLoading(false);
+      }
+    })();
   };
 
   useEffect(() => { loadMethods(); }, [userId]);
