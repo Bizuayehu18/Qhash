@@ -29,6 +29,65 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
   deposit_approved: <CheckCircle size={14} className="text-emerald-400" />,
   deposit_rejected: <XCircle size={14} className="text-red-400" />,
   deposit_review: <Eye size={14} className="text-amber-400" />,
+  withdrawal_approved: <CheckCircle size={14} className="text-emerald-400" />,
+  withdrawal_rejected: <XCircle size={14} className="text-red-400" />,
+};
+
+const getNotificationType = (notification: Notification) => {
+  const metadataType = (notification.metadata as Record<string, unknown> | null)
+    ?.type;
+
+  if (typeof metadataType === "string") {
+    return metadataType;
+  }
+
+  const normalizedTitle = notification.title.trim().toLowerCase();
+
+  if (normalizedTitle === "withdrawal approved") {
+    return "withdrawal_approved";
+  }
+
+  if (normalizedTitle === "withdrawal rejected") {
+    return "withdrawal_rejected";
+  }
+
+  return undefined;
+};
+
+const getNotificationTitle = (
+  notification: Notification,
+  notificationType?: string,
+) => {
+  if (notificationType === "withdrawal_approved") {
+    return "Withdrawal Approved";
+  }
+
+  if (notificationType === "withdrawal_rejected") {
+    return "Withdrawal Rejected";
+  }
+
+  return notification.title;
+};
+
+const getNotificationMessage = (
+  notification: Notification,
+  notificationType?: string,
+) => {
+  if (notificationType === "withdrawal_approved") {
+    return notification.message.replace(
+      "Your withdrawal request has been approved.",
+      "Your withdrawal has been approved.",
+    );
+  }
+
+  if (notificationType === "withdrawal_rejected") {
+    return notification.message.replace(
+      "Your withdrawal request was rejected and the full amount was returned to your wallet.",
+      "Your withdrawal request was rejected. The full amount was returned to your wallet.",
+    );
+  }
+
+  return notification.message;
 };
 
 function NotificationsPage() {
@@ -88,13 +147,16 @@ function NotificationsPage() {
         <div>
           <h1 className="text-lg font-bold">Notifications</h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            {unreadCount > 0
-              ? `${unreadCount} unread`
-              : "All caught up"}
+            {unreadCount > 0 ? `${unreadCount} unread` : "All caught up"}
           </p>
         </div>
         {unreadCount > 0 && (
-          <Button variant="ghost" size="sm" loading={markingAll} onClick={handleMarkAllRead}>
+          <Button
+            variant="ghost"
+            size="sm"
+            loading={markingAll}
+            onClick={handleMarkAllRead}
+          >
             <CheckCheck size={13} />
             <span className="text-[11px]">Read all</span>
           </Button>
@@ -103,7 +165,9 @@ function NotificationsPage() {
 
       {loading ? (
         <div className="space-y-2">
-          {[1, 2, 3].map((i) => <div key={i} className="skeleton h-16 rounded-xl" />)}
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="skeleton h-16 rounded-xl" />
+          ))}
         </div>
       ) : notifications.length === 0 ? (
         <div className="text-center py-16">
@@ -112,26 +176,44 @@ function NotificationsPage() {
         </div>
       ) : (
         <div className="bg-[#111] rounded-xl border border-[#1a1a1a] divide-y divide-[#1a1a1a]">
-          {notifications.map((n) => (
-            <div
-              key={n.id}
-              className={`flex gap-3 px-4 py-3 ${!n.is_read ? "bg-[rgba(0,255,65,0.02)]" : ""}`}
-            >
-              <div className="h-8 w-8 rounded-full bg-white/5 flex items-center justify-center shrink-0 mt-0.5">
-                {TYPE_ICONS[(n.metadata as Record<string, unknown>)?.type as string] ?? <Bell size={14} className="text-gray-500" />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-gray-200">{n.title}</span>
-                  {!n.is_read && <span className="h-1.5 w-1.5 rounded-full bg-[#00ff41]" />}
+          {notifications.map((n) => {
+            const notificationType = getNotificationType(n);
+
+            return (
+              <div
+                key={n.id}
+                className={`flex gap-3 px-4 py-3 ${
+                  !n.is_read ? "bg-[rgba(0,255,65,0.02)]" : ""
+                }`}
+              >
+                <div className="h-8 w-8 rounded-full bg-white/5 flex items-center justify-center shrink-0 mt-0.5">
+                  {notificationType ? (
+                    TYPE_ICONS[notificationType] ?? (
+                      <Bell size={14} className="text-gray-500" />
+                    )
+                  ) : (
+                    <Bell size={14} className="text-gray-500" />
+                  )}
                 </div>
-                <p className="text-[11px] text-gray-500 mt-0.5">{n.message}</p>
-                <p className="text-[10px] text-gray-700 mt-1">
-                  {formatDateTime(n.created_at)}
-                </p>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-gray-200">
+                      {getNotificationTitle(n, notificationType)}
+                    </span>
+                    {!n.is_read && (
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#00ff41]" />
+                    )}
+                  </div>
+                  <p className="text-[11px] text-gray-500 mt-0.5">
+                    {getNotificationMessage(n, notificationType)}
+                  </p>
+                  <p className="text-[10px] text-gray-700 mt-1">
+                    {formatDateTime(n.created_at)}
+                  </p>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
