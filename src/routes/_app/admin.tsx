@@ -637,7 +637,10 @@ function WithdrawalDetailPanel({
         <DetailRow label="Fee" value={formatEtb(withdrawal.fee_amount ?? 0)} />
         <DetailRow label="Method" value={METHOD_LABELS[withdrawal.method] ?? withdrawal.method} />
         <DetailRow label="Account Name" value={withdrawal.account_name} />
-        <DetailRow label="Status" value={withdrawal.status} />
+        <div>
+          <span className="text-gray-500 text-[10px] block mb-1">Status</span>
+          <WithdrawalStatusBadge status={withdrawal.status} />
+        </div>
         <div className="col-span-2">
           <span className="text-gray-500 text-[10px] block mb-1">Account Number</span>
           <div className="flex items-center gap-2">
