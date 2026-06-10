@@ -22,6 +22,8 @@ import {
   Clock,
   AlertTriangle,
   ScrollText,
+  Archive,
+  ArchiveRestore,
 } from "lucide-react";
 import { toast } from "sonner";
 import { getSafeErrorMessage } from "@/lib/errors.js";
@@ -33,6 +35,7 @@ import {
   getPaymentMethodsFn,
   createPaymentMethodFn,
   updatePaymentMethodFn,
+  archivePaymentMethodFn,
 } from "@/lib/server/payment-methods.js";
 import { getAdminDepositsFn } from "@/lib/server/deposits.js";
 import { getDepositVerificationLogsFn } from "@/lib/server/deposit-audit-logs.js";
@@ -714,14 +717,14 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
   const [newName, setNewName] = useState("");
   const [newNumber, setNewNumber] = useState("");
   const [newInstructions, setNewInstructions] = useState("");
-  const [newLast8, setNewLast8] = useState("");
   const [saving, setSaving] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [archivingId, setArchivingId] = useState<string | null>(null);
+  const [archiveFilter, setArchiveFilter] = useState<"visible" | "archived" | "all">("visible");
   const [editingMethod, setEditingMethod] = useState<PaymentMethod | null>(null);
   const [editName, setEditName] = useState("");
   const [editNumber, setEditNumber] = useState("");
   const [editInstructions, setEditInstructions] = useState("");
-  const [editLast8, setEditLast8] = useState("");
   const [editSaving, setEditSaving] = useState(false);
 
   const loadMethods = () => {
@@ -743,6 +746,7 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
           data: {
             activeOnly: false,
             accessToken,
+            archiveFilter,
           },
         });
 
@@ -755,7 +759,7 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
     })();
   };
 
-  useEffect(() => { loadMethods(); }, [userId]);
+  useEffect(() => { loadMethods(); }, [userId, archiveFilter]);
 
   const handleAdd = async () => {
     if (!userId || !newName.trim() || !newNumber.trim()) return;
@@ -781,7 +785,7 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
       });
       toast.success("Payment method created.");
       setShowAdd(false);
-      setNewName(""); setNewNumber(""); setNewInstructions(""); setNewLast8("");
+      setNewName(""); setNewNumber(""); setNewInstructions("");
       loadMethods();
     } catch (err) {
       toast.error(getSafeErrorMessage(err, "PAYMENT").message);
@@ -795,7 +799,6 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
     setEditName(m.account_name);
     setEditNumber(m.account_number);
     setEditInstructions(m.instructions ?? "");
-    setEditLast8((m as PaymentMethod & { account_last_8?: string }).account_last_8 ?? "");
   };
 
   const handleEdit = async () => {
@@ -853,6 +856,34 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
     }
   };
 
+  const archiveMethod = async (method: PaymentMethod, archived: boolean) => {
+    if (!userId) return;
+
+    const actionLabel = archived ? "archive" : "restore";
+    if (!window.confirm(`Are you sure you want to ${actionLabel} this payment account?`)) return;
+
+    setArchivingId(method.id);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+
+      if (!accessToken) {
+        toast.error("Session expired. Please sign in again.");
+        setArchivingId(null);
+        return;
+      }
+
+      await archivePaymentMethodFn({ data: { accessToken, methodId: method.id, archived } });
+      toast.success(archived ? "Payment account archived." : "Payment account restored.");
+      if (!archived) setArchiveFilter("visible");
+      loadMethods();
+    } catch (err) {
+      toast.error(getSafeErrorMessage(err, "PAYMENT").message);
+    } finally {
+      setArchivingId(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -860,6 +891,26 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
         <Button size="sm" onClick={() => setShowAdd(!showAdd)}>
           <Plus size={13} /> Add
         </Button>
+      </div>
+
+      <div className="flex gap-2 overflow-x-auto hide-scrollbar -mx-4 px-4 pb-1">
+        {([
+          { key: "visible", label: "Visible" },
+          { key: "archived", label: "Archived" },
+          { key: "all", label: "All" },
+        ] as const).map((f) => (
+          <button
+            key={f.key}
+            onClick={() => setArchiveFilter(f.key)}
+            className={`shrink-0 px-3 py-1.5 rounded-full text-[11px] border transition-colors card-press ${
+              archiveFilter === f.key
+                ? "bg-[rgba(0,255,65,0.08)] text-[#00ff41] border-[rgba(0,255,65,0.3)]"
+                : "text-gray-500 border-[#1f1f1f]"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
       </div>
 
       {showAdd && (
@@ -881,13 +932,11 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
           </div>
           <Input label="Account Name" placeholder="e.g. QHash Trading PLC" value={newName} onChange={(e) => setNewName(e.target.value)} />
           <Input label="Account Number" placeholder="e.g. 1000123456789" value={newNumber} onChange={(e) => setNewNumber(e.target.value)} />
-          <Input
-            label="Last 8 Digits of Receiver"
-            placeholder="e.g. 23456789"
-            value={newLast8}
-            onChange={(e) => setNewLast8(e.target.value)}
-            hint="Used for CBE receipt URL generation"
-          />
+          {newType === "cbe" && (
+            <p className="text-[10px] text-gray-500 -mt-1">
+              Last 8 digits are generated automatically from the CBE account number.
+            </p>
+          )}
           <Input label="Instructions (optional)" placeholder="e.g. Use username as remark" value={newInstructions} onChange={(e) => setNewInstructions(e.target.value)} />
           <div className="flex gap-2">
             <Button size="sm" loading={saving} disabled={!newName.trim() || !newNumber.trim()} onClick={handleAdd}>Create</Button>
@@ -904,13 +953,11 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
           </div>
           <Input label="Account Name" value={editName} onChange={(e) => setEditName(e.target.value)} />
           <Input label="Account Number" value={editNumber} onChange={(e) => setEditNumber(e.target.value)} />
-          <Input
-            label="Last 8 Digits of Receiver"
-            placeholder="e.g. 23456789"
-            value={editLast8}
-            onChange={(e) => setEditLast8(e.target.value)}
-            hint="Used for CBE receipt URL generation"
-          />
+          {editingMethod.type === "cbe" && (
+            <p className="text-[10px] text-gray-500 -mt-1">
+              Last 8 digits are generated automatically from the CBE account number.
+            </p>
+          )}
           <Input label="Instructions (optional)" value={editInstructions} onChange={(e) => setEditInstructions(e.target.value)} />
           <Button size="sm" loading={editSaving} disabled={!editName.trim() || !editNumber.trim()} onClick={handleEdit}>Save Changes</Button>
         </div>
@@ -919,38 +966,71 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
       {loading ? (
         <div className="space-y-2">{[1, 2].map((i) => <div key={i} className="skeleton h-16 rounded-xl" />)}</div>
       ) : methods.length === 0 ? (
-        <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-8 text-center text-xs text-gray-600">No payment methods configured.</div>
+        <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-8 text-center text-xs text-gray-600">{archiveFilter === "archived" ? "No archived payment methods." : "No payment methods configured."}</div>
       ) : (
         <div className="space-y-2">
           {methods.map((m) => (
             <div
               key={m.id}
-              className={`flex items-center gap-3 bg-[#111] rounded-xl border p-3 ${m.is_active ? "border-[#1a1a1a]" : "border-[#1a1a1a] opacity-50"}`}
+              className={`flex items-center gap-3 bg-[#111] rounded-xl border p-3 ${
+                (m as PaymentMethod & { is_archived?: boolean }).is_archived
+                  ? "border-[#1a1a1a] opacity-50"
+                  : m.is_active
+                    ? "border-[#1a1a1a]"
+                    : "border-[#1a1a1a] opacity-70"
+              }`}
             >
               <span className="text-gray-500">
                 {m.type === "cbe" ? <Building2 size={16} /> : <Smartphone size={16} />}
               </span>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-medium text-gray-200 truncate">{m.account_name}</span>
-                  <Badge variant={m.is_active ? "neon" : "default"}>{m.is_active ? "Active" : "Off"}</Badge>
+                  {(m as PaymentMethod & { is_archived?: boolean }).is_archived ? (
+                    <Badge variant="default">Archived</Badge>
+                  ) : (
+                    <Badge variant={m.is_active ? "neon" : "default"}>{m.is_active ? "Active" : "Off"}</Badge>
+                  )}
                 </div>
                 <p className="text-[10px] text-gray-500 font-mono mt-0.5">{METHOD_LABELS[m.type]} — {m.account_number}</p>
               </div>
+              {!(m as PaymentMethod & { is_archived?: boolean }).is_archived && (
+                <>
+                  <button
+                    onClick={() => startEdit(m)}
+                    className="p-2 rounded-lg text-gray-600 hover:text-gray-300 transition-colors card-press"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    onClick={() => toggleActive(m)}
+                    disabled={togglingId === m.id}
+                    className={`p-2 rounded-lg transition-colors card-press ${
+                      m.is_active ? "text-gray-500 hover:text-red-400" : "text-gray-600 hover:text-[#00ff41]"
+                    }`}
+                    title={m.is_active ? "Disable" : "Enable"}
+                  >
+                    {togglingId === m.id ? <Spinner size="sm" /> : <Power size={14} />}
+                  </button>
+                </>
+              )}
               <button
-                onClick={() => startEdit(m)}
-                className="p-2 rounded-lg text-gray-600 hover:text-gray-300 transition-colors card-press"
-              >
-                <Pencil size={13} />
-              </button>
-              <button
-                onClick={() => toggleActive(m)}
-                disabled={togglingId === m.id}
+                onClick={() => archiveMethod(m, !(m as PaymentMethod & { is_archived?: boolean }).is_archived)}
+                disabled={archivingId === m.id}
                 className={`p-2 rounded-lg transition-colors card-press ${
-                  m.is_active ? "text-gray-500 hover:text-red-400" : "text-gray-600 hover:text-[#00ff41]"
+                  (m as PaymentMethod & { is_archived?: boolean }).is_archived
+                    ? "text-gray-600 hover:text-[#00ff41]"
+                    : "text-gray-500 hover:text-red-400"
                 }`}
+                title={(m as PaymentMethod & { is_archived?: boolean }).is_archived ? "Restore" : "Archive"}
               >
-                {togglingId === m.id ? <Spinner size="sm" /> : <Power size={14} />}
+                {archivingId === m.id ? (
+                  <Spinner size="sm" />
+                ) : (m as PaymentMethod & { is_archived?: boolean }).is_archived ? (
+                  <ArchiveRestore size={14} />
+                ) : (
+                  <Archive size={14} />
+                )}
               </button>
             </div>
           ))}
