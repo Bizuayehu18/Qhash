@@ -29,6 +29,8 @@ type UserWithdrawal = Awaited<ReturnType<typeof getUserWithdrawalsFn>>[number];
 
 const MIN_WITHDRAWAL_AMOUNT = 200;
 const WITHDRAWAL_FEE_PERCENT = 5;
+const DAILY_WITHDRAWAL_LIMIT_MESSAGE =
+  "You can only submit one withdrawal request per day. Please try again tomorrow.";
 
 const METHOD_LABELS: Record<WithdrawalMethod, string> = {
   cbe: "CBE",
@@ -39,6 +41,46 @@ const METHOD_ICONS: Record<WithdrawalMethod, React.ReactNode> = {
   cbe: <Building2 size={14} />,
   telebirr: <Smartphone size={14} />,
 };
+
+function isDailyWithdrawalLimitError(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  const values: string[] = [];
+
+  const collect = (value: unknown) => {
+    if (value === null || value === undefined || seen.has(value)) return;
+
+    if (typeof value === "string") {
+      values.push(value);
+      return;
+    }
+
+    if (typeof value === "number" || typeof value === "boolean") {
+      values.push(String(value));
+      return;
+    }
+
+    if (typeof value !== "object") return;
+
+    seen.add(value);
+
+    if (value instanceof Error) {
+      values.push(value.message);
+      values.push(value.name);
+    }
+
+    for (const item of Object.values(value as Record<string, unknown>)) {
+      collect(item);
+    }
+  };
+
+  collect(error);
+
+  const combined = values.join(" ").toLowerCase();
+  return (
+    combined.includes(DAILY_WITHDRAWAL_LIMIT_MESSAGE.toLowerCase()) ||
+    combined.includes("daily withdrawal limit reached")
+  );
+}
 
 function WithdrawPage() {
   const { user } = useAuthStore();
@@ -181,6 +223,12 @@ function WithdrawPage() {
       ]);
     } catch (err) {
       console.error("[QHash] Withdrawal submit failed:", err);
+
+      if (isDailyWithdrawalLimitError(err)) {
+        toast.error(DAILY_WITHDRAWAL_LIMIT_MESSAGE);
+        return;
+      }
+
       toast.error(getSafeErrorMessage(err, "WITHDRAWAL").message);
     } finally {
       setSubmitting(false);
