@@ -179,7 +179,6 @@ function DashboardPage() {
               <button className="w-full flex items-center justify-center gap-1.5 bg-white/[0.06] border border-white/[0.08] text-gray-300 rounded-xl py-2.5 text-xs font-medium card-press">
                 <ArrowUpCircle size={14} />
                 Withdraw
-                <span className="text-[8px] font-semibold text-[#00ff41] bg-[rgba(0,255,65,0.1)] rounded-full px-1.5 py-0.5 leading-none">Soon</span>
               </button>
             </Link>
           </div>
