@@ -104,6 +104,31 @@ type WithdrawalTableClient = {
   };
 };
 
+type DailyWithdrawalLimitRow = {
+  id: string;
+};
+
+type DailyWithdrawalLimitQuery = {
+  eq(column: "user_id", value: string): DailyWithdrawalLimitQuery;
+  gte(column: "created_at", value: string): DailyWithdrawalLimitQuery;
+  lt(column: "created_at", value: string): DailyWithdrawalLimitQuery;
+  limit(count: number): Promise<{
+    data: DailyWithdrawalLimitRow[] | null;
+    error: DbError | null;
+  }>;
+};
+
+type DailyWithdrawalLimitClient = {
+  from(table: "withdrawals"): {
+    select(columns: string): DailyWithdrawalLimitQuery;
+  };
+};
+
+type EthiopiaDayUtcRange = {
+  startIso: string;
+  endIso: string;
+};
+
 function maskLast4(value: unknown): string {
   const raw = String(value ?? "").trim();
   if (!raw) return "";
@@ -120,6 +145,88 @@ function parseAmount(value: unknown): number {
   }
 
   return Number.NaN;
+}
+
+function getEthiopiaDayUtcRange(now = new Date()): EthiopiaDayUtcRange {
+  const ethiopiaOffsetMs = 3 * 60 * 60 * 1000;
+  const ethiopiaNow = new Date(now.getTime() + ethiopiaOffsetMs);
+
+  const year = ethiopiaNow.getUTCFullYear();
+  const month = ethiopiaNow.getUTCMonth();
+  const day = ethiopiaNow.getUTCDate();
+
+  const startUtcMs = Date.UTC(year, month, day) - ethiopiaOffsetMs;
+  const endUtcMs = startUtcMs + 24 * 60 * 60 * 1000;
+
+  return {
+    startIso: new Date(startUtcMs).toISOString(),
+    endIso: new Date(endUtcMs).toISOString(),
+  };
+}
+
+async function assertNoWithdrawalToday(
+  admin: DailyWithdrawalLimitClient,
+  userId: string,
+): Promise<void> {
+  const { startIso, endIso } = getEthiopiaDayUtcRange();
+
+  let existingWithdrawals: DailyWithdrawalLimitRow[] | null = null;
+  let queryError: DbError | null = null;
+
+  try {
+    const { data, error } = await admin
+      .from("withdrawals")
+      .select("id")
+      .eq("user_id", userId)
+      .gte("created_at", startIso)
+      .lt("created_at", endIso)
+      .limit(1);
+
+    existingWithdrawals = data;
+    queryError = error;
+  } catch (err) {
+    console.error(
+      "[QHash] Withdrawal daily limit check error:",
+      JSON.stringify({
+        user_id: userId,
+        ethiopia_day_start: startIso,
+        ethiopia_day_end: endIso,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+
+    throwSafe(
+      "WITHDRAWAL",
+      "Withdrawal request failed. Please try again.",
+      `Withdrawal daily limit check failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  if (queryError) {
+    console.error(
+      "[QHash] Withdrawal daily limit check DB error:",
+      JSON.stringify({
+        user_id: userId,
+        ethiopia_day_start: startIso,
+        ethiopia_day_end: endIso,
+        error: safeDbMessage(queryError),
+      }),
+    );
+
+    throwSafe(
+      "WITHDRAWAL",
+      "Withdrawal request failed. Please try again.",
+      `Withdrawal daily limit check failed: ${safeDbMessage(queryError)}`,
+    );
+  }
+
+  if ((existingWithdrawals ?? []).length > 0) {
+    throwSafe(
+      "WITHDRAWAL",
+      "You can only submit one withdrawal request per day. Please try again tomorrow.",
+      "Daily withdrawal limit reached",
+    );
+  }
 }
 
 function validateSubmitWithdrawalInput(data: unknown): SubmitWithdrawalInput {
@@ -209,6 +316,11 @@ export const submitWithdrawalFn = createServerFn({ method: "POST" })
     if (authError || !authUser) {
       throwSafe("WITHDRAWAL", "Your session has expired. Please log in again.", "Invalid or expired access token");
     }
+
+    await assertNoWithdrawalToday(
+      admin as unknown as DailyWithdrawalLimitClient,
+      authUser.id,
+    );
 
     try {
       const { data: result, error } = await (admin as unknown as RpcClient).rpc(
