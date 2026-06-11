@@ -33,7 +33,7 @@ function ProfilePage() {
   const menuItems = [
     { to: "/transactions", label: "Transactions", icon: Receipt, desc: "View all activity" },
     { to: "/notifications", label: "Notifications", icon: Bell, desc: "Alerts & updates" },
-    { to: "/withdraw", label: "Withdraw", icon: Wallet, desc: "Cash out earnings", soon: true },
+    { to: "/withdraw", label: "Withdraw", icon: Wallet, desc: "Cash out earnings" },
     { to: "/support", label: "Support", icon: HeadphonesIcon, desc: "Get help", soon: true },
     ...(profile?.is_admin
       ? [{ to: "/admin", label: "Admin Panel", icon: ShieldCheck, desc: "Manage platform" }]
