@@ -3,27 +3,20 @@ import { useEffect, useState } from "react";
 import { ExternalLink, HeadphonesIcon, Info, MessageSquare, Send } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/Button.js";
-import { Input } from "@/components/ui/Input.js";
 import { Spinner } from "@/components/ui/Spinner.js";
 import { getSafeErrorMessage } from "@/lib/errors.js";
-import { supabase } from "@/lib/supabase.js";
 import {
   getSupportSettingsFn,
-  updateSupportTelegramUsernameFn,
   type SupportSettings,
 } from "@/lib/server/support-settings.js";
-import { useAuthStore } from "@/store/authStore.js";
 
 export const Route = createFileRoute("/_app/support")({
   component: SupportPage,
 });
 
 function SupportPage() {
-  const { profile } = useAuthStore();
   const [settings, setSettings] = useState<SupportSettings | null>(null);
   const [loading, setLoading] = useState(true);
-  const [telegramUsername, setTelegramUsername] = useState("");
-  const [saving, setSaving] = useState(false);
 
   const loadSettings = () => {
     setLoading(true);
@@ -32,7 +25,6 @@ function SupportPage() {
       try {
         const result = await getSupportSettingsFn({ data: {} });
         setSettings(result);
-        setTelegramUsername(result.telegramUsername ?? "");
       } catch (err) {
         toast.error(getSafeErrorMessage(err, "SUPPORT").message);
       } finally {
@@ -46,37 +38,6 @@ function SupportPage() {
   const openTelegram = () => {
     if (!settings?.telegramUrl) return;
     window.open(settings.telegramUrl, "_blank", "noopener,noreferrer");
-  };
-
-  const saveTelegramUsername = async () => {
-    if (!profile?.is_admin || saving) return;
-
-    setSaving(true);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-
-      if (!accessToken) {
-        toast.error("Session expired. Please sign in again.");
-        setSaving(false);
-        return;
-      }
-
-      const updated = await updateSupportTelegramUsernameFn({
-        data: {
-          accessToken,
-          telegramUsername,
-        },
-      });
-
-      setSettings(updated);
-      setTelegramUsername(updated.telegramUsername ?? "");
-      toast.success("Support Telegram username updated.");
-    } catch (err) {
-      toast.error(getSafeErrorMessage(err, "SUPPORT").message);
-    } finally {
-      setSaving(false);
-    }
   };
 
   return (
@@ -137,29 +98,6 @@ function SupportPage() {
           <p>QHash support will never ask for your password or private wallet credentials.</p>
         </div>
       </div>
-
-      {profile?.is_admin && (
-        <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4 space-y-3">
-          <div>
-            <p className="text-xs font-semibold">Admin Support Settings</p>
-            <p className="text-[10px] text-gray-500 mt-1">
-              Enter only the Telegram username. The app will display @username and open t.me/username.
-            </p>
-          </div>
-
-          <Input
-            label="Telegram Support Username"
-            placeholder="QHashSupport"
-            value={telegramUsername}
-            onChange={(e) => setTelegramUsername(e.target.value)}
-            hint="Letters, numbers, and underscores only. @ is optional. Do not paste a full link."
-          />
-
-          <Button size="sm" loading={saving} onClick={saveTelegramUsername}>
-            Save Support Username
-          </Button>
-        </div>
-      )}
     </div>
   );
 }
