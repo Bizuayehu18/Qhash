@@ -44,6 +44,11 @@ import {
   approveWithdrawalFn,
   rejectWithdrawalFn,
 } from "@/lib/server/withdrawals.js";
+import {
+  getSupportSettingsFn,
+  updateSupportTelegramUsernameFn,
+  type SupportSettings,
+} from "@/lib/server/support-settings.js";
 import type { PaymentMethodType } from "@/lib/database.types.js";
 
 export const Route = createFileRoute("/_app/admin")({
@@ -61,7 +66,7 @@ const METHOD_LABELS: Record<string, string> = { cbe: "CBE", telebirr: "TeleBirr"
 function AdminPage() {
   const { user, profile } = useAuthStore();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<"overview" | "deposits" | "withdrawals" | "payment-methods" | "audit">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "deposits" | "withdrawals" | "payment-methods" | "audit" | "settings">("overview");
 
   useEffect(() => {
     if (profile && !profile.is_admin) navigate({ to: "/dashboard" });
@@ -88,6 +93,7 @@ function AdminPage() {
           { key: "withdrawals", label: "Withdrawals" },
           { key: "payment-methods", label: "Payments" },
           { key: "audit", label: "Verification Audit" },
+          { key: "settings", label: "Settings" },
         ] as const).map((tab) => (
           <button
             key={tab.key}
@@ -108,6 +114,7 @@ function AdminPage() {
       {activeTab === "withdrawals" && <WithdrawalsTab userId={user?.id} />}
       {activeTab === "payment-methods" && <PaymentMethodsTab userId={user?.id} />}
       {activeTab === "audit" && <AuditLogsTab userId={user?.id} />}
+      {activeTab === "settings" && <SettingsTab userId={user?.id} />}
     </div>
   );
 }
@@ -213,31 +220,6 @@ function OverviewTab({ userId }: { userId: string | undefined }) {
                   <p className="text-[10px] text-gray-600">{new Date(w.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</p>
                 </div>
                 <span className="text-xs text-red-400 font-mono">{w.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })} ETB</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Open Tickets */}
-      <div>
-        <div className="flex items-center gap-1.5 mb-2">
-          <MessageSquare size={12} className="text-gray-500" />
-          <h2 className="text-xs font-semibold text-gray-400">Open Tickets</h2>
-        </div>
-        {loading ? (
-          <div className="skeleton h-16 rounded-xl" />
-        ) : !stats?.openTicketRecords.length ? (
-          <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-6 text-center text-xs text-gray-600">No open tickets.</div>
-        ) : (
-          <div className="bg-[#111] rounded-xl border border-[#1a1a1a] divide-y divide-[#1a1a1a]">
-            {stats.openTicketRecords.map((t) => (
-              <div key={t.id} className="flex items-center justify-between px-4 py-2.5">
-                <div>
-                  <p className="text-xs font-medium text-gray-200">@{t.username}</p>
-                  <p className="text-[10px] text-gray-500 truncate max-w-[180px]">{t.subject}</p>
-                </div>
-                <span className="text-[10px] text-gray-600 shrink-0">{new Date(t.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
               </div>
             ))}
           </div>
@@ -1039,6 +1021,127 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+
+function SettingsTab({ userId }: { userId: string | undefined }) {
+  const [settings, setSettings] = useState<SupportSettings | null>(null);
+  const [telegramUsername, setTelegramUsername] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const loadSettings = () => {
+    if (!userId) return;
+
+    setLoading(true);
+
+    (async () => {
+      try {
+        const result = await getSupportSettingsFn({ data: {} });
+        setSettings(result);
+        setTelegramUsername(result.telegramUsername ?? "");
+      } catch (err) {
+        toast.error(getSafeErrorMessage(err, "SUPPORT").message);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  };
+
+  useEffect(() => { loadSettings(); }, [userId]);
+
+  const saveSupportUsername = async () => {
+    if (!userId || saving) return;
+
+    setSaving(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+
+      if (!accessToken) {
+        toast.error("Session expired. Please sign in again.");
+        setSaving(false);
+        return;
+      }
+
+      const updated = await updateSupportTelegramUsernameFn({
+        data: {
+          accessToken,
+          telegramUsername,
+        },
+      });
+
+      setSettings(updated);
+      setTelegramUsername(updated.telegramUsername ?? "");
+      toast.success("Support Telegram username updated.");
+    } catch (err) {
+      toast.error(getSafeErrorMessage(err, "SUPPORT").message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openCurrentSupport = () => {
+    if (!settings?.telegramUrl) return;
+    window.open(settings.telegramUrl, "_blank", "noopener,noreferrer");
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <Settings size={13} className="text-gray-500" />
+        <p className="text-[11px] text-gray-500">Manage app-level settings</p>
+      </div>
+
+      <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <MessageSquare size={14} className="text-[#00ff41]" />
+          <span className="text-xs font-semibold">Support Settings</span>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            <Spinner size="sm" /> Loading support settings...
+          </div>
+        ) : (
+          <>
+            <Input
+              label="Telegram Support Username"
+              placeholder="QHashSupport"
+              value={telegramUsername}
+              onChange={(e) => setTelegramUsername(e.target.value)}
+              hint="Letters, numbers, and underscores only. @ is optional. Do not paste a full link."
+            />
+
+            {settings?.isConfigured && (
+              <div className="flex items-center justify-between gap-3 rounded-xl bg-[#0d0d0d] border border-[#1a1a1a] p-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] text-gray-500">Current public support contact</p>
+                  <p className="text-xs text-[#00ff41] font-mono truncate">{settings.telegramDisplay}</p>
+                </div>
+                <button
+                  onClick={openCurrentSupport}
+                  className="shrink-0 p-2 rounded-lg text-gray-500 hover:text-[#00ff41] transition-colors card-press"
+                  title="Open current Telegram support"
+                >
+                  <ExternalLink size={14} />
+                </button>
+              </div>
+            )}
+
+            <Button size="sm" loading={saving} onClick={saveSupportUsername}>
+              Save Support Username
+            </Button>
+          </>
+        )}
+      </div>
+
+      <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-4 text-[11px] text-gray-500 leading-relaxed space-y-2">
+        <p>Support v1 uses Telegram only. Internal support tickets are not active.</p>
+        <p>The public Support page builds the link as t.me/username from this setting.</p>
+      </div>
     </div>
   );
 }
