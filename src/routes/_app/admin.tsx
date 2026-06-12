@@ -66,7 +66,7 @@ const METHOD_LABELS: Record<string, string> = { cbe: "CBE", telebirr: "TeleBirr"
 function AdminPage() {
   const { user, profile } = useAuthStore();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<"overview" | "deposits" | "withdrawals" | "payment-methods" | "audit" | "settings">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "deposits" | "withdrawals" | "audit" | "settings">("overview");
 
   useEffect(() => {
     if (profile && !profile.is_admin) navigate({ to: "/dashboard" });
@@ -91,7 +91,6 @@ function AdminPage() {
           { key: "overview", label: "Overview" },
           { key: "deposits", label: "Deposits" },
           { key: "withdrawals", label: "Withdrawals" },
-          { key: "payment-methods", label: "Payments" },
           { key: "audit", label: "Verification Audit" },
           { key: "settings", label: "Settings" },
         ] as const).map((tab) => (
@@ -112,7 +111,6 @@ function AdminPage() {
       {activeTab === "overview" && <OverviewTab userId={user?.id} />}
       {activeTab === "deposits" && <DepositsTab userId={user?.id} />}
       {activeTab === "withdrawals" && <WithdrawalsTab userId={user?.id} />}
-      {activeTab === "payment-methods" && <PaymentMethodsTab userId={user?.id} />}
       {activeTab === "audit" && <AuditLogsTab userId={user?.id} />}
       {activeTab === "settings" && <SettingsTab userId={user?.id} />}
     </div>
