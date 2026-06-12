@@ -225,7 +225,6 @@ function DashboardPage() {
           <div className="flex items-center gap-2 premium-card rounded-xl px-4 py-3 card-press">
             <span className="text-xs">💬</span>
             <span className="text-xs font-medium text-gray-300 whitespace-nowrap">Support</span>
-            <span className="text-[8px] font-semibold text-[#00ff41] bg-[rgba(0,255,65,0.1)] rounded-full px-1.5 py-0.5 leading-none">Soon</span>
           </div>
         </Link>
       </div>
