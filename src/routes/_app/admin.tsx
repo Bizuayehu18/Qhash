@@ -225,6 +225,7 @@ function OverviewTab({ userId }: { userId: string | undefined }) {
           </div>
         )}
       </div>
+
     </div>
   );
 }
@@ -1027,6 +1028,7 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
 
 
 function SettingsTab({ userId }: { userId: string | undefined }) {
+  const [activeSettingsTab, setActiveSettingsTab] = useState<"support" | "payment">("support");
   const [settings, setSettings] = useState<SupportSettings | null>(null);
   const [telegramUsername, setTelegramUsername] = useState("");
   const [loading, setLoading] = useState(true);
@@ -1095,53 +1097,78 @@ function SettingsTab({ userId }: { userId: string | undefined }) {
         <p className="text-[11px] text-gray-500">Manage app-level settings</p>
       </div>
 
-      <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4 space-y-3">
-        <div className="flex items-center gap-2">
-          <MessageSquare size={14} className="text-[#00ff41]" />
-          <span className="text-xs font-semibold">Support Settings</span>
-        </div>
+      <div className="flex gap-2 overflow-x-auto hide-scrollbar -mx-4 px-4 pb-1">
+        {([
+          { key: "support", label: "Support" },
+          { key: "payment", label: "Payment" },
+        ] as const).map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveSettingsTab(tab.key)}
+            className={`shrink-0 px-3 py-1.5 rounded-full text-[11px] border transition-colors card-press ${
+              activeSettingsTab === tab.key
+                ? "bg-[rgba(0,255,65,0.08)] text-[#00ff41] border-[rgba(0,255,65,0.3)]"
+                : "text-gray-500 border-[#1f1f1f]"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-        {loading ? (
-          <div className="flex items-center gap-2 text-xs text-gray-500">
-            <Spinner size="sm" /> Loading support settings...
-          </div>
-        ) : (
-          <>
-            <Input
-              label="Telegram Support Username"
-              placeholder="QHashSupport"
-              value={telegramUsername}
-              onChange={(e) => setTelegramUsername(e.target.value)}
-              hint="Letters, numbers, and underscores only. @ is optional. Do not paste a full link."
-            />
+      {activeSettingsTab === "support" ? (
+        <>
+          <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <MessageSquare size={14} className="text-[#00ff41]" />
+              <span className="text-xs font-semibold">Support Settings</span>
+            </div>
 
-            {settings?.isConfigured && (
-              <div className="flex items-center justify-between gap-3 rounded-xl bg-[#0d0d0d] border border-[#1a1a1a] p-3">
-                <div className="min-w-0">
-                  <p className="text-[10px] text-gray-500">Current public support contact</p>
-                  <p className="text-xs text-[#00ff41] font-mono truncate">{settings.telegramDisplay}</p>
-                </div>
-                <button
-                  onClick={openCurrentSupport}
-                  className="shrink-0 p-2 rounded-lg text-gray-500 hover:text-[#00ff41] transition-colors card-press"
-                  title="Open current Telegram support"
-                >
-                  <ExternalLink size={14} />
-                </button>
+            {loading ? (
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <Spinner size="sm" /> Loading support settings...
               </div>
+            ) : (
+              <>
+                <Input
+                  label="Telegram Support Username"
+                  placeholder="QHashSupport"
+                  value={telegramUsername}
+                  onChange={(e) => setTelegramUsername(e.target.value)}
+                  hint="Letters, numbers, and underscores only. @ is optional. Do not paste a full link."
+                />
+
+                {settings?.isConfigured && (
+                  <div className="flex items-center justify-between gap-3 rounded-xl bg-[#0d0d0d] border border-[#1a1a1a] p-3">
+                    <div className="min-w-0">
+                      <p className="text-[10px] text-gray-500">Current public support contact</p>
+                      <p className="text-xs text-[#00ff41] font-mono truncate">{settings.telegramDisplay}</p>
+                    </div>
+                    <button
+                      onClick={openCurrentSupport}
+                      className="shrink-0 p-2 rounded-lg text-gray-500 hover:text-[#00ff41] transition-colors card-press"
+                      title="Open current Telegram support"
+                    >
+                      <ExternalLink size={14} />
+                    </button>
+                  </div>
+                )}
+
+                <Button size="sm" loading={saving} onClick={saveSupportUsername}>
+                  Save Support Username
+                </Button>
+              </>
             )}
+          </div>
 
-            <Button size="sm" loading={saving} onClick={saveSupportUsername}>
-              Save Support Username
-            </Button>
-          </>
-        )}
-      </div>
-
-      <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-4 text-[11px] text-gray-500 leading-relaxed space-y-2">
-        <p>Support v1 uses Telegram only. Internal support tickets are not active.</p>
-        <p>The public Support page builds the link as t.me/username from this setting.</p>
-      </div>
+          <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-4 text-[11px] text-gray-500 leading-relaxed space-y-2">
+            <p>Support v1 uses Telegram only. Internal support tickets are not active.</p>
+            <p>The public Support page builds the link as t.me/username from this setting.</p>
+          </div>
+        </>
+      ) : (
+        <PaymentMethodsTab userId={userId} />
+      )}
     </div>
   );
 }
