@@ -49,6 +49,10 @@ import {
   updateSupportTelegramUsernameFn,
   type SupportSettings,
 } from "@/lib/server/support-settings.js";
+import {
+  getAdminSecurityUsersFn,
+  resetUserFundPasswordFn,
+} from "@/lib/server/admin-security-resets.js";
 import type { PaymentMethodType } from "@/lib/database.types.js";
 
 export const Route = createFileRoute("/_app/admin")({
@@ -60,13 +64,14 @@ type AdminDeposit = Awaited<ReturnType<typeof getAdminDepositsFn>>[number];
 type PaymentMethod = Awaited<ReturnType<typeof getPaymentMethodsFn>>[number];
 type AuditLog = Awaited<ReturnType<typeof getDepositVerificationLogsFn>>[number];
 type AdminWithdrawal = Awaited<ReturnType<typeof getAdminWithdrawalsFn>>[number];
+type AdminSecurityUser = Awaited<ReturnType<typeof getAdminSecurityUsersFn>>[number];
 
 const METHOD_LABELS: Record<string, string> = { cbe: "CBE", telebirr: "TeleBirr" };
 
 function AdminPage() {
   const { user, profile } = useAuthStore();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<"overview" | "deposits" | "withdrawals" | "audit" | "settings">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "deposits" | "withdrawals" | "audit" | "security" | "settings">("overview");
 
   useEffect(() => {
     if (profile && !profile.is_admin) navigate({ to: "/dashboard" });
@@ -92,6 +97,7 @@ function AdminPage() {
           { key: "deposits", label: "Deposits" },
           { key: "withdrawals", label: "Withdrawals" },
           { key: "audit", label: "Verification Audit" },
+          { key: "security", label: "Security" },
           { key: "settings", label: "Settings" },
         ] as const).map((tab) => (
           <button
@@ -112,6 +118,7 @@ function AdminPage() {
       {activeTab === "deposits" && <DepositsTab userId={user?.id} />}
       {activeTab === "withdrawals" && <WithdrawalsTab userId={user?.id} />}
       {activeTab === "audit" && <AuditLogsTab userId={user?.id} />}
+      {activeTab === "security" && <AdminSecurityTab userId={user?.id} />}
       {activeTab === "settings" && <SettingsTab userId={user?.id} />}
     </div>
   );
@@ -1024,6 +1031,228 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
   );
 }
 
+
+
+function AdminSecurityTab({ userId }: { userId: string | undefined }) {
+  const [users, setUsers] = useState<AdminSecurityUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedUser, setSelectedUser] = useState<AdminSecurityUser | null>(null);
+  const [resetReason, setResetReason] = useState("");
+  const [resettingUserId, setResettingUserId] = useState<string | null>(null);
+
+  const loadUsers = () => {
+    if (!userId) return;
+
+    setLoading(true);
+
+    (async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData?.session?.access_token;
+
+        if (!accessToken) {
+          toast.error("Session expired. Please sign in again.");
+          setUsers([]);
+          return;
+        }
+
+        const rows = await getAdminSecurityUsersFn({
+          data: {
+            accessToken,
+            searchQuery,
+          },
+        });
+
+        setUsers(rows);
+
+        if (selectedUser && !rows.some((row) => row.id === selectedUser.id)) {
+          setSelectedUser(null);
+          setResetReason("");
+        }
+      } catch (err) {
+        toast.error(getSafeErrorMessage(err, "ADMIN").message);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  };
+
+  useEffect(() => { loadUsers(); }, [userId]);
+
+  const handleResetFundPassword = async () => {
+    if (!selectedUser || resettingUserId) return;
+
+    const reason = resetReason.trim();
+
+    if (reason.length < 5) {
+      toast.error("Please enter a reset reason.");
+      return;
+    }
+
+    if (selectedUser.isAdmin) {
+      toast.error("Admin account security resets are not allowed from this panel.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Reset fund password for @${selectedUser.username}? The user will need to create a new fund password from Profile → Security.`,
+    );
+
+    if (!confirmed) return;
+
+    setResettingUserId(selectedUser.id);
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+
+      if (!accessToken) {
+        toast.error("Session expired. Please sign in again.");
+        return;
+      }
+
+      const result = await resetUserFundPasswordFn({
+        data: {
+          accessToken,
+          targetUserId: selectedUser.id,
+          reason,
+        },
+      });
+
+      toast.success(result.message);
+      setResetReason("");
+      setSelectedUser(null);
+      loadUsers();
+    } catch (err) {
+      toast.error(getSafeErrorMessage(err, "ADMIN").message);
+    } finally {
+      setResettingUserId(null);
+    }
+  };
+
+  const selectedUserCanReset =
+    selectedUser !== null &&
+    !selectedUser.isAdmin &&
+    resetReason.trim().length >= 5 &&
+    resettingUserId === null;
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-[rgba(0,255,65,0.04)] rounded-xl border border-[rgba(0,255,65,0.2)] p-4 flex gap-2.5">
+        <ShieldCheck size={15} className="text-[#00ff41] shrink-0 mt-0.5" />
+        <div>
+          <p className="text-xs font-semibold text-[#00ff41]">Security reset actions</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">
+            Resetting a fund password clears it only. The user must create a new one from Profile → Security.
+          </p>
+        </div>
+      </div>
+
+      <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-4 space-y-3">
+        <Input
+          label="Search user"
+          placeholder="Username or phone"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          hint="Leave empty to show recent users. Admin accounts cannot be reset from this panel."
+        />
+        <Button size="sm" loading={loading} onClick={loadUsers}>
+          Search Users
+        </Button>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
+        <div className="bg-[#111] rounded-xl border border-[#1a1a1a] divide-y divide-[#1a1a1a] overflow-hidden">
+          {loading ? (
+            <div className="p-4 space-y-2">
+              {[1, 2, 3].map((i) => <div key={i} className="skeleton h-14 rounded-xl" />)}
+            </div>
+          ) : users.length === 0 ? (
+            <div className="p-8 text-center text-xs text-gray-600">No users found.</div>
+          ) : (
+            users.map((securityUser) => (
+              <button
+                key={securityUser.id}
+                onClick={() => { setSelectedUser(securityUser); setResetReason(""); }}
+                className={`w-full text-left px-4 py-3 card-press transition-colors ${
+                  selectedUser?.id === securityUser.id ? "bg-[rgba(0,255,65,0.05)]" : ""
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-gray-200 truncate">@{securityUser.username}</p>
+                    <p className="text-[10px] text-gray-600">{securityUser.phone || "No phone"}</p>
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {securityUser.isAdmin && <Badge variant="neon">Admin</Badge>}
+                      {securityUser.isFrozen && <Badge variant="danger">Frozen</Badge>}
+                      {securityUser.hasFundPassword ? (
+                        <Badge variant="success">Fund PIN Set</Badge>
+                      ) : (
+                        <Badge variant="default">No Fund PIN</Badge>
+                      )}
+                      {securityUser.isFundPasswordLocked && <Badge variant="warning">Locked</Badge>}
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-gray-600 shrink-0">
+                    {securityUser.fundPasswordFailedAttempts > 0
+                      ? `${securityUser.fundPasswordFailedAttempts} failed`
+                      : ""}
+                  </span>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+
+        <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4 space-y-3 h-fit">
+          <div className="flex items-center gap-2">
+            <ShieldCheck size={14} className="text-[#00ff41]" />
+            <span className="text-xs font-semibold">Selected User</span>
+          </div>
+
+          {!selectedUser ? (
+            <p className="text-[11px] text-gray-500">Select a user to reset their fund password.</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <DetailRow label="Username" value={`@${selectedUser.username}`} />
+                <DetailRow label="Phone" value={selectedUser.phone || "—"} />
+                <DetailRow label="Fund PIN" value={selectedUser.hasFundPassword ? "Set" : "Not set"} />
+                <DetailRow label="Failed attempts" value={String(selectedUser.fundPasswordFailedAttempts)} />
+              </div>
+
+              {selectedUser.isAdmin && (
+                <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+                  <AlertTriangle size={13} className="text-amber-400 shrink-0 mt-0.5" />
+                  Admin accounts cannot be reset from this panel.
+                </div>
+              )}
+
+              <Input
+                label="Reset Reason"
+                placeholder="e.g. User verified through Telegram support"
+                value={resetReason}
+                onChange={(e) => setResetReason(e.target.value)}
+                hint="Required. This is saved in the admin security audit log."
+              />
+
+              <Button
+                variant="danger"
+                fullWidth
+                loading={resettingUserId === selectedUser.id}
+                disabled={!selectedUserCanReset}
+                onClick={handleResetFundPassword}
+              >
+                Reset Fund Password
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function SettingsTab({ userId }: { userId: string | undefined }) {
   const [activeSettingsTab, setActiveSettingsTab] = useState<"support" | "payment">("support");
