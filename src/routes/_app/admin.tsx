@@ -52,6 +52,7 @@ import {
 import {
   getAdminSecurityUsersFn,
   resetUserFundPasswordFn,
+  resetUserLoginPasswordFn,
 } from "@/lib/server/admin-security-resets.js";
 import type { PaymentMethodType } from "@/lib/database.types.js";
 
@@ -1039,7 +1040,9 @@ function AdminSecurityTab({ userId }: { userId: string | undefined }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedUser, setSelectedUser] = useState<AdminSecurityUser | null>(null);
   const [resetReason, setResetReason] = useState("");
+  const [temporaryLoginPassword, setTemporaryLoginPassword] = useState("");
   const [resettingUserId, setResettingUserId] = useState<string | null>(null);
+  const [resettingLoginUserId, setResettingLoginUserId] = useState<string | null>(null);
 
   const loadUsers = () => {
     if (!userId) return;
@@ -1069,6 +1072,7 @@ function AdminSecurityTab({ userId }: { userId: string | undefined }) {
         if (selectedUser && !rows.some((row) => row.id === selectedUser.id)) {
           setSelectedUser(null);
           setResetReason("");
+          setTemporaryLoginPassword("");
         }
       } catch (err) {
         toast.error(getSafeErrorMessage(err, "ADMIN").message);
@@ -1131,11 +1135,72 @@ function AdminSecurityTab({ userId }: { userId: string | undefined }) {
     }
   };
 
+  const handleResetLoginPassword = async () => {
+    if (!selectedUser || resettingLoginUserId) return;
+
+    const reason = resetReason.trim();
+
+    if (reason.length < 5) {
+      toast.error("Please enter a reset reason.");
+      return;
+    }
+
+    if (selectedUser.isAdmin) {
+      toast.error("Admin account security resets are not allowed from this panel.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Generate a temporary login password for @${selectedUser.username}? This immediately changes the user's login password. Copy the temporary password after success and tell the user to change it from Profile → Security.`,
+    );
+
+    if (!confirmed) return;
+
+    setResettingLoginUserId(selectedUser.id);
+    setTemporaryLoginPassword("");
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+
+      if (!accessToken) {
+        toast.error("Session expired. Please sign in again.");
+        return;
+      }
+
+      const result = await resetUserLoginPasswordFn({
+        data: {
+          accessToken,
+          targetUserId: selectedUser.id,
+          reason,
+        },
+      });
+
+      setTemporaryLoginPassword(result.temporaryPassword);
+      setResetReason("");
+      toast.success(result.message);
+      loadUsers();
+    } catch (err) {
+      toast.error(getSafeErrorMessage(err, "ADMIN").message);
+    } finally {
+      setResettingLoginUserId(null);
+    }
+  };
+
+  const copyTemporaryLoginPassword = () => {
+    if (!temporaryLoginPassword) return;
+    navigator.clipboard.writeText(temporaryLoginPassword).then(
+      () => toast.success("Temporary password copied."),
+      () => toast.error("Unable to copy temporary password."),
+    );
+  };
+
   const selectedUserCanReset =
     selectedUser !== null &&
     !selectedUser.isAdmin &&
     resetReason.trim().length >= 5 &&
-    resettingUserId === null;
+    resettingUserId === null &&
+    resettingLoginUserId === null;
 
   return (
     <div className="space-y-4">
@@ -1144,7 +1209,7 @@ function AdminSecurityTab({ userId }: { userId: string | undefined }) {
         <div>
           <p className="text-xs font-semibold text-[#00ff41]">Security reset actions</p>
           <p className="text-[11px] text-gray-400 mt-0.5">
-            Resetting a fund password clears it only. The user must create a new one from Profile → Security.
+            Fund password reset clears the PIN only. Login password reset generates a temporary password shown once.
           </p>
         </div>
       </div>
@@ -1174,7 +1239,7 @@ function AdminSecurityTab({ userId }: { userId: string | undefined }) {
             users.map((securityUser) => (
               <button
                 key={securityUser.id}
-                onClick={() => { setSelectedUser(securityUser); setResetReason(""); }}
+                onClick={() => { setSelectedUser(securityUser); setResetReason(""); setTemporaryLoginPassword(""); }}
                 className={`w-full text-left px-4 py-3 card-press transition-colors ${
                   selectedUser?.id === securityUser.id ? "bg-[rgba(0,255,65,0.05)]" : ""
                 }`}
@@ -1212,7 +1277,7 @@ function AdminSecurityTab({ userId }: { userId: string | undefined }) {
           </div>
 
           {!selectedUser ? (
-            <p className="text-[11px] text-gray-500">Select a user to reset their fund password.</p>
+            <p className="text-[11px] text-gray-500">Select a user to reset their fund password or generate a temporary login password.</p>
           ) : (
             <>
               <div className="grid grid-cols-2 gap-3 text-xs">
@@ -1237,15 +1302,47 @@ function AdminSecurityTab({ userId }: { userId: string | undefined }) {
                 hint="Required. This is saved in the admin security audit log."
               />
 
-              <Button
-                variant="danger"
-                fullWidth
-                loading={resettingUserId === selectedUser.id}
-                disabled={!selectedUserCanReset}
-                onClick={handleResetFundPassword}
-              >
-                Reset Fund Password
-              </Button>
+              {temporaryLoginPassword && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
+                  <div className="flex gap-2 text-[11px] text-amber-200">
+                    <AlertTriangle size={13} className="text-amber-400 shrink-0 mt-0.5" />
+                    <span>Temporary login password. Copy it now; it will not be shown again.</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 rounded-lg bg-black/40 border border-amber-500/20 px-3 py-2 text-xs text-amber-100 break-all">
+                      {temporaryLoginPassword}
+                    </code>
+                    <Button variant="ghost" size="sm" onClick={copyTemporaryLoginPassword}>
+                      <Copy size={13} />
+                    </Button>
+                  </div>
+                  <p className="text-[10px] text-amber-200/80">
+                    Tell the user to log in with this password and change it from Profile → Security.
+                  </p>
+                </div>
+              )}
+
+              <div className="grid gap-2">
+                <Button
+                  variant="danger"
+                  fullWidth
+                  loading={resettingUserId === selectedUser.id}
+                  disabled={!selectedUserCanReset}
+                  onClick={handleResetFundPassword}
+                >
+                  Reset Fund Password
+                </Button>
+
+                <Button
+                  variant="danger"
+                  fullWidth
+                  loading={resettingLoginUserId === selectedUser.id}
+                  disabled={!selectedUserCanReset}
+                  onClick={handleResetLoginPassword}
+                >
+                  Generate Temporary Login Password
+                </Button>
+              </div>
             </>
           )}
         </div>
