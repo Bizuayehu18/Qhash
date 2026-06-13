@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getAdminClient } from "./supabase-admin.js";
+import { verifyFundPasswordForUser } from "./security.js";
 import { throwSafe } from "../errors.js";
 
 type WithdrawalMethod = "cbe" | "telebirr";
@@ -18,6 +19,7 @@ type SubmitWithdrawalInput = {
   method: WithdrawalMethod;
   accountName: string;
   accountNumber: string;
+  fundPassword: string;
 };
 
 type GetUserWithdrawalsInput = {
@@ -240,6 +242,7 @@ function validateSubmitWithdrawalInput(data: unknown): SubmitWithdrawalInput {
     method,
     accountName,
     accountNumber,
+    fundPassword,
   } = data as Record<string, unknown>;
 
   if (typeof accessToken !== "string" || accessToken.trim().length === 0) {
@@ -268,12 +271,17 @@ function validateSubmitWithdrawalInput(data: unknown): SubmitWithdrawalInput {
     throwSafe("WITHDRAWAL", "Please enter a valid account number.", "Invalid account number");
   }
 
+  if (typeof fundPassword !== "string" || !/^[0-9]{4}$/.test(fundPassword.trim())) {
+    throwSafe("WITHDRAWAL", "Enter your 4-digit fund password.", "Invalid fund password format");
+  }
+
   return {
     accessToken: accessToken.trim(),
     amount: parsedAmount,
     method,
     accountName: accountName.trim(),
     accountNumber: accountNumber.trim(),
+    fundPassword: fundPassword.trim(),
   };
 }
 
@@ -316,6 +324,8 @@ export const submitWithdrawalFn = createServerFn({ method: "POST" })
     if (authError || !authUser) {
       throwSafe("WITHDRAWAL", "Your session has expired. Please log in again.", "Invalid or expired access token");
     }
+
+    await verifyFundPasswordForUser(authUser.id, data.fundPassword);
 
     await assertNoWithdrawalToday(
       admin as unknown as DailyWithdrawalLimitClient,
