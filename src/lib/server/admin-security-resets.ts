@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { randomInt } from "node:crypto";
 import { getAdminClient } from "./supabase-admin.js";
 import { throwSafe } from "../errors.js";
 
@@ -15,10 +16,22 @@ type ResetUserFundPasswordInput = {
   reason: string;
 };
 
+type ResetUserLoginPasswordInput = {
+  accessToken: string;
+  targetUserId: string;
+  reason: string;
+};
+
 export type ResetUserFundPasswordResult = {
   success: true;
   message: string;
   oldHadFundPassword: boolean;
+};
+
+export type ResetUserLoginPasswordResult = {
+  success: true;
+  message: string;
+  temporaryPassword: string;
 };
 
 type ResetFundPasswordRpcResult = {
@@ -94,6 +107,20 @@ function normalizeReason(value: unknown): string {
 function validateResetUserFundPasswordInput(data: unknown): ResetUserFundPasswordInput {
   if (!data || typeof data !== "object") {
     throwSafe("ADMIN", "Unable to reset fund password.", "Invalid reset fund password request data");
+  }
+
+  const { accessToken, targetUserId, reason } = data as Record<string, unknown>;
+
+  return {
+    accessToken: normalizeAccessToken(accessToken),
+    targetUserId: normalizeTargetUserId(targetUserId),
+    reason: normalizeReason(reason),
+  };
+}
+
+function validateResetUserLoginPasswordInput(data: unknown): ResetUserLoginPasswordInput {
+  if (!data || typeof data !== "object") {
+    throwSafe("ADMIN", "Unable to reset login password.", "Invalid reset login password request data");
   }
 
   const { accessToken, targetUserId, reason } = data as Record<string, unknown>;
@@ -212,6 +239,40 @@ function toBoolean(value: unknown): boolean {
 
 function toFiniteNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function pickRandomCharacter(characters: string): string {
+  return characters[randomInt(0, characters.length)] ?? characters[0] ?? "x";
+}
+
+function shuffleCharacters(characters: string[]): string[] {
+  for (let index = characters.length - 1; index > 0; index -= 1) {
+    const swapIndex = randomInt(0, index + 1);
+    [characters[index], characters[swapIndex]] = [characters[swapIndex]!, characters[index]!];
+  }
+
+  return characters;
+}
+
+function generateTemporaryPassword(): string {
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnopqrstuvwxyz";
+  const digits = "23456789";
+  const symbols = "!@#$%";
+  const all = `${upper}${lower}${digits}${symbols}`;
+
+  const characters = [
+    pickRandomCharacter(upper),
+    pickRandomCharacter(lower),
+    pickRandomCharacter(digits),
+    pickRandomCharacter(symbols),
+  ];
+
+  while (characters.length < 14) {
+    characters.push(pickRandomCharacter(all));
+  }
+
+  return shuffleCharacters(characters).join("");
 }
 
 export const resetUserFundPasswordFn = createServerFn({ method: "POST" })
@@ -335,3 +396,64 @@ export const getAdminSecurityUsersFn = createServerFn({ method: "POST" })
       .filter((user): user is AdminSecurityUser => user !== null);
   });
 
+export const resetUserLoginPasswordFn = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => validateResetUserLoginPasswordInput(data))
+  .handler(async ({ data }): Promise<ResetUserLoginPasswordResult> => {
+    const adminUserId = await getAuthenticatedAdminUserId(data.accessToken);
+    const admin = getAdminClient();
+
+    if (adminUserId === data.targetUserId) {
+      throwSafe("ADMIN", "Admins cannot reset their own login password from the admin panel.", "Self login password reset attempted");
+    }
+
+    const { data: targetProfile, error: targetProfileError } = await admin
+      .from("profiles")
+      .select("id, username, phone, is_admin")
+      .eq("id", data.targetUserId)
+      .single();
+
+    if (targetProfileError || !targetProfile) {
+      throwSafe("ADMIN", "Target user not found.", `Target profile lookup failed: ${safeDbMessage(targetProfileError)}`);
+    }
+
+    const targetProfileRow = targetProfile as ProfileSecurityRow;
+
+    if (targetProfileRow.is_admin === true) {
+      throwSafe("ADMIN", "Admin account security resets are not allowed from this panel.", "Admin target login password reset blocked");
+    }
+
+    const temporaryPassword = generateTemporaryPassword();
+
+    const { error: updateError } = await admin.auth.admin.updateUserById(data.targetUserId, {
+      password: temporaryPassword,
+    });
+
+    if (updateError) {
+      throwSafe("ADMIN", "Unable to reset login password.", `Supabase auth password reset failed: ${updateError.message}`);
+    }
+
+    const { error: auditError } = await admin
+      .from("admin_security_reset_audit")
+      .insert({
+        admin_user_id: adminUserId,
+        target_user_id: data.targetUserId,
+        action: "login_password_reset",
+        reason: data.reason,
+        old_had_fund_password: null,
+        metadata: {
+          target_username: toStringOrNull(targetProfileRow.username),
+          target_phone_present: toStringOrNull(targetProfileRow.phone) !== null,
+          temporary_password_generated: true,
+        },
+      });
+
+    if (auditError) {
+      throwSafe("ADMIN", "Login password was reset, but audit logging failed. Contact a system administrator.", `Login password reset audit insert failed: ${safeDbMessage(auditError)}`);
+    }
+
+    return {
+      success: true,
+      message: "Temporary login password generated. Copy it now; it will not be shown again.",
+      temporaryPassword,
+    };
+  });
