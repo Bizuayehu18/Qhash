@@ -1,6 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
+import { createClient } from "@supabase/supabase-js";
 import { getAdminClient } from "./supabase-admin.js";
 import { throwSafe } from "../errors.js";
+import type { Database } from "../database.types.js";
 
 type DbError = {
   message?: string;
@@ -26,11 +28,23 @@ type ChangeFundPasswordInput = {
   confirmNewFundPassword: string;
 };
 
+type ChangeLoginPasswordInput = {
+  accessToken: string;
+  currentLoginPassword: string;
+  newLoginPassword: string;
+  confirmNewLoginPassword: string;
+};
+
 export type SecurityStatus = {
   hasFundPassword: boolean;
   fundPasswordLockedUntil: string | null;
   fundPasswordFailedAttempts: number;
   isFundPasswordLocked: boolean;
+};
+
+export type ChangeLoginPasswordResult = {
+  success: true;
+  message: string;
 };
 
 type FundPasswordRpcResult = {
@@ -102,6 +116,20 @@ function normalizeFundPassword(
   }
 
   return trimmed;
+}
+
+function normalizeLoginPassword(value: unknown, label: string): string {
+  if (typeof value !== "string") {
+    throwSafe("AUTH", `${label} must be a valid password.`, `${label} must be a string`);
+  }
+
+  const password = value.trim();
+
+  if (password.length < 6) {
+    throwSafe("AUTH", `${label} must be at least 6 characters.`, `${label} too short`);
+  }
+
+  return password;
 }
 
 function validateSecurityStatusInput(data: unknown): SecurityStatusInput {
@@ -182,6 +210,47 @@ function validateChangeFundPasswordInput(data: unknown): ChangeFundPasswordInput
   };
 }
 
+function validateChangeLoginPasswordInput(data: unknown): ChangeLoginPasswordInput {
+  if (!data || typeof data !== "object") {
+    throwSafe("AUTH", "Unable to update login password.", "Invalid change login password request data");
+  }
+
+  const {
+    accessToken,
+    currentLoginPassword,
+    newLoginPassword,
+    confirmNewLoginPassword,
+  } = data as Record<string, unknown>;
+
+  const normalizedCurrentLoginPassword = normalizeLoginPassword(
+    currentLoginPassword,
+    "Current login password",
+  );
+  const normalizedNewLoginPassword = normalizeLoginPassword(
+    newLoginPassword,
+    "New login password",
+  );
+  const normalizedConfirmNewLoginPassword = normalizeLoginPassword(
+    confirmNewLoginPassword,
+    "Confirm login password",
+  );
+
+  if (normalizedNewLoginPassword !== normalizedConfirmNewLoginPassword) {
+    throwSafe("AUTH", "New login passwords do not match.", "Login password confirmation mismatch");
+  }
+
+  if (normalizedCurrentLoginPassword === normalizedNewLoginPassword) {
+    throwSafe("AUTH", "New login password must be different from the current one.", "Login password unchanged");
+  }
+
+  return {
+    accessToken: normalizeAccessToken(accessToken),
+    currentLoginPassword: normalizedCurrentLoginPassword,
+    newLoginPassword: normalizedNewLoginPassword,
+    confirmNewLoginPassword: normalizedConfirmNewLoginPassword,
+  };
+}
+
 function safeDbMessage(error: DbError | null): string {
   if (!error) return "Unknown database error";
 
@@ -238,7 +307,38 @@ function throwFundPasswordRpcFailure(result: FundPasswordRpcResult | null, fallb
   );
 }
 
-async function getAuthenticatedUserId(accessToken: string): Promise<string> {
+function normaliseEthiopianPhone(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  if (digits.startsWith("2519") || digits.startsWith("2517")) return `+${digits}`;
+  if (digits.startsWith("09") || digits.startsWith("07")) return `+251${digits.slice(1)}`;
+  if (digits.startsWith("9") || digits.startsWith("7")) return `+251${digits}`;
+  return `+${digits}`;
+}
+
+function phoneToEmail(phone: string): string {
+  return `${phone.replace(/\D/g, "")}@qhash.app`;
+}
+
+function getPasswordVerifierClient() {
+  const url = process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL ?? "";
+  const anonKey = process.env.VITE_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY ?? "";
+
+  if (!url || !anonKey) {
+    throwSafe("AUTH", "Unable to verify current password. Please try again.", "Supabase anon client is not configured");
+  }
+
+  return createClient<Database>(url, anonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
+  });
+}
+
+async function getAuthenticatedAuthUser(
+  accessToken: string,
+): Promise<{ id: string; email: string | null }> {
   const admin = getAdminClient();
   const {
     data: { user: authUser },
@@ -249,7 +349,41 @@ async function getAuthenticatedUserId(accessToken: string): Promise<string> {
     throwSafe("AUTH", "Your session has expired. Please log in again.", "Invalid or expired access token");
   }
 
+  return {
+    id: authUser.id,
+    email: typeof authUser.email === "string" ? authUser.email : null,
+  };
+}
+
+async function getAuthenticatedUserId(accessToken: string): Promise<string> {
+  const authUser = await getAuthenticatedAuthUser(accessToken);
+
   return authUser.id;
+}
+
+async function getAuthEmailForUser(userId: string, authEmail: string | null): Promise<string> {
+  const email = authEmail?.trim();
+
+  if (email) return email;
+
+  const admin = getAdminClient();
+  const { data: profile, error } = await admin
+    .from("profiles")
+    .select("phone")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) {
+    throwSafe("AUTH", "Unable to verify current password.", `Profile phone lookup failed: ${error.message}`);
+  }
+
+  const phone = typeof profile?.phone === "string" ? profile.phone.trim() : "";
+
+  if (!phone) {
+    throwSafe("AUTH", "Unable to verify current password for this account.", "Missing auth email and profile phone");
+  }
+
+  return phoneToEmail(normaliseEthiopianPhone(phone));
 }
 
 export const getSecurityStatusFn = createServerFn({ method: "POST" })
@@ -323,6 +457,43 @@ export const changeFundPasswordFn = createServerFn({ method: "POST" })
     }
 
     return buildSecurityStatus(result);
+  });
+
+export const changeLoginPasswordFn = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => validateChangeLoginPasswordInput(data))
+  .handler(async ({ data }): Promise<ChangeLoginPasswordResult> => {
+    const authUser = await getAuthenticatedAuthUser(data.accessToken);
+    const authEmail = await getAuthEmailForUser(authUser.id, authUser.email);
+    const verifier = getPasswordVerifierClient();
+
+    const { error: verifyError } = await verifier.auth.signInWithPassword({
+      email: authEmail,
+      password: data.currentLoginPassword,
+    });
+
+    if (verifyError) {
+      throwSafe("AUTH", "Current login password is incorrect.", `Login password verification failed: ${verifyError.message}`);
+    }
+
+    try {
+      await verifier.auth.signOut();
+    } catch {
+      // Verification client does not persist sessions; ignore cleanup failures.
+    }
+
+    const admin = getAdminClient();
+    const { error: updateError } = await admin.auth.admin.updateUserById(authUser.id, {
+      password: data.newLoginPassword,
+    });
+
+    if (updateError) {
+      throwSafe("AUTH", "Unable to update login password.", `Supabase auth password update failed: ${updateError.message}`);
+    }
+
+    return {
+      success: true,
+      message: "Login password updated. Please log in again.",
+    };
   });
 
 export async function verifyFundPasswordForUser(
