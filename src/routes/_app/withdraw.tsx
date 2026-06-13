@@ -86,6 +86,73 @@ function onlyFourDigits(value: string): string {
   return value.replace(/\D/g, "").slice(0, 4);
 }
 
+function getWithdrawalSpecificErrorMessage(error: unknown): string | null {
+  const seen = new Set<unknown>();
+  const values: string[] = [];
+
+  const collect = (value: unknown) => {
+    if (value === null || value === undefined || seen.has(value)) return;
+
+    if (typeof value === "string") {
+      values.push(value);
+      return;
+    }
+
+    if (typeof value === "number" || typeof value === "boolean") {
+      values.push(String(value));
+      return;
+    }
+
+    if (typeof value !== "object") return;
+
+    seen.add(value);
+
+    if (value instanceof Error) {
+      values.push(value.message);
+      values.push(value.name);
+    }
+
+    for (const item of Object.values(value as Record<string, unknown>)) {
+      collect(item);
+    }
+  };
+
+  collect(error);
+
+  const combined = values.join(" ").toLowerCase();
+
+  if (
+    combined.includes("fund_password_not_set") ||
+    combined.includes("please create your fund password first")
+  ) {
+    return "Please create your fund password first from Profile → Security.";
+  }
+
+  if (
+    combined.includes("incorrect_fund_password") ||
+    combined.includes("incorrect fund password")
+  ) {
+    return "Incorrect fund password.";
+  }
+
+  if (
+    combined.includes("fund_password_locked") ||
+    combined.includes("fund password is temporarily locked") ||
+    combined.includes("too many incorrect attempts")
+  ) {
+    return "Fund password is temporarily locked. Please try again later.";
+  }
+
+  if (
+    combined.includes("invalid fund password format") ||
+    combined.includes("fund password must be exactly 4 digits")
+  ) {
+    return "Enter your 4-digit fund password.";
+  }
+
+  return null;
+}
+
 function WithdrawPage() {
   const { user } = useAuthStore();
   const walletBalance = useWalletStore((s) => s.balance);
@@ -238,6 +305,13 @@ function WithdrawPage() {
 
       if (isDailyWithdrawalLimitError(err)) {
         toast.error(DAILY_WITHDRAWAL_LIMIT_MESSAGE);
+        return;
+      }
+
+      const specificMessage = getWithdrawalSpecificErrorMessage(err);
+
+      if (specificMessage) {
+        toast.error(specificMessage);
         return;
       }
 
