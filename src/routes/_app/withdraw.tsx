@@ -82,6 +82,10 @@ function isDailyWithdrawalLimitError(error: unknown): boolean {
   );
 }
 
+function onlyFourDigits(value: string): string {
+  return value.replace(/\D/g, "").slice(0, 4);
+}
+
 function WithdrawPage() {
   const { user } = useAuthStore();
   const walletBalance = useWalletStore((s) => s.balance);
@@ -92,6 +96,7 @@ function WithdrawPage() {
   const [method, setMethod] = useState<WithdrawalMethod>("cbe");
   const [accountName, setAccountName] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
+  const [fundPassword, setFundPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [withdrawals, setWithdrawals] = useState<UserWithdrawal[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
@@ -156,6 +161,7 @@ function WithdrawPage() {
     setMethod("cbe");
     setAccountName("");
     setAccountNumber("");
+    setFundPassword("");
   };
 
   const handleSubmit = async () => {
@@ -194,6 +200,11 @@ function WithdrawPage() {
       return;
     }
 
+    if (fundPassword.length !== 4) {
+      toast.error("Enter your 4-digit fund password.");
+      return;
+    }
+
     setSubmitting(true);
 
     try {
@@ -212,6 +223,7 @@ function WithdrawPage() {
           method,
           accountName: trimmedAccountName,
           accountNumber: trimmedAccountNumber,
+          fundPassword,
         },
       });
 
@@ -318,6 +330,18 @@ function WithdrawPage() {
           onChange={(e) => setAccountNumber(e.target.value)}
         />
 
+        <Input
+          label="Fund Password"
+          type="password"
+          placeholder="Enter 4-digit fund password"
+          value={fundPassword}
+          onChange={(e) => setFundPassword(onlyFourDigits(e.target.value))}
+          inputMode="numeric"
+          maxLength={4}
+          autoComplete="current-password"
+          hint="Required for every withdrawal. Manage it from Profile → Security."
+        />
+
         {parsedAmount > 0 && (
           <div className="rounded-xl border border-[#1a1a1a] bg-[#0b0b0b] p-3 space-y-2">
             <SummaryRow label="Withdrawal amount" value={`${formatMoney(parsedAmount)} ETB`} />
@@ -347,7 +371,8 @@ function WithdrawPage() {
             parsedAmount < MIN_WITHDRAWAL_AMOUNT ||
             !hasEnoughBalance ||
             accountName.trim().length < 2 ||
-            accountNumber.trim().length < 5
+            accountNumber.trim().length < 5 ||
+            fundPassword.length !== 4
           }
           onClick={handleSubmit}
         >
