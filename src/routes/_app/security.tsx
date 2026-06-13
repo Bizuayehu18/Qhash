@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Info, KeyRound, ShieldCheck, Wallet } from "lucide-react";
@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
 import { Spinner } from "@/components/ui/Spinner.js";
 import { getSafeErrorMessage } from "@/lib/errors.js";
-import { normaliseEthiopianPhone, phoneToEmail, supabase } from "@/lib/supabase.js";
+import { supabase } from "@/lib/supabase.js";
 import {
   changeFundPasswordFn,
+  changeLoginPasswordFn,
   getSecurityStatusFn,
   setFundPasswordFn,
   type SecurityStatus,
@@ -21,8 +22,6 @@ export const Route = createFileRoute("/_app/security")({
 });
 
 type SecurityTab = "login" | "fund";
-
-type LoginCredentials = { email: string; password: string };
 
 const EMPTY_SECURITY_STATUS: SecurityStatus = {
   hasFundPassword: false,
@@ -39,28 +38,9 @@ function isValidLoginPassword(value: string): boolean {
   return value.trim().length >= 6;
 }
 
-function getLoginIdentifier(
-  userEmail: string | null | undefined,
-  profilePhone: string | null | undefined,
-  password: string,
-): LoginCredentials | null {
-  const email = userEmail?.trim();
-  const phone = profilePhone?.trim();
-
-  if (email) return { email, password };
-
-  if (phone) {
-    return {
-      email: phoneToEmail(normaliseEthiopianPhone(phone)),
-      password,
-    };
-  }
-
-  return null;
-}
-
 function SecurityPage() {
-  const { user, profile } = useAuthStore();
+  const { user, signOut } = useAuthStore();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<SecurityTab>("login");
   const [status, setStatus] = useState<SecurityStatus>(EMPTY_SECURITY_STATUS);
   const [loadingStatus, setLoadingStatus] = useState(true);
@@ -147,34 +127,30 @@ function SecurityPage() {
       return;
     }
 
-    const loginCredentials = getLoginIdentifier(user?.email, profile?.phone, currentLoginPassword);
-
-    if (!loginCredentials) {
-      toast.error("Unable to verify current password for this account.");
-      return;
-    }
-
     setSavingLoginPassword(true);
 
     try {
-      const { error: reauthError } = await supabase.auth.signInWithPassword(loginCredentials);
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
 
-      if (reauthError) {
-        toast.error("Current login password is incorrect.");
+      if (!accessToken) {
+        toast.error("Session expired. Please sign in again.");
         return;
       }
 
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: newLoginPassword,
+      const result = await changeLoginPasswordFn({
+        data: {
+          accessToken,
+          currentLoginPassword,
+          newLoginPassword,
+          confirmNewLoginPassword: confirmLoginPassword,
+        },
       });
 
-      if (updateError) {
-        toast.error(updateError.message || "Unable to update login password.");
-        return;
-      }
-
       resetLoginPasswordForm();
-      toast.success("Login password updated.");
+      toast.success(result.message);
+      await signOut();
+      navigate({ to: "/login", replace: true });
     } catch (err) {
       toast.error(getSafeErrorMessage(err, "AUTH").message);
     } finally {
