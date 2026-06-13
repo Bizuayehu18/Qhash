@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
 import { Spinner } from "@/components/ui/Spinner.js";
 import { getSafeErrorMessage } from "@/lib/errors.js";
-import { supabase } from "@/lib/supabase.js";
+import { normaliseEthiopianPhone, phoneToEmail, supabase } from "@/lib/supabase.js";
 import {
   changeFundPasswordFn,
   getSecurityStatusFn,
@@ -22,9 +22,7 @@ export const Route = createFileRoute("/_app/security")({
 
 type SecurityTab = "login" | "fund";
 
-type LoginCredentials =
-  | { email: string; password: string }
-  | { phone: string; password: string };
+type LoginCredentials = { email: string; password: string };
 
 const EMPTY_SECURITY_STATUS: SecurityStatus = {
   hasFundPassword: false,
@@ -50,7 +48,13 @@ function getLoginIdentifier(
   const phone = profilePhone?.trim();
 
   if (email) return { email, password };
-  if (phone) return { phone, password };
+
+  if (phone) {
+    return {
+      email: phoneToEmail(normaliseEthiopianPhone(phone)),
+      password,
+    };
+  }
 
   return null;
 }
@@ -358,15 +362,16 @@ function SecurityPage() {
               {loadingStatus ? (
                 <Spinner size="sm" />
               ) : (
-                <Badge variant={status.hasFundPassword ? "success" : "warning"}>
+                <Badge variant={status.hasFundPassword ? "success" : "default"}>
                   {status.hasFundPassword ? "Set" : "Not Set"}
                 </Badge>
               )}
             </div>
 
-            {status.isFundPasswordLocked && status.fundPasswordLockedUntil && (
-              <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-[11px] text-red-400">
-                Fund password is temporarily locked. Try again after {formatDateTime(status.fundPasswordLockedUntil)}.
+            {status.isFundPasswordLocked && (
+              <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+                <Info size={13} className="text-amber-400 shrink-0 mt-0.5" />
+                Fund password is temporarily locked due to failed attempts. Please try again later.
               </div>
             )}
 
@@ -376,29 +381,24 @@ function SecurityPage() {
                   label="Create 4-Digit Fund Password"
                   type="password"
                   placeholder="••••"
+                  inputMode="numeric"
                   value={fundPassword}
                   onChange={(e) => setFundPassword(onlyFourDigits(e.target.value))}
-                  inputMode="numeric"
-                  maxLength={4}
                   autoComplete="new-password"
-                  hint="Required before withdrawal requests."
+                  hint="This password is required for withdrawals."
                 />
-
                 <Input
                   label="Confirm Fund Password"
                   type="password"
                   placeholder="••••"
+                  inputMode="numeric"
                   value={confirmFundPassword}
                   onChange={(e) => setConfirmFundPassword(onlyFourDigits(e.target.value))}
-                  inputMode="numeric"
-                  maxLength={4}
                   autoComplete="new-password"
                 />
-
                 <Button
                   fullWidth
                   loading={savingFundPassword}
-                  disabled={loadingStatus}
                   onClick={handleCreateFundPassword}
                 >
                   Create Fund Password
@@ -410,40 +410,33 @@ function SecurityPage() {
                   label="Current Fund Password"
                   type="password"
                   placeholder="••••"
+                  inputMode="numeric"
                   value={currentFundPassword}
                   onChange={(e) => setCurrentFundPassword(onlyFourDigits(e.target.value))}
-                  inputMode="numeric"
-                  maxLength={4}
                   autoComplete="current-password"
                 />
-
                 <Input
                   label="New Fund Password"
                   type="password"
                   placeholder="••••"
+                  inputMode="numeric"
                   value={newFundPassword}
                   onChange={(e) => setNewFundPassword(onlyFourDigits(e.target.value))}
-                  inputMode="numeric"
-                  maxLength={4}
                   autoComplete="new-password"
-                  hint="Use exactly 4 digits."
                 />
-
                 <Input
                   label="Confirm New Fund Password"
                   type="password"
                   placeholder="••••"
+                  inputMode="numeric"
                   value={confirmNewFundPassword}
                   onChange={(e) => setConfirmNewFundPassword(onlyFourDigits(e.target.value))}
-                  inputMode="numeric"
-                  maxLength={4}
                   autoComplete="new-password"
                 />
-
                 <Button
                   fullWidth
                   loading={savingFundPassword}
-                  disabled={loadingStatus || status.isFundPasswordLocked}
+                  disabled={status.isFundPasswordLocked}
                   onClick={handleChangeFundPassword}
                 >
                   Save Fund Password
@@ -451,22 +444,8 @@ function SecurityPage() {
               </>
             )}
           </div>
-
-          <div className="p-3 rounded-xl bg-[rgba(0,255,65,0.04)] border border-[rgba(0,255,65,0.1)] flex gap-2 text-[11px] text-gray-400">
-            <Info size={13} className="text-[#00ff41] shrink-0 mt-0.5" />
-            <span>Fund password is separate from login password and will be required for withdrawals.</span>
-          </div>
         </div>
       )}
     </div>
   );
-}
-
-function formatDateTime(value: string): string {
-  return new Date(value).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }
