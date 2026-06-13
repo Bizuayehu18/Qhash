@@ -422,16 +422,6 @@ export const resetUserLoginPasswordFn = createServerFn({ method: "POST" })
       throwSafe("ADMIN", "Admin account security resets are not allowed from this panel.", "Admin target login password reset blocked");
     }
 
-    const temporaryPassword = generateTemporaryPassword();
-
-    const { error: updateError } = await admin.auth.admin.updateUserById(data.targetUserId, {
-      password: temporaryPassword,
-    });
-
-    if (updateError) {
-      throwSafe("ADMIN", "Unable to reset login password.", `Supabase auth password reset failed: ${updateError.message}`);
-    }
-
     const { error: auditError } = await admin
       .from("admin_security_reset_audit")
       .insert({
@@ -443,12 +433,24 @@ export const resetUserLoginPasswordFn = createServerFn({ method: "POST" })
         metadata: {
           target_username: toStringOrNull(targetProfileRow.username),
           target_phone_present: toStringOrNull(targetProfileRow.phone) !== null,
-          temporary_password_generated: true,
+          temporary_password_generated: false,
+          temporary_password_stored: false,
+          auth_password_update_pending: true,
         },
       });
 
     if (auditError) {
-      throwSafe("ADMIN", "Login password was reset, but audit logging failed. Contact a system administrator.", `Login password reset audit insert failed: ${safeDbMessage(auditError)}`);
+      throwSafe("ADMIN", "Unable to reset login password.", `Login password reset audit insert failed before password update: ${safeDbMessage(auditError)}`);
+    }
+
+    const temporaryPassword = generateTemporaryPassword();
+
+    const { error: updateError } = await admin.auth.admin.updateUserById(data.targetUserId, {
+      password: temporaryPassword,
+    });
+
+    if (updateError) {
+      throwSafe("ADMIN", "Unable to reset login password.", `Supabase auth password reset failed after audit insert: ${updateError.message}`);
     }
 
     return {
