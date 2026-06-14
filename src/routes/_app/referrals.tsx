@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Users,
   UserCheck,
@@ -8,12 +8,14 @@ import {
   Link2,
   TrendingUp,
   ChevronRight,
+  RefreshCw,
 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore.js";
 import { supabase } from "@/lib/supabase.js";
 import { Card } from "@/components/ui/Card.js";
 import { Spinner } from "@/components/ui/Spinner.js";
 import { loadReferralStatsFn } from "@/lib/server/referrals.js";
+import { withTimeout, isTimeoutError } from "@/lib/async.js";
 
 export const Route = createFileRoute("/_app/referrals")({
   component: ReferralsPage,
@@ -25,54 +27,128 @@ interface ReferralStats {
   earned: number;
 }
 
+const EMPTY_REFERRAL_STATS: ReferralStats = {
+  total: 0,
+  active: 0,
+  earned: 0,
+};
+
+const REFERRAL_LOAD_TIMEOUT_MS = 8_000;
+
+function getErrorMessage(error: unknown): string {
+  if (isTimeoutError(error)) {
+    return "Team stats are taking too long to load. Check your connection and try again.";
+  }
+
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  return "Unable to load team stats. Please try again.";
+}
+
 function useReferralData() {
   const user = useAuthStore((s) => s.user);
   const profile = useAuthStore((s) => s.profile);
-  const [stats, setStats] = useState<ReferralStats>({
-    total: 0,
-    active: 0,
-    earned: 0,
-  });
-  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<ReferralStats>(EMPTY_REFERRAL_STATS);
+  const [loading, setLoading] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!user) return;
+  const load = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (!user) {
+        setStats(EMPTY_REFERRAL_STATS);
+        setError(null);
+        setLoading(false);
+        setHasLoadedOnce(true);
+        return;
+      }
 
-    async function load() {
-      setLoading(true);
+      if (!options?.silent) setLoading(true);
+      setError(null);
+
       try {
-        const { data: sessionData } = await supabase.auth.getSession();
+        const { data: sessionData } = await withTimeout(
+          supabase.auth.getSession(),
+          REFERRAL_LOAD_TIMEOUT_MS,
+          "Session check timed out.",
+        );
+
         const accessToken = sessionData?.session?.access_token;
         if (!accessToken) {
-          setStats({ total: 0, active: 0, earned: 0 });
-          setLoading(false);
+          setStats(EMPTY_REFERRAL_STATS);
+          setError("Session expired. Please sign in again.");
           return;
         }
-        const result = await loadReferralStatsFn({ data: { accessToken } });
+
+        const result = await withTimeout(
+          loadReferralStatsFn({ data: { accessToken } }),
+          REFERRAL_LOAD_TIMEOUT_MS,
+          "Team stats request timed out.",
+        );
+
         setStats({
           total: result.total,
           active: result.active,
           earned: result.earned,
         });
-      } catch {
-        setStats({ total: 0, active: 0, earned: 0 });
+      } catch (err) {
+        console.error("[QHash] Referral stats load failed:", err);
+        setStats(EMPTY_REFERRAL_STATS);
+        setError(getErrorMessage(err));
+      } finally {
+        setLoading(false);
+        setHasLoadedOnce(true);
       }
-      setLoading(false);
-    }
+    },
+    [user],
+  );
 
-    load();
-  }, [user]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-  return { stats, loading, username: profile?.username ?? null };
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === "visible" && user) {
+        void load({ silent: hasLoadedOnce });
+      }
+    };
+
+    const handleOnline = () => {
+      if (user) {
+        void load({ silent: hasLoadedOnce });
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [hasLoadedOnce, load, user]);
+
+  return {
+    stats,
+    loading,
+    hasLoadedOnce,
+    error,
+    retry: () => load(),
+    username: profile?.username ?? null,
+  };
 }
 
 function ReferralsPage() {
-  const { stats, loading, username } = useReferralData();
+  const { stats, loading, hasLoadedOnce, error, retry, username } = useReferralData();
   const [copied, setCopied] = useState(false);
 
-  const referralLink = username
-    ? `${window.location.origin}/register?ref=${username}`
-    : null;
+  const referralLink =
+    username && typeof window !== "undefined"
+      ? `${window.location.origin}/register?ref=${username}`
+      : null;
 
   function handleCopy() {
     if (!referralLink) return;
@@ -82,7 +158,7 @@ function ReferralsPage() {
     });
   }
 
-  if (loading) {
+  if (loading && !hasLoadedOnce) {
     return (
       <div className="flex items-center justify-center py-20">
         <Spinner size="lg" className="text-[#00ff41]" />
@@ -98,6 +174,21 @@ function ReferralsPage() {
           Invite friends, earn commissions
         </p>
       </div>
+
+      {error && (
+        <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3">
+          <p className="text-xs text-amber-200 leading-relaxed">{error}</p>
+          <button
+            type="button"
+            onClick={retry}
+            disabled={loading}
+            className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-amber-400/30 px-3 py-2 text-[11px] font-semibold text-amber-100 disabled:opacity-60"
+          >
+            {loading ? <Spinner size="sm" /> : <RefreshCw size={12} />}
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Referral Link Card */}
       <Card neon>
@@ -115,6 +206,7 @@ function ReferralsPage() {
                 {referralLink}
               </div>
               <button
+                type="button"
                 onClick={handleCopy}
                 className="shrink-0 h-10 w-10 rounded-lg bg-[#00ff41] flex items-center justify-center transition-all active:scale-95 cursor-pointer"
               >
