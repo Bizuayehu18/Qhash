@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Users,
   UserCheck,
@@ -8,14 +8,11 @@ import {
   Link2,
   TrendingUp,
   ChevronRight,
-  RefreshCw,
 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore.js";
-import { supabase } from "@/lib/supabase.js";
 import { Card } from "@/components/ui/Card.js";
-import { Spinner } from "@/components/ui/Spinner.js";
 import { loadReferralStatsFn } from "@/lib/server/referrals.js";
-import { withTimeout, isTimeoutError } from "@/lib/async.js";
+import { withTimeout } from "@/lib/async.js";
 
 export const Route = createFileRoute("/_app/referrals")({
   component: ReferralsPage,
@@ -33,93 +30,101 @@ const EMPTY_REFERRAL_STATS: ReferralStats = {
   earned: 0,
 };
 
-const REFERRAL_LOAD_TIMEOUT_MS = 8_000;
-
-function getErrorMessage(error: unknown): string {
-  if (isTimeoutError(error)) {
-    return "Team stats are taking too long to load. Check your connection and try again.";
-  }
-
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message;
-  }
-
-  return "Unable to load team stats. Please try again.";
-}
+const REFERRAL_LOAD_TIMEOUT_MS = 10_000;
+const AUTO_RETRY_DELAY_MS = 1_500;
+const MAX_AUTO_RETRIES = 2;
 
 function useReferralData() {
   const user = useAuthStore((s) => s.user);
   const profile = useAuthStore((s) => s.profile);
+  const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const [stats, setStats] = useState<ReferralStats>(EMPTY_REFERRAL_STATS);
-  const [loading, setLoading] = useState(false);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const loadingRef = useRef(false);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
+
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleRetry = useCallback((loadFn: () => void) => {
+    clearRetryTimer();
+
+    if (retryCountRef.current >= MAX_AUTO_RETRIES) return;
+
+    retryCountRef.current += 1;
+    retryTimerRef.current = setTimeout(loadFn, AUTO_RETRY_DELAY_MS);
+  }, [clearRetryTimer]);
 
   const load = useCallback(
-    async (options?: { silent?: boolean }) => {
-      if (!user) {
+    async (options?: { resetRetryCount?: boolean }) => {
+      if (loadingRef.current) return;
+
+      if (options?.resetRetryCount) {
+        retryCountRef.current = 0;
+      }
+
+      if (!user || !accessToken) {
         setStats(EMPTY_REFERRAL_STATS);
-        setError(null);
-        setLoading(false);
-        setHasLoadedOnce(true);
         return;
       }
 
-      if (!options?.silent) setLoading(true);
-      setError(null);
+      clearRetryTimer();
+      loadingRef.current = true;
 
       try {
-        const { data: sessionData } = await withTimeout(
-          supabase.auth.getSession(),
-          REFERRAL_LOAD_TIMEOUT_MS,
-          "Session check timed out.",
-        );
-
-        const accessToken = sessionData?.session?.access_token;
-        if (!accessToken) {
-          setStats(EMPTY_REFERRAL_STATS);
-          setError("Session expired. Please sign in again.");
-          return;
-        }
-
         const result = await withTimeout(
           loadReferralStatsFn({ data: { accessToken } }),
           REFERRAL_LOAD_TIMEOUT_MS,
           "Team stats request timed out.",
         );
 
+        if (!mountedRef.current) return;
+
         setStats({
           total: result.total,
           active: result.active,
           earned: result.earned,
         });
+        retryCountRef.current = 0;
       } catch (err) {
-        console.error("[QHash] Referral stats load failed:", err);
-        setStats(EMPTY_REFERRAL_STATS);
-        setError(getErrorMessage(err));
+        console.error("[QHash] Referral stats background refresh failed:", err);
+
+        if (!mountedRef.current) return;
+
+        scheduleRetry(() => {
+          void load();
+        });
       } finally {
-        setLoading(false);
-        setHasLoadedOnce(true);
+        loadingRef.current = false;
       }
     },
-    [user],
+    [accessToken, clearRetryTimer, scheduleRetry, user],
   );
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    mountedRef.current = true;
+    void load({ resetRetryCount: true });
+
+    return () => {
+      mountedRef.current = false;
+      clearRetryTimer();
+    };
+  }, [clearRetryTimer, load]);
 
   useEffect(() => {
     const handleVisible = () => {
-      if (document.visibilityState === "visible" && user) {
-        void load({ silent: hasLoadedOnce });
+      if (document.visibilityState === "visible") {
+        void load({ resetRetryCount: true });
       }
     };
 
     const handleOnline = () => {
-      if (user) {
-        void load({ silent: hasLoadedOnce });
-      }
+      void load({ resetRetryCount: true });
     };
 
     document.addEventListener("visibilitychange", handleVisible);
@@ -129,20 +134,16 @@ function useReferralData() {
       document.removeEventListener("visibilitychange", handleVisible);
       window.removeEventListener("online", handleOnline);
     };
-  }, [hasLoadedOnce, load, user]);
+  }, [load]);
 
   return {
     stats,
-    loading,
-    hasLoadedOnce,
-    error,
-    retry: () => load(),
     username: profile?.username ?? null,
   };
 }
 
 function ReferralsPage() {
-  const { stats, loading, hasLoadedOnce, error, retry, username } = useReferralData();
+  const { stats, username } = useReferralData();
   const [copied, setCopied] = useState(false);
 
   const referralLink =
@@ -158,14 +159,6 @@ function ReferralsPage() {
     });
   }
 
-  if (loading && !hasLoadedOnce) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Spinner size="lg" className="text-[#00ff41]" />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-5">
       <div>
@@ -175,22 +168,6 @@ function ReferralsPage() {
         </p>
       </div>
 
-      {error && (
-        <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3">
-          <p className="text-xs text-amber-200 leading-relaxed">{error}</p>
-          <button
-            type="button"
-            onClick={retry}
-            disabled={loading}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-amber-400/30 px-3 py-2 text-[11px] font-semibold text-amber-100 disabled:opacity-60"
-          >
-            {loading ? <Spinner size="sm" /> : <RefreshCw size={12} />}
-            Retry
-          </button>
-        </div>
-      )}
-
-      {/* Referral Link Card */}
       <Card neon>
         <div className="flex items-center gap-2 mb-3">
           <Link2 size={16} className="text-[#00ff41]" />
@@ -230,19 +207,9 @@ function ReferralsPage() {
         )}
       </Card>
 
-      {/* Stats Grid */}
       <div className="grid grid-cols-3 gap-3">
-        <StatCard
-          icon={<Users size={18} />}
-          label="Total"
-          value={stats.total}
-        />
-        <StatCard
-          icon={<UserCheck size={18} />}
-          label="Active"
-          value={stats.active}
-          accent
-        />
+        <StatCard icon={<Users size={18} />} label="Total" value={stats.total} />
+        <StatCard icon={<UserCheck size={18} />} label="Active" value={stats.active} accent />
         <StatCard
           icon={<TrendingUp size={18} />}
           label="Earned"
@@ -251,7 +218,6 @@ function ReferralsPage() {
         />
       </div>
 
-      {/* Commission Tiers */}
       <Card>
         <div className="flex items-center justify-between mb-4">
           <span className="text-sm font-semibold text-gray-100">
@@ -272,7 +238,6 @@ function ReferralsPage() {
           </p>
         </div>
       </Card>
-
     </div>
   );
 }
@@ -291,14 +256,10 @@ function StatCard({
   return (
     <Card padding="sm">
       <div className="flex flex-col items-center text-center gap-1.5 py-1">
-        <div
-          className={accent ? "text-[#00ff41]" : "text-gray-500"}
-        >
+        <div className={accent ? "text-[#00ff41]" : "text-gray-500"}>
           {icon}
         </div>
-        <span
-          className={`text-base font-bold ${accent ? "text-[#00ff41]" : "text-gray-100"}`}
-        >
+        <span className={`text-base font-bold ${accent ? "text-[#00ff41]" : "text-gray-100"}`}>
           {value}
         </span>
         <span className="text-[10px] text-gray-600 uppercase tracking-wider">
