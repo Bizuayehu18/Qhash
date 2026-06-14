@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Users,
   UserCheck,
@@ -11,7 +11,6 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore.js";
-import { supabase } from "@/lib/supabase.js";
 import { Card } from "@/components/ui/Card.js";
 import { Spinner } from "@/components/ui/Spinner.js";
 import { loadReferralStatsFn } from "@/lib/server/referrals.js";
@@ -33,7 +32,8 @@ const EMPTY_REFERRAL_STATS: ReferralStats = {
   earned: 0,
 };
 
-const REFERRAL_LOAD_TIMEOUT_MS = 8_000;
+const REFERRAL_LOAD_TIMEOUT_MS = 10_000;
+const AUTO_RETRY_DELAY_MS = 1_500;
 
 function getErrorMessage(error: unknown): string {
   if (isTimeoutError(error)) {
@@ -50,17 +50,39 @@ function getErrorMessage(error: unknown): string {
 function useReferralData() {
   const user = useAuthStore((s) => s.user);
   const profile = useAuthStore((s) => s.profile);
+  const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const [stats, setStats] = useState<ReferralStats>(EMPTY_REFERRAL_STATS);
   const [loading, setLoading] = useState(false);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoRetrying, setAutoRetrying] = useState(false);
+  const autoRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearAutoRetryTimer = useCallback(() => {
+    if (autoRetryTimerRef.current) {
+      clearTimeout(autoRetryTimerRef.current);
+      autoRetryTimerRef.current = null;
+    }
+  }, []);
 
   const load = useCallback(
     async (options?: { silent?: boolean }) => {
+      clearAutoRetryTimer();
+
       if (!user) {
         setStats(EMPTY_REFERRAL_STATS);
         setError(null);
         setLoading(false);
+        setAutoRetrying(false);
+        setHasLoadedOnce(true);
+        return;
+      }
+
+      if (!accessToken) {
+        setStats(EMPTY_REFERRAL_STATS);
+        setError("Session expired. Please sign in again.");
+        setLoading(false);
+        setAutoRetrying(false);
         setHasLoadedOnce(true);
         return;
       }
@@ -69,19 +91,6 @@ function useReferralData() {
       setError(null);
 
       try {
-        const { data: sessionData } = await withTimeout(
-          supabase.auth.getSession(),
-          REFERRAL_LOAD_TIMEOUT_MS,
-          "Session check timed out.",
-        );
-
-        const accessToken = sessionData?.session?.access_token;
-        if (!accessToken) {
-          setStats(EMPTY_REFERRAL_STATS);
-          setError("Session expired. Please sign in again.");
-          return;
-        }
-
         const result = await withTimeout(
           loadReferralStatsFn({ data: { accessToken } }),
           REFERRAL_LOAD_TIMEOUT_MS,
@@ -99,25 +108,39 @@ function useReferralData() {
         setError(getErrorMessage(err));
       } finally {
         setLoading(false);
+        setAutoRetrying(false);
         setHasLoadedOnce(true);
       }
     },
-    [user],
+    [accessToken, clearAutoRetryTimer, user],
   );
 
   useEffect(() => {
     void load();
-  }, [load]);
+
+    return () => clearAutoRetryTimer();
+  }, [clearAutoRetryTimer, load]);
+
+  useEffect(() => {
+    if (!error || loading || autoRetrying || !user || !accessToken) return;
+
+    setAutoRetrying(true);
+    autoRetryTimerRef.current = setTimeout(() => {
+      void load({ silent: true });
+    }, AUTO_RETRY_DELAY_MS);
+
+    return () => clearAutoRetryTimer();
+  }, [accessToken, autoRetrying, clearAutoRetryTimer, error, load, loading, user]);
 
   useEffect(() => {
     const handleVisible = () => {
-      if (document.visibilityState === "visible" && user) {
+      if (document.visibilityState === "visible" && user && accessToken) {
         void load({ silent: hasLoadedOnce });
       }
     };
 
     const handleOnline = () => {
-      if (user) {
+      if (user && accessToken) {
         void load({ silent: hasLoadedOnce });
       }
     };
@@ -129,20 +152,29 @@ function useReferralData() {
       document.removeEventListener("visibilitychange", handleVisible);
       window.removeEventListener("online", handleOnline);
     };
-  }, [hasLoadedOnce, load, user]);
+  }, [accessToken, hasLoadedOnce, load, user]);
 
   return {
     stats,
     loading,
     hasLoadedOnce,
     error,
+    autoRetrying,
     retry: () => load(),
     username: profile?.username ?? null,
   };
 }
 
 function ReferralsPage() {
-  const { stats, loading, hasLoadedOnce, error, retry, username } = useReferralData();
+  const {
+    stats,
+    loading,
+    hasLoadedOnce,
+    error,
+    autoRetrying,
+    retry,
+    username,
+  } = useReferralData();
   const [copied, setCopied] = useState(false);
 
   const referralLink =
@@ -178,19 +210,23 @@ function ReferralsPage() {
       {error && (
         <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3">
           <p className="text-xs text-amber-200 leading-relaxed">{error}</p>
+          {autoRetrying && (
+            <p className="mt-2 text-[11px] text-amber-100/80">
+              Retrying automatically...
+            </p>
+          )}
           <button
             type="button"
             onClick={retry}
-            disabled={loading}
+            disabled={loading || autoRetrying}
             className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-amber-400/30 px-3 py-2 text-[11px] font-semibold text-amber-100 disabled:opacity-60"
           >
-            {loading ? <Spinner size="sm" /> : <RefreshCw size={12} />}
+            {loading || autoRetrying ? <Spinner size="sm" /> : <RefreshCw size={12} />}
             Retry
           </button>
         </div>
       )}
 
-      {/* Referral Link Card */}
       <Card neon>
         <div className="flex items-center gap-2 mb-3">
           <Link2 size={16} className="text-[#00ff41]" />
@@ -230,19 +266,9 @@ function ReferralsPage() {
         )}
       </Card>
 
-      {/* Stats Grid */}
       <div className="grid grid-cols-3 gap-3">
-        <StatCard
-          icon={<Users size={18} />}
-          label="Total"
-          value={stats.total}
-        />
-        <StatCard
-          icon={<UserCheck size={18} />}
-          label="Active"
-          value={stats.active}
-          accent
-        />
+        <StatCard icon={<Users size={18} />} label="Total" value={stats.total} />
+        <StatCard icon={<UserCheck size={18} />} label="Active" value={stats.active} accent />
         <StatCard
           icon={<TrendingUp size={18} />}
           label="Earned"
@@ -251,7 +277,6 @@ function ReferralsPage() {
         />
       </div>
 
-      {/* Commission Tiers */}
       <Card>
         <div className="flex items-center justify-between mb-4">
           <span className="text-sm font-semibold text-gray-100">
@@ -272,7 +297,6 @@ function ReferralsPage() {
           </p>
         </div>
       </Card>
-
     </div>
   );
 }
@@ -291,14 +315,10 @@ function StatCard({
   return (
     <Card padding="sm">
       <div className="flex flex-col items-center text-center gap-1.5 py-1">
-        <div
-          className={accent ? "text-[#00ff41]" : "text-gray-500"}
-        >
+        <div className={accent ? "text-[#00ff41]" : "text-gray-500"}>
           {icon}
         </div>
-        <span
-          className={`text-base font-bold ${accent ? "text-[#00ff41]" : "text-gray-100"}`}
-        >
+        <span className={`text-base font-bold ${accent ? "text-[#00ff41]" : "text-gray-100"}`}>
           {value}
         </span>
         <span className="text-[10px] text-gray-600 uppercase tracking-wider">
