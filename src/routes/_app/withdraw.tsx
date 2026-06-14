@@ -12,11 +12,11 @@ import {
   Smartphone,
   XCircle,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { getSafeErrorMessage } from "@/lib/errors.js";
-import { supabase } from "@/lib/supabase.js";
 import { submitWithdrawalFn, getUserWithdrawalsFn } from "@/lib/server/withdrawals.js";
+import { withTimeout } from "@/lib/async.js";
 import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
 
@@ -29,6 +29,9 @@ type UserWithdrawal = Awaited<ReturnType<typeof getUserWithdrawalsFn>>[number];
 
 const MIN_WITHDRAWAL_AMOUNT = 200;
 const WITHDRAWAL_FEE_PERCENT = 5;
+const HISTORY_LOAD_TIMEOUT_MS = 10_000;
+const AUTO_RETRY_DELAY_MS = 1_500;
+const MAX_AUTO_RETRIES = 2;
 const DAILY_WITHDRAWAL_LIMIT_MESSAGE =
   "You can only submit one withdrawal request per day. Please try again tomorrow.";
 
@@ -154,7 +157,8 @@ function getWithdrawalSpecificErrorMessage(error: unknown): string | null {
 }
 
 function WithdrawPage() {
-  const { user } = useAuthStore();
+  const user = useAuthStore((s) => s.user);
+  const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const walletBalance = useWalletStore((s) => s.balance);
   const loadingBalance = useWalletStore((s) => s.loading);
   const fetchWallet = useWalletStore((s) => s.fetchWallet);
@@ -166,7 +170,12 @@ function WithdrawPage() {
   const [fundPassword, setFundPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [withdrawals, setWithdrawals] = useState<UserWithdrawal[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+
+  const mountedRef = useRef(true);
+  const historyLoadingRef = useRef(false);
+  const historyRetryCountRef = useRef(0);
+  const historyRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const parsedAmount = useMemo(() => {
     const value = Number(amount);
@@ -185,42 +194,99 @@ function WithdrawPage() {
 
   const hasEnoughBalance = walletBalance === null || parsedAmount <= walletBalance;
 
+  const clearHistoryRetryTimer = useCallback(() => {
+    if (historyRetryTimerRef.current) {
+      clearTimeout(historyRetryTimerRef.current);
+      historyRetryTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleHistoryRetry = useCallback(
+    (loadFn: () => void) => {
+      clearHistoryRetryTimer();
+
+      if (historyRetryCountRef.current >= MAX_AUTO_RETRIES) return;
+
+      historyRetryCountRef.current += 1;
+      historyRetryTimerRef.current = setTimeout(loadFn, AUTO_RETRY_DELAY_MS);
+    },
+    [clearHistoryRetryTimer],
+  );
+
   useEffect(() => {
     if (user?.id && walletBalance === null) {
-      fetchWallet(user.id);
+      void fetchWallet(user.id);
     }
   }, [user?.id, walletBalance, fetchWallet]);
 
-  const loadWithdrawals = useCallback(async () => {
-    if (!user?.id) {
-      setWithdrawals([]);
-      setLoadingHistory(false);
-      return;
-    }
+  const loadWithdrawals = useCallback(
+    async (options?: { resetRetryCount?: boolean }) => {
+      if (historyLoadingRef.current) return;
 
-    setLoadingHistory(true);
-
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-
-      if (!accessToken) {
-        setWithdrawals([]);
-        return;
+      if (options?.resetRetryCount) {
+        historyRetryCountRef.current = 0;
       }
 
-      const rows = await getUserWithdrawalsFn({ data: { accessToken } });
-      setWithdrawals(rows);
-    } catch (err) {
-      console.error("[QHash] Failed to load withdrawal history:", err);
-      toast.error(getSafeErrorMessage(err, "WITHDRAWAL").message);
-    } finally {
-      setLoadingHistory(false);
-    }
-  }, [user?.id]);
+      if (!user?.id || !accessToken) return;
+
+      clearHistoryRetryTimer();
+      historyLoadingRef.current = true;
+
+      try {
+        const rows = await withTimeout(
+          getUserWithdrawalsFn({ data: { accessToken } }),
+          HISTORY_LOAD_TIMEOUT_MS,
+          "Withdrawal history request timed out.",
+        );
+
+        if (!mountedRef.current) return;
+
+        setWithdrawals(rows);
+        setHistoryLoaded(true);
+        historyRetryCountRef.current = 0;
+      } catch (err) {
+        console.error("[QHash] Withdrawal history background refresh failed:", err);
+
+        if (!mountedRef.current) return;
+
+        scheduleHistoryRetry(() => {
+          void loadWithdrawals();
+        });
+      } finally {
+        historyLoadingRef.current = false;
+      }
+    },
+    [accessToken, clearHistoryRetryTimer, scheduleHistoryRetry, user?.id],
+  );
 
   useEffect(() => {
-    void loadWithdrawals();
+    mountedRef.current = true;
+    void loadWithdrawals({ resetRetryCount: true });
+
+    return () => {
+      mountedRef.current = false;
+      clearHistoryRetryTimer();
+    };
+  }, [clearHistoryRetryTimer, loadWithdrawals]);
+
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadWithdrawals({ resetRetryCount: true });
+      }
+    };
+
+    const handleOnline = () => {
+      void loadWithdrawals({ resetRetryCount: true });
+    };
+
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("online", handleOnline);
+    };
   }, [loadWithdrawals]);
 
   const resetForm = () => {
@@ -230,6 +296,9 @@ function WithdrawPage() {
     setAccountNumber("");
     setFundPassword("");
   };
+
+  const getTxPlaceholder = () =>
+    method === "telebirr" ? "Enter TeleBirr phone number" : "Enter CBE account number";
 
   const handleSubmit = async () => {
     if (submitting) return;
@@ -272,17 +341,14 @@ function WithdrawPage() {
       return;
     }
 
+    if (!accessToken) {
+      toast.error("Your session has expired. Please log in again.");
+      return;
+    }
+
     setSubmitting(true);
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-
-      if (!accessToken) {
-        toast.error("Your session has expired. Please log in again.");
-        return;
-      }
-
       await submitWithdrawalFn({
         data: {
           accessToken,
@@ -296,10 +362,8 @@ function WithdrawPage() {
 
       toast.success("Withdrawal request submitted.");
       resetForm();
-      await Promise.all([
-        loadWithdrawals(),
-        fetchWallet(user.id),
-      ]);
+      void loadWithdrawals({ resetRetryCount: true });
+      void fetchWallet(user.id);
     } catch (err) {
       console.error("[QHash] Withdrawal submit failed:", err);
 
@@ -340,11 +404,11 @@ function WithdrawPage() {
 
       <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-4 flex items-center justify-between">
         <span className="text-xs text-gray-500">Available Balance</span>
-        {loadingBalance ? (
+        {loadingBalance && walletBalance === null ? (
           <Spinner size="sm" />
         ) : (
           <span className="text-sm font-bold text-[#00ff41]">
-            {formatMoney(walletBalance ?? 0)} ETB
+            {walletBalance === null ? "—" : formatMoney(walletBalance)} ETB
           </span>
         )}
       </div>
@@ -399,7 +463,7 @@ function WithdrawPage() {
         <Input
           label={method === "cbe" ? "CBE Account Number" : "TeleBirr Phone Number"}
           type="text"
-          placeholder={method === "cbe" ? "Enter CBE account number" : "Enter TeleBirr phone number"}
+          placeholder={getTxPlaceholder()}
           value={accountNumber}
           onChange={(e) => setAccountNumber(e.target.value)}
         />
@@ -457,22 +521,13 @@ function WithdrawPage() {
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold">Withdrawal History</h2>
-          {!loadingHistory && withdrawals.length > 0 && (
-            <button
-              type="button"
-              onClick={() => void loadWithdrawals()}
-              className="text-[11px] text-[#00ff41] hover:underline"
-            >
-              Refresh
-            </button>
-          )}
         </div>
 
-        {loadingHistory ? (
+        {!historyLoaded && withdrawals.length === 0 ? (
           <div className="space-y-2">
             {[1, 2, 3].map((i) => <div key={i} className="skeleton h-16 rounded-xl" />)}
           </div>
-        ) : withdrawals.length === 0 ? (
+        ) : historyLoaded && withdrawals.length === 0 ? (
           <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-8 text-center text-xs text-gray-600">
             No withdrawals yet
           </div>
@@ -525,7 +580,6 @@ function WithdrawPage() {
     </div>
   );
 }
-
 function SummaryRow({
   label,
   value,
