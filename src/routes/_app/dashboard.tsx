@@ -196,10 +196,12 @@ function DashboardPage() {
               <span className="text-[10px] text-gray-600">Mining Active</span>
             </div>
           </div>
-          <p className="text-3xl font-black neon-text tracking-tight">
-            {balance === null
-              ? "—"
-              : balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          <p className="text-3xl font-black neon-text tracking-tight min-h-[40px] flex items-baseline">
+            {balance === null ? (
+              <span className="skeleton inline-block h-8 w-28 rounded-md" aria-label="Loading balance" />
+            ) : (
+              balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            )}
             <span className="text-sm font-normal text-gray-500 ml-1.5">ETB</span>
           </p>
 
@@ -224,26 +226,34 @@ function DashboardPage() {
       <div className="grid grid-cols-3 gap-3">
         <div className="premium-card rounded-xl p-3">
           <Cpu size={14} className="text-[#00ff41] mb-2" />
-          <p className="text-sm font-bold stat-value-glow">
-            {dailyEarningRate === null
-              ? "—"
-              : dailyEarningRate.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          <p className="text-sm font-bold stat-value-glow min-h-[20px]">
+            {dailyEarningRate === null ? (
+              <span className="skeleton inline-block h-4 w-14 rounded" aria-label="Loading daily earning" />
+            ) : (
+              dailyEarningRate.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            )}
           </p>
           <p className="text-[10px] text-gray-600">ETB/day</p>
         </div>
         <div className="premium-card rounded-xl p-3">
           <TrendingUp size={14} className="text-[#00ff41] mb-2" />
-          <p className="text-sm font-bold stat-value-glow">
-            {totalEarned === null
-              ? "—"
-              : totalEarned.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          <p className="text-sm font-bold stat-value-glow min-h-[20px]">
+            {totalEarned === null ? (
+              <span className="skeleton inline-block h-4 w-14 rounded" aria-label="Loading total earned" />
+            ) : (
+              totalEarned.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            )}
           </p>
           <p className="text-[10px] text-gray-600">Total Earned</p>
         </div>
         <div className="premium-card rounded-xl p-3">
           <Layers size={14} className="text-[#00ff41] mb-2" />
-          <p className="text-sm font-bold stat-value-glow">
-            {hasDashboardData ? activeInvestments.length : "—"}
+          <p className="text-sm font-bold stat-value-glow min-h-[20px]">
+            {hasDashboardData ? (
+              activeInvestments.length
+            ) : (
+              <span className="skeleton inline-block h-4 w-8 rounded" aria-label="Loading active plans" />
+            )}
           </p>
           <p className="text-[10px] text-gray-600">Active Plans</p>
         </div>
@@ -279,14 +289,18 @@ function DashboardPage() {
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold">Active Plans</h2>
           <Badge variant={activeInvestments.length > 0 ? "neon" : "default"}>
-            {hasDashboardData ? `${activeInvestments.length} active` : "— active"}
+            {hasDashboardData ? (
+              `${activeInvestments.length} active`
+            ) : (
+              <span className="skeleton inline-block h-3 w-12 rounded" aria-label="Loading active plan count" />
+            )}
           </Badge>
         </div>
 
         {!hasDashboardData ? (
           <div className="premium-card rounded-xl p-6">
-            <div className="mx-auto mb-3 h-6 w-6 rounded-md bg-white/[0.04]" />
-            <div className="mx-auto h-3 w-32 rounded bg-white/[0.04]" />
+            <div className="skeleton mx-auto mb-3 h-6 w-6 rounded-md" />
+            <div className="skeleton mx-auto h-3 w-32 rounded" />
           </div>
         ) : activeInvestments.length === 0 ? (
           <div className="premium-card rounded-xl p-6 text-center">
@@ -372,7 +386,7 @@ function DashboardPage() {
 
         {!hasDashboardData ? (
           <div className="premium-card rounded-xl p-6">
-            <div className="h-3 w-36 rounded bg-white/[0.04]" />
+            <div className="skeleton h-3 w-36 rounded" />
           </div>
         ) : recentTransactions.length === 0 ? (
           <div className="premium-card rounded-xl p-6 text-center text-xs text-gray-600">
