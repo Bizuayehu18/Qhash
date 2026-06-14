@@ -6,7 +6,7 @@ import {
   ChevronRight, Bell, Wallet,
 } from "lucide-react";
 import { Spinner } from "@/components/ui/Spinner.js";
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 
 export const Route = createFileRoute("/_app/profile")({
   component: ProfilePage,
@@ -19,11 +19,36 @@ function ProfilePage() {
   const fetchWallet = useWalletStore((s) => s.fetchWallet);
   const navigate = useNavigate();
 
+  const refreshWallet = useCallback(() => {
+    if (!user?.id) return;
+    void fetchWallet(user.id);
+  }, [fetchWallet, user?.id]);
+
   useEffect(() => {
     if (user?.id && walletBalance === null) {
-      fetchWallet(user.id);
+      refreshWallet();
     }
-  }, [user?.id, walletBalance, fetchWallet]);
+  }, [refreshWallet, user?.id, walletBalance]);
+
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") {
+        refreshWallet();
+      }
+    };
+
+    const handleOnline = () => {
+      refreshWallet();
+    };
+
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [refreshWallet]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -41,6 +66,14 @@ function ProfilePage() {
       : []),
   ];
 
+  const balanceLabel =
+    walletBalance === null
+      ? "—"
+      : walletBalance.toLocaleString("en-US", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+
   return (
     <div className="space-y-5">
       {/* Profile card */}
@@ -53,11 +86,11 @@ function ProfilePage() {
 
         <div className="mt-4 bg-[#0a0a0a] rounded-xl p-3 flex items-center justify-between">
           <span className="text-xs text-gray-500">Wallet Balance</span>
-          {loadingBalance ? (
+          {loadingBalance && walletBalance === null ? (
             <Spinner size="sm" />
           ) : (
             <span className="text-sm font-bold text-[#00ff41]">
-              {walletBalance?.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "0.00"} ETB
+              {balanceLabel} ETB
             </span>
           )}
         </div>
