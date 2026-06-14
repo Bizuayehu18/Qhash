@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
-import { Spinner } from "@/components/ui/Spinner.js";
 import {
   ArrowUpCircle,
   Building2,
@@ -160,7 +159,6 @@ function WithdrawPage() {
   const user = useAuthStore((s) => s.user);
   const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const walletBalance = useWalletStore((s) => s.balance);
-  const loadingBalance = useWalletStore((s) => s.loading);
   const fetchWallet = useWalletStore((s) => s.fetchWallet);
 
   const [amount, setAmount] = useState("");
@@ -404,11 +402,11 @@ function WithdrawPage() {
 
       <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-4 flex items-center justify-between">
         <span className="text-xs text-gray-500">Available Balance</span>
-        {loadingBalance && walletBalance === null ? (
-          <Spinner size="sm" />
+        {walletBalance === null ? (
+          <span className="skeleton inline-block h-4 w-24 rounded" aria-label="Loading available balance" />
         ) : (
           <span className="text-sm font-bold text-[#00ff41]">
-            {walletBalance === null ? "—" : formatMoney(walletBalance)} ETB
+            {formatMoney(walletBalance)} ETB
           </span>
         )}
       </div>
