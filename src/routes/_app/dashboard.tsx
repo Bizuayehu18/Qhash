@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   TrendingUp,
   Cpu,
@@ -22,8 +22,7 @@ import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
 import { loadDashboardFn } from "@/lib/server/dashboard.js";
 import { getPlansFn } from "@/lib/server/plans.js";
-import { supabase } from "@/lib/supabase.js";
-import { getSafeErrorMessage } from "@/lib/errors.js";
+import { withTimeout } from "@/lib/async.js";
 import type { Plan } from "@/lib/database.types.js";
 
 export const Route = createFileRoute("/_app/dashboard")({
@@ -32,105 +31,146 @@ export const Route = createFileRoute("/_app/dashboard")({
 
 type DashboardData = Awaited<ReturnType<typeof loadDashboardFn>>;
 
-function DashboardSkeleton() {
-  return (
-    <div className="space-y-5 stagger-children">
-      <div className="skeleton h-36 rounded-2xl" />
-      <div className="grid grid-cols-3 gap-3">
-        <div className="skeleton h-20 rounded-xl" />
-        <div className="skeleton h-20 rounded-xl" />
-        <div className="skeleton h-20 rounded-xl" />
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="skeleton h-20 rounded-xl" />
-        <div className="skeleton h-20 rounded-xl" />
-        <div className="skeleton h-20 rounded-xl" />
-        <div className="skeleton h-20 rounded-xl" />
-      </div>
-      <div className="skeleton h-10 rounded-xl" />
-      <div className="skeleton h-48 rounded-xl" />
-      <div className="skeleton h-32 rounded-xl" />
-    </div>
-  );
-}
+const DASHBOARD_LOAD_TIMEOUT_MS = 10_000;
+const AUTO_RETRY_DELAY_MS = 1_500;
+const MAX_AUTO_RETRIES = 2;
 
 function DashboardPage() {
   const { user, profile } = useAuthStore();
+  const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const walletBalance = useWalletStore((s) => s.balance);
   const setWalletBalance = useWalletStore((s) => s.setBalance);
   const [data, setData] = useState<DashboardData | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const loadingRef = useRef(false);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
 
-  useEffect(() => {
-    if (!user?.id) return;
-    setLoading(true);
-    setError(null);
-    (async () => {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-      if (!accessToken) {
-        setError("Session expired. Please sign in again.");
-        setLoading(false);
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleRetry = useCallback((loadFn: () => void) => {
+    clearRetryTimer();
+
+    if (retryCountRef.current >= MAX_AUTO_RETRIES) return;
+
+    retryCountRef.current += 1;
+    retryTimerRef.current = setTimeout(loadFn, AUTO_RETRY_DELAY_MS);
+  }, [clearRetryTimer]);
+
+  const load = useCallback(
+    async (options?: { resetRetryCount?: boolean }) => {
+      if (loadingRef.current) return;
+
+      if (options?.resetRetryCount) {
+        retryCountRef.current = 0;
+      }
+
+      if (!user?.id || !accessToken) {
+        setData(null);
         return;
       }
-      Promise.all([
-        loadDashboardFn({ data: { accessToken } }),
-        getPlansFn(),
-      ])
-        .then(([d, p]) => {
-          setData(d);
-          setPlans(p);
-          setWalletBalance(d.wallet.balance);
-        })
-        .catch((err) => {
-          console.error("Dashboard load failed:", err);
-          setError(getSafeErrorMessage(err, "SERVER").message);
-        })
-        .finally(() => setLoading(false));
-    })();
-  }, [user?.id, setWalletBalance]);
 
-  if (loading) return <DashboardSkeleton />;
+      clearRetryTimer();
+      loadingRef.current = true;
 
-  if (error || !data) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20">
-        <p className="text-gray-500 text-sm mb-4">{error ?? "Failed to load dashboard."}</p>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => {
-            if (!user?.id) return;
-            setLoading(true);
-            setError(null);
-            (async () => {
-              const { data: sessionData } = await supabase.auth.getSession();
-              const accessToken = sessionData?.session?.access_token;
-              if (!accessToken) {
-                setError("Session expired. Please sign in again.");
-                setLoading(false);
-                return;
-              }
-              loadDashboardFn({ data: { accessToken } })
-                .then((d) => {
-                  setData(d);
-                  setWalletBalance(d.wallet.balance);
-                })
-                .catch((err) => setError(getSafeErrorMessage(err, "SERVER").message))
-                .finally(() => setLoading(false));
-            })();
-          }}
-        >
-          Retry
-        </Button>
-      </div>
-    );
-  }
+      try {
+        const [dashboardResult, plansResult] = await Promise.allSettled([
+          withTimeout(
+            loadDashboardFn({ data: { accessToken } }),
+            DASHBOARD_LOAD_TIMEOUT_MS,
+            "Dashboard request timed out.",
+          ),
+          withTimeout(
+            getPlansFn(),
+            DASHBOARD_LOAD_TIMEOUT_MS,
+            "Plans request timed out.",
+          ),
+        ]);
 
-  const { wallet, activeInvestments, completedInvestments, dailyEarningRate, totalEarned, recentTransactions } = data;
-  const balance = walletBalance ?? wallet.balance;
+        if (!mountedRef.current) return;
+
+        let loadedSomething = false;
+
+        if (dashboardResult.status === "fulfilled") {
+          setData(dashboardResult.value);
+          setWalletBalance(dashboardResult.value.wallet.balance);
+          loadedSomething = true;
+        } else {
+          console.error("[QHash] Dashboard background refresh failed:", dashboardResult.reason);
+        }
+
+        if (plansResult.status === "fulfilled") {
+          setPlans(plansResult.value);
+          loadedSomething = true;
+        } else {
+          console.error("[QHash] Dashboard plans background refresh failed:", plansResult.reason);
+        }
+
+        if (loadedSomething) {
+          retryCountRef.current = 0;
+        } else {
+          scheduleRetry(() => {
+            void load();
+          });
+        }
+      } catch (err) {
+        console.error("[QHash] Dashboard background refresh failed:", err);
+
+        if (!mountedRef.current) return;
+
+        scheduleRetry(() => {
+          void load();
+        });
+      } finally {
+        loadingRef.current = false;
+      }
+    },
+    [accessToken, clearRetryTimer, scheduleRetry, setWalletBalance, user?.id],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void load({ resetRetryCount: true });
+
+    return () => {
+      mountedRef.current = false;
+      clearRetryTimer();
+    };
+  }, [clearRetryTimer, load]);
+
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") {
+        void load({ resetRetryCount: true });
+      }
+    };
+
+    const handleOnline = () => {
+      void load({ resetRetryCount: true });
+    };
+
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [load]);
+
+  const wallet = data?.wallet ?? null;
+  const activeInvestments = data?.activeInvestments ?? [];
+  const completedInvestments = data?.completedInvestments ?? [];
+  const dailyEarningRate = data?.dailyEarningRate ?? 0;
+  const totalEarned = data?.totalEarned ?? 0;
+  const recentTransactions = data?.recentTransactions ?? [];
+  const balance = walletBalance ?? wallet?.balance ?? 0;
 
   const getPlanName = (planId: string) => {
     const plan = plans.find((p) => p.id === planId);
@@ -143,7 +183,7 @@ function DashboardPage() {
       <div className="flex items-end justify-between">
         <div>
           <p className="text-gray-500 text-xs">Welcome back</p>
-          <h1 className="text-lg font-bold">@{profile?.username ?? 'User'}</h1>
+          <h1 className="text-lg font-bold">@{profile?.username ?? "User"}</h1>
         </div>
         <OnlineUsers />
       </div>
