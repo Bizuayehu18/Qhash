@@ -156,13 +156,14 @@ function DashboardPage() {
     };
   }, [load]);
 
+  const hasDashboardData = data !== null;
   const wallet = data?.wallet ?? null;
   const activeInvestments = data?.activeInvestments ?? [];
   const completedInvestments = data?.completedInvestments ?? [];
-  const dailyEarningRate = data?.dailyEarningRate ?? 0;
-  const totalEarned = data?.totalEarned ?? 0;
+  const dailyEarningRate = hasDashboardData ? data.dailyEarningRate : null;
+  const totalEarned = hasDashboardData ? data.totalEarned : null;
   const recentTransactions = data?.recentTransactions ?? [];
-  const balance = walletBalance ?? wallet?.balance ?? 0;
+  const balance = walletBalance ?? wallet?.balance ?? null;
 
   const getPlanName = (planId: string) => {
     const plan = plans.find((p) => p.id === planId);
@@ -196,7 +197,9 @@ function DashboardPage() {
             </div>
           </div>
           <p className="text-3xl font-black neon-text tracking-tight">
-            {balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {balance === null
+              ? "—"
+              : balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             <span className="text-sm font-normal text-gray-500 ml-1.5">ETB</span>
           </p>
 
@@ -221,17 +224,27 @@ function DashboardPage() {
       <div className="grid grid-cols-3 gap-3">
         <div className="premium-card rounded-xl p-3">
           <Cpu size={14} className="text-[#00ff41] mb-2" />
-          <p className="text-sm font-bold stat-value-glow">{dailyEarningRate.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          <p className="text-sm font-bold stat-value-glow">
+            {dailyEarningRate === null
+              ? "—"
+              : dailyEarningRate.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </p>
           <p className="text-[10px] text-gray-600">ETB/day</p>
         </div>
         <div className="premium-card rounded-xl p-3">
           <TrendingUp size={14} className="text-[#00ff41] mb-2" />
-          <p className="text-sm font-bold stat-value-glow">{totalEarned.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          <p className="text-sm font-bold stat-value-glow">
+            {totalEarned === null
+              ? "—"
+              : totalEarned.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </p>
           <p className="text-[10px] text-gray-600">Total Earned</p>
         </div>
         <div className="premium-card rounded-xl p-3">
           <Layers size={14} className="text-[#00ff41] mb-2" />
-          <p className="text-sm font-bold stat-value-glow">{activeInvestments.length}</p>
+          <p className="text-sm font-bold stat-value-glow">
+            {hasDashboardData ? activeInvestments.length : "—"}
+          </p>
           <p className="text-[10px] text-gray-600">Active Plans</p>
         </div>
       </div>
@@ -266,11 +279,16 @@ function DashboardPage() {
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold">Active Plans</h2>
           <Badge variant={activeInvestments.length > 0 ? "neon" : "default"}>
-            {activeInvestments.length} active
+            {hasDashboardData ? `${activeInvestments.length} active` : "— active"}
           </Badge>
         </div>
 
-        {activeInvestments.length === 0 ? (
+        {!hasDashboardData ? (
+          <div className="premium-card rounded-xl p-6">
+            <div className="mx-auto mb-3 h-6 w-6 rounded-md bg-white/[0.04]" />
+            <div className="mx-auto h-3 w-32 rounded bg-white/[0.04]" />
+          </div>
+        ) : activeInvestments.length === 0 ? (
           <div className="premium-card rounded-xl p-6 text-center">
             <Server size={24} className="mx-auto mb-3 text-gray-700" />
             <p className="text-xs text-gray-600 mb-3">No active mining plans</p>
@@ -352,7 +370,11 @@ function DashboardPage() {
           </Link>
         </div>
 
-        {recentTransactions.length === 0 ? (
+        {!hasDashboardData ? (
+          <div className="premium-card rounded-xl p-6">
+            <div className="h-3 w-36 rounded bg-white/[0.04]" />
+          </div>
+        ) : recentTransactions.length === 0 ? (
           <div className="premium-card rounded-xl p-6 text-center text-xs text-gray-600">
             No transactions yet
           </div>
