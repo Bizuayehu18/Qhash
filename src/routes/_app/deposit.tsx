@@ -13,15 +13,15 @@ import {
   Smartphone,
   ChevronLeft,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { getSafeErrorMessage } from "@/lib/errors.js";
 import { formatDateTime } from "@/lib/format.js";
 import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
-import { supabase } from "@/lib/supabase.js";
 import { getPaymentMethodsFn } from "@/lib/server/payment-methods.js";
 import { submitDepositFn, getUserDepositsFn } from "@/lib/server/deposits.js";
+import { withTimeout } from "@/lib/async.js";
 import type { PaymentMethodType } from "@/lib/database.types.js";
 
 export const Route = createFileRoute("/_app/deposit")({
@@ -39,6 +39,11 @@ type PaymentMethod = {
 
 type UserDeposit = Awaited<ReturnType<typeof getUserDepositsFn>>[number];
 
+const METHOD_LOAD_TIMEOUT_MS = 10_000;
+const HISTORY_LOAD_TIMEOUT_MS = 10_000;
+const AUTO_RETRY_DELAY_MS = 1_500;
+const MAX_AUTO_RETRIES = 2;
+
 const METHOD_ICONS: Record<string, React.ReactNode> = {
   cbe: <Building2 size={16} />,
   telebirr: <Smartphone size={16} />,
@@ -50,49 +55,179 @@ const METHOD_LABELS: Record<string, string> = {
 };
 
 function DepositPage() {
-  const { user } = useAuthStore();
+  const user = useAuthStore((s) => s.user);
+  const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const fetchWallet = useWalletStore((s) => s.fetchWallet);
+
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
-  const [loadingMethods, setLoadingMethods] = useState(true);
+  const [methodsLoaded, setMethodsLoaded] = useState(false);
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | null>(null);
   const [amount, setAmount] = useState("");
   const [txReference, setTxReference] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [deposits, setDeposits] = useState<UserDeposit[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [step, setStep] = useState<"select" | "pay" | "confirm">("select");
 
-  useEffect(() => {
-    getPaymentMethodsFn({ data: { activeOnly: true } })
-      .then((m) => setMethods(m as PaymentMethod[]))
-      .catch(() => toast.error("Failed to load payment methods"))
-      .finally(() => setLoadingMethods(false));
+  const mountedRef = useRef(true);
+
+  const methodsLoadingRef = useRef(false);
+  const methodsRetryCountRef = useRef(0);
+  const methodsRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const historyLoadingRef = useRef(false);
+  const historyRetryCountRef = useRef(0);
+  const historyRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearMethodsRetryTimer = useCallback(() => {
+    if (methodsRetryTimerRef.current) {
+      clearTimeout(methodsRetryTimerRef.current);
+      methodsRetryTimerRef.current = null;
+    }
   }, []);
 
-  useEffect(() => {
-    if (!user?.id) return;
-    let cancelled = false;
-    setLoadingHistory(true);
-    (async () => {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-      if (!accessToken) {
-        if (!cancelled) setLoadingHistory(false);
-        return;
+  const clearHistoryRetryTimer = useCallback(() => {
+    if (historyRetryTimerRef.current) {
+      clearTimeout(historyRetryTimerRef.current);
+      historyRetryTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleMethodsRetry = useCallback(
+    (loadFn: () => void) => {
+      clearMethodsRetryTimer();
+
+      if (methodsRetryCountRef.current >= MAX_AUTO_RETRIES) return;
+
+      methodsRetryCountRef.current += 1;
+      methodsRetryTimerRef.current = setTimeout(loadFn, AUTO_RETRY_DELAY_MS);
+    },
+    [clearMethodsRetryTimer],
+  );
+
+  const scheduleHistoryRetry = useCallback(
+    (loadFn: () => void) => {
+      clearHistoryRetryTimer();
+
+      if (historyRetryCountRef.current >= MAX_AUTO_RETRIES) return;
+
+      historyRetryCountRef.current += 1;
+      historyRetryTimerRef.current = setTimeout(loadFn, AUTO_RETRY_DELAY_MS);
+    },
+    [clearHistoryRetryTimer],
+  );
+
+  const loadMethods = useCallback(
+    async (options?: { resetRetryCount?: boolean }) => {
+      if (methodsLoadingRef.current) return;
+
+      if (options?.resetRetryCount) {
+        methodsRetryCountRef.current = 0;
       }
+
+      clearMethodsRetryTimer();
+      methodsLoadingRef.current = true;
+
       try {
-        const result = await getUserDepositsFn({ data: { accessToken } });
-        if (!cancelled) setDeposits(result);
-      } catch {
-        // ignore — history load failures are non-blocking
+        const result = await withTimeout(
+          getPaymentMethodsFn({ data: { activeOnly: true } }),
+          METHOD_LOAD_TIMEOUT_MS,
+          "Payment methods request timed out.",
+        );
+
+        if (!mountedRef.current) return;
+
+        setMethods(result as PaymentMethod[]);
+        setMethodsLoaded(true);
+        methodsRetryCountRef.current = 0;
+      } catch (err) {
+        console.error("[QHash] Deposit payment methods background refresh failed:", err);
+
+        if (!mountedRef.current) return;
+
+        scheduleMethodsRetry(() => {
+          void loadMethods();
+        });
       } finally {
-        if (!cancelled) setLoadingHistory(false);
+        methodsLoadingRef.current = false;
       }
-    })();
+    },
+    [clearMethodsRetryTimer, scheduleMethodsRetry],
+  );
+
+  const loadHistory = useCallback(
+    async (options?: { resetRetryCount?: boolean }) => {
+      if (historyLoadingRef.current) return;
+
+      if (options?.resetRetryCount) {
+        historyRetryCountRef.current = 0;
+      }
+
+      if (!user?.id || !accessToken) return;
+
+      clearHistoryRetryTimer();
+      historyLoadingRef.current = true;
+
+      try {
+        const result = await withTimeout(
+          getUserDepositsFn({ data: { accessToken } }),
+          HISTORY_LOAD_TIMEOUT_MS,
+          "Deposit history request timed out.",
+        );
+
+        if (!mountedRef.current) return;
+
+        setDeposits(result);
+        setHistoryLoaded(true);
+        historyRetryCountRef.current = 0;
+      } catch (err) {
+        console.error("[QHash] Deposit history background refresh failed:", err);
+
+        if (!mountedRef.current) return;
+
+        scheduleHistoryRetry(() => {
+          void loadHistory();
+        });
+      } finally {
+        historyLoadingRef.current = false;
+      }
+    },
+    [accessToken, clearHistoryRetryTimer, scheduleHistoryRetry, user?.id],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void loadMethods({ resetRetryCount: true });
+    void loadHistory({ resetRetryCount: true });
+
     return () => {
-      cancelled = true;
+      mountedRef.current = false;
+      clearMethodsRetryTimer();
+      clearHistoryRetryTimer();
     };
-  }, [user?.id]);
+  }, [clearHistoryRetryTimer, clearMethodsRetryTimer, loadHistory, loadMethods]);
+
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadMethods({ resetRetryCount: true });
+        void loadHistory({ resetRetryCount: true });
+      }
+    };
+
+    const handleOnline = () => {
+      void loadMethods({ resetRetryCount: true });
+      void loadHistory({ resetRetryCount: true });
+    };
+
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [loadHistory, loadMethods]);
 
   const resetForm = () => {
     setStep("select");
@@ -124,8 +259,6 @@ function DepositPage() {
       return;
     }
 
-    const { data: sessionData } = await supabase.auth.getSession();
-    const accessToken = sessionData?.session?.access_token;
     if (!accessToken) {
       toast.error("Session expired. Please sign in again.");
       return;
@@ -144,16 +277,7 @@ function DepositPage() {
 
       toast.success("Deposit submitted. It will be verified by admin shortly.");
       resetForm();
-      (async () => {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const accessToken = sessionData?.session?.access_token;
-        if (!accessToken) return;
-        try {
-          setDeposits(await getUserDepositsFn({ data: { accessToken } }));
-        } catch {
-          // ignore — history refresh failures are non-blocking
-        }
-      })();
+      void loadHistory({ resetRetryCount: true });
       fetchWallet(user.id);
     } catch (err) {
       toast.error(getSafeErrorMessage(err, "DEPOSIT").message);
@@ -205,13 +329,13 @@ function DepositPage() {
             <span className="text-xs font-semibold">Select Payment Method</span>
           </div>
 
-          {loadingMethods ? (
+          {!methodsLoaded && methods.length === 0 ? (
             <div className="space-y-3">
               {[1, 2].map((i) => (
                 <div key={i} className="skeleton h-16 rounded-xl" />
               ))}
             </div>
-          ) : methods.length === 0 ? (
+          ) : methodsLoaded && methods.length === 0 ? (
             <div className="text-center py-8 text-xs text-gray-500">
               No payment methods available.
             </div>
@@ -374,13 +498,13 @@ function DepositPage() {
       {/* Deposit History */}
       <div>
         <h2 className="text-sm font-semibold mb-3">Deposit History</h2>
-        {loadingHistory ? (
+        {!historyLoaded && deposits.length === 0 ? (
           <div className="space-y-2">
             {[1, 2].map((i) => (
               <div key={i} className="skeleton h-14 rounded-xl" />
             ))}
           </div>
-        ) : deposits.length === 0 ? (
+        ) : historyLoaded && deposits.length === 0 ? (
           <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-8 text-center text-xs text-gray-600">
             No deposits yet
           </div>
