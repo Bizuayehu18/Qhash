@@ -95,29 +95,21 @@ function DashboardPage() {
 
         if (!mountedRef.current) return;
 
-        let loadedSomething = false;
-
         if (dashboardResult.status === "fulfilled") {
           setData(dashboardResult.value);
           setWalletBalance(dashboardResult.value.wallet.balance);
-          loadedSomething = true;
+          retryCountRef.current = 0;
         } else {
           console.error("[QHash] Dashboard background refresh failed:", dashboardResult.reason);
+          scheduleRetry(() => {
+            void load();
+          });
         }
 
         if (plansResult.status === "fulfilled") {
           setPlans(plansResult.value);
-          loadedSomething = true;
         } else {
           console.error("[QHash] Dashboard plans background refresh failed:", plansResult.reason);
-        }
-
-        if (loadedSomething) {
-          retryCountRef.current = 0;
-        } else {
-          scheduleRetry(() => {
-            void load();
-          });
         }
       } catch (err) {
         console.error("[QHash] Dashboard background refresh failed:", err);
