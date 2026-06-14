@@ -5,7 +5,6 @@ import {
   User, LogOut, Receipt, HeadphonesIcon, ShieldCheck,
   ChevronRight, Bell, Wallet,
 } from "lucide-react";
-import { Spinner } from "@/components/ui/Spinner.js";
 import { useCallback, useEffect } from "react";
 
 export const Route = createFileRoute("/_app/profile")({
@@ -15,7 +14,6 @@ export const Route = createFileRoute("/_app/profile")({
 function ProfilePage() {
   const { profile, user, signOut } = useAuthStore();
   const walletBalance = useWalletStore((s) => s.balance);
-  const loadingBalance = useWalletStore((s) => s.loading);
   const fetchWallet = useWalletStore((s) => s.fetchWallet);
   const navigate = useNavigate();
 
@@ -66,13 +64,10 @@ function ProfilePage() {
       : []),
   ];
 
-  const balanceLabel =
-    walletBalance === null
-      ? "—"
-      : walletBalance.toLocaleString("en-US", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        });
+  const balanceLabel = walletBalance?.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
   return (
     <div className="space-y-5">
@@ -86,8 +81,8 @@ function ProfilePage() {
 
         <div className="mt-4 bg-[#0a0a0a] rounded-xl p-3 flex items-center justify-between">
           <span className="text-xs text-gray-500">Wallet Balance</span>
-          {loadingBalance && walletBalance === null ? (
-            <Spinner size="sm" />
+          {walletBalance === null ? (
+            <span className="skeleton inline-block h-4 w-20 rounded" aria-label="Loading wallet balance" />
           ) : (
             <span className="text-sm font-bold text-[#00ff41]">
               {balanceLabel} ETB
