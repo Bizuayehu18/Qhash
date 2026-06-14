@@ -297,7 +297,6 @@ function WithdrawPage() {
     setFundPassword("");
   };
 
-  const getTxPrefix = () => selectedMethodPrefix(method);
   const getTxPlaceholder = () =>
     method === "telebirr" ? "Enter TeleBirr phone number" : "Enter CBE account number";
 
@@ -581,11 +580,6 @@ function WithdrawPage() {
     </div>
   );
 }
-
-function selectedMethodPrefix(method: WithdrawalMethod): "FT" | "D" {
-  return method === "telebirr" ? "D" : "FT";
-}
-
 function SummaryRow({
   label,
   value,
