@@ -8,13 +8,11 @@ import {
   Link2,
   TrendingUp,
   ChevronRight,
-  RefreshCw,
 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore.js";
 import { Card } from "@/components/ui/Card.js";
-import { Spinner } from "@/components/ui/Spinner.js";
 import { loadReferralStatsFn } from "@/lib/server/referrals.js";
-import { withTimeout, isTimeoutError } from "@/lib/async.js";
+import { withTimeout } from "@/lib/async.js";
 
 export const Route = createFileRoute("/_app/referrals")({
   component: ReferralsPage,
@@ -34,61 +32,49 @@ const EMPTY_REFERRAL_STATS: ReferralStats = {
 
 const REFERRAL_LOAD_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
-
-function getErrorMessage(error: unknown): string {
-  if (isTimeoutError(error)) {
-    return "Team stats are taking too long to load. Check your connection and try again.";
-  }
-
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message;
-  }
-
-  return "Unable to load team stats. Please try again.";
-}
+const MAX_AUTO_RETRIES = 2;
 
 function useReferralData() {
   const user = useAuthStore((s) => s.user);
   const profile = useAuthStore((s) => s.profile);
   const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const [stats, setStats] = useState<ReferralStats>(EMPTY_REFERRAL_STATS);
-  const [loading, setLoading] = useState(false);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [autoRetrying, setAutoRetrying] = useState(false);
-  const autoRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadingRef = useRef(false);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
 
-  const clearAutoRetryTimer = useCallback(() => {
-    if (autoRetryTimerRef.current) {
-      clearTimeout(autoRetryTimerRef.current);
-      autoRetryTimerRef.current = null;
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
     }
   }, []);
 
+  const scheduleRetry = useCallback((loadFn: () => void) => {
+    clearRetryTimer();
+
+    if (retryCountRef.current >= MAX_AUTO_RETRIES) return;
+
+    retryCountRef.current += 1;
+    retryTimerRef.current = setTimeout(loadFn, AUTO_RETRY_DELAY_MS);
+  }, [clearRetryTimer]);
+
   const load = useCallback(
-    async (options?: { silent?: boolean }) => {
-      clearAutoRetryTimer();
+    async (options?: { resetRetryCount?: boolean }) => {
+      if (loadingRef.current) return;
 
-      if (!user) {
+      if (options?.resetRetryCount) {
+        retryCountRef.current = 0;
+      }
+
+      if (!user || !accessToken) {
         setStats(EMPTY_REFERRAL_STATS);
-        setError(null);
-        setLoading(false);
-        setAutoRetrying(false);
-        setHasLoadedOnce(true);
         return;
       }
 
-      if (!accessToken) {
-        setStats(EMPTY_REFERRAL_STATS);
-        setError("Session expired. Please sign in again.");
-        setLoading(false);
-        setAutoRetrying(false);
-        setHasLoadedOnce(true);
-        return;
-      }
-
-      if (!options?.silent) setLoading(true);
-      setError(null);
+      clearRetryTimer();
+      loadingRef.current = true;
 
       try {
         const result = await withTimeout(
@@ -97,52 +83,48 @@ function useReferralData() {
           "Team stats request timed out.",
         );
 
+        if (!mountedRef.current) return;
+
         setStats({
           total: result.total,
           active: result.active,
           earned: result.earned,
         });
+        retryCountRef.current = 0;
       } catch (err) {
-        console.error("[QHash] Referral stats load failed:", err);
-        setStats(EMPTY_REFERRAL_STATS);
-        setError(getErrorMessage(err));
+        console.error("[QHash] Referral stats background refresh failed:", err);
+
+        if (!mountedRef.current) return;
+
+        scheduleRetry(() => {
+          void load();
+        });
       } finally {
-        setLoading(false);
-        setAutoRetrying(false);
-        setHasLoadedOnce(true);
+        loadingRef.current = false;
       }
     },
-    [accessToken, clearAutoRetryTimer, user],
+    [accessToken, clearRetryTimer, scheduleRetry, user],
   );
 
   useEffect(() => {
-    void load();
+    mountedRef.current = true;
+    void load({ resetRetryCount: true });
 
-    return () => clearAutoRetryTimer();
-  }, [clearAutoRetryTimer, load]);
-
-  useEffect(() => {
-    if (!error || loading || autoRetrying || !user || !accessToken) return;
-
-    setAutoRetrying(true);
-    autoRetryTimerRef.current = setTimeout(() => {
-      void load({ silent: true });
-    }, AUTO_RETRY_DELAY_MS);
-
-    return () => clearAutoRetryTimer();
-  }, [accessToken, autoRetrying, clearAutoRetryTimer, error, load, loading, user]);
+    return () => {
+      mountedRef.current = false;
+      clearRetryTimer();
+    };
+  }, [clearRetryTimer, load]);
 
   useEffect(() => {
     const handleVisible = () => {
-      if (document.visibilityState === "visible" && user && accessToken) {
-        void load({ silent: hasLoadedOnce });
+      if (document.visibilityState === "visible") {
+        void load({ resetRetryCount: true });
       }
     };
 
     const handleOnline = () => {
-      if (user && accessToken) {
-        void load({ silent: hasLoadedOnce });
-      }
+      void load({ resetRetryCount: true });
     };
 
     document.addEventListener("visibilitychange", handleVisible);
@@ -152,29 +134,16 @@ function useReferralData() {
       document.removeEventListener("visibilitychange", handleVisible);
       window.removeEventListener("online", handleOnline);
     };
-  }, [accessToken, hasLoadedOnce, load, user]);
+  }, [load]);
 
   return {
     stats,
-    loading,
-    hasLoadedOnce,
-    error,
-    autoRetrying,
-    retry: () => load(),
     username: profile?.username ?? null,
   };
 }
 
 function ReferralsPage() {
-  const {
-    stats,
-    loading,
-    hasLoadedOnce,
-    error,
-    autoRetrying,
-    retry,
-    username,
-  } = useReferralData();
+  const { stats, username } = useReferralData();
   const [copied, setCopied] = useState(false);
 
   const referralLink =
@@ -190,14 +159,6 @@ function ReferralsPage() {
     });
   }
 
-  if (loading && !hasLoadedOnce) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Spinner size="lg" className="text-[#00ff41]" />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-5">
       <div>
@@ -206,26 +167,6 @@ function ReferralsPage() {
           Invite friends, earn commissions
         </p>
       </div>
-
-      {error && (
-        <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3">
-          <p className="text-xs text-amber-200 leading-relaxed">{error}</p>
-          {autoRetrying && (
-            <p className="mt-2 text-[11px] text-amber-100/80">
-              Retrying automatically...
-            </p>
-          )}
-          <button
-            type="button"
-            onClick={retry}
-            disabled={loading || autoRetrying}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-amber-400/30 px-3 py-2 text-[11px] font-semibold text-amber-100 disabled:opacity-60"
-          >
-            {loading || autoRetrying ? <Spinner size="sm" /> : <RefreshCw size={12} />}
-            Retry
-          </button>
-        </div>
-      )}
 
       <Card neon>
         <div className="flex items-center gap-2 mb-3">
