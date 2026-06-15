@@ -9,10 +9,14 @@ import { Input } from '@/components/ui/Input.js'
 import { Card } from '@/components/ui/Card.js'
 import { Hash } from 'lucide-react'
 import { getSafeErrorMessage } from '@/lib/errors.js'
+import { isTimeoutError, withTimeout } from '@/lib/async.js'
 
 export const Route = createFileRoute('/_auth/login')({
   component: LoginPage,
 })
+
+const LOGIN_TIMEOUT_MS = 15_000
+const PROFILE_LOAD_TIMEOUT_MS = 8_000
 
 function LoginPage() {
   const [phone, setPhone] = useState('')
@@ -23,20 +27,28 @@ function LoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!phone || !password) return
+    if (!phone || !password || loading) return
 
     setLoading(true)
     try {
       const normalised = normaliseEthiopianPhone(phone)
       const email = phoneToEmail(normalised)
 
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+      const { data, error } = await withTimeout(
+        supabase.auth.signInWithPassword({ email, password }),
+        LOGIN_TIMEOUT_MS,
+        'Login request timed out.',
+      )
       if (error) throw error
 
       setSession(data.session)
       if (data.session?.user) {
         try {
-          await loadProfile(data.session.user.id)
+          await withTimeout(
+            loadProfile(data.session.user.id),
+            PROFILE_LOAD_TIMEOUT_MS,
+            'Profile loading timed out.',
+          )
         } catch {
           // Profile will be loaded by auth state listener as fallback
         }
@@ -45,6 +57,11 @@ function LoginPage() {
       toast.success('Welcome back!')
       navigate({ to: '/dashboard' })
     } catch (err: unknown) {
+      if (isTimeoutError(err)) {
+        toast.error('Login is taking too long. Please check your connection and try again.')
+        return
+      }
+
       const message = err instanceof Error ? err.message : 'Login failed'
       toast.error(
         message === 'Invalid login credentials'
