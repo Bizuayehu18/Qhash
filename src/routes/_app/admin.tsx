@@ -1752,43 +1752,125 @@ function shortId(id: string | null): string {
 }
 
 function AuditLogsTab({ userId }: { userId: string | undefined }) {
+  const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [logsLoaded, setLogsLoaded] = useState(false);
   const [paymentType, setPaymentType] = useState<"all" | "cbe" | "telebirr">("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!userId) return;
+  const mountedRef = useRef(true);
+  const loadingRef = useRef(false);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    setLoading(true);
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
 
-    (async () => {
-      try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const accessToken = sessionData?.session?.access_token;
+  const scheduleRetry = useCallback(
+    (loadFn: () => void) => {
+      clearRetryTimer();
 
-        if (!accessToken) {
-          toast.error("Session expired. Please sign in again.");
-          setLoading(false);
-          return;
-        }
+      if (retryCountRef.current >= ADMIN_MAX_AUTO_RETRIES) return;
 
-        const rows = await getDepositVerificationLogsFn({
-          data: {
-            accessToken,
-            paymentType: paymentType === "all" ? undefined : paymentType,
-            limit: AUDIT_LIMIT,
-          },
+      retryCountRef.current += 1;
+      retryTimerRef.current = setTimeout(loadFn, ADMIN_AUTO_RETRY_DELAY_MS);
+    },
+    [clearRetryTimer],
+  );
+
+  const loadAuditLogs = useCallback(
+    async (options?: { resetRetryCount?: boolean }) => {
+      if (loadingRef.current) return;
+
+      if (options?.resetRetryCount) {
+        retryCountRef.current = 0;
+      }
+
+      if (!userId) return;
+
+      if (!accessToken) {
+        scheduleRetry(() => {
+          void loadAuditLogs();
         });
+        return;
+      }
+
+      clearRetryTimer();
+      loadingRef.current = true;
+
+      try {
+        const rows = await withTimeout(
+          getDepositVerificationLogsFn({
+            data: {
+              accessToken,
+              paymentType: paymentType === "all" ? undefined : paymentType,
+              limit: AUDIT_LIMIT,
+            },
+          }),
+          ADMIN_TAB_LOAD_TIMEOUT_MS,
+          "Admin audit logs request timed out.",
+        );
+
+        if (!mountedRef.current) return;
 
         setLogs(rows);
+        setLogsLoaded(true);
+        retryCountRef.current = 0;
       } catch (err) {
-        toast.error(getSafeErrorMessage(err, "ADMIN").message);
+        console.error("[QHash] Admin audit logs background refresh failed:", err);
+
+        if (!mountedRef.current) return;
+
+        scheduleRetry(() => {
+          void loadAuditLogs();
+        });
       } finally {
-        setLoading(false);
+        loadingRef.current = false;
       }
-    })();
-  }, [userId, paymentType]);
+    },
+    [accessToken, clearRetryTimer, paymentType, scheduleRetry, userId],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      clearRetryTimer();
+    };
+  }, [clearRetryTimer]);
+
+  useEffect(() => {
+    setExpandedId(null);
+    setLogs([]);
+    setLogsLoaded(false);
+    retryCountRef.current = 0;
+    void loadAuditLogs({ resetRetryCount: true });
+  }, [loadAuditLogs, paymentType]);
+
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadAuditLogs({ resetRetryCount: true });
+      }
+    };
+
+    const handleOnline = () => {
+      void loadAuditLogs({ resetRetryCount: true });
+    };
+
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [loadAuditLogs]);
 
   const actionConfig: Record<string, { variant: "success" | "warning" | "danger" | "default" }> = {
     approve: { variant: "success" },
@@ -1824,7 +1906,7 @@ function AuditLogsTab({ userId }: { userId: string | undefined }) {
         ))}
       </div>
 
-      {loading ? (
+      {!logsLoaded ? (
         <div className="space-y-2">{[1, 2, 3].map((i) => <div key={i} className="skeleton h-16 rounded-xl" />)}</div>
       ) : logs.length === 0 ? (
         <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-8 text-center text-xs text-gray-600">No audit logs found.</div>
