@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
 import { Spinner } from "@/components/ui/Spinner.js";
@@ -10,11 +10,17 @@ import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
 import { getPlansFn } from "@/lib/server/plans.js";
 import { purchasePlanFn } from "@/lib/server/investments.js";
+import { isTimeoutError, withTimeout } from "@/lib/async.js";
 import type { Plan } from "@/lib/database.types.js";
 
 export const Route = createFileRoute("/_app/plans")({
   component: PlansPage,
 });
+
+const PLAN_LOAD_TIMEOUT_MS = 10_000;
+const PURCHASE_TIMEOUT_MS = 15_000;
+const AUTO_RETRY_DELAY_MS = 1_500;
+const MAX_AUTO_RETRIES = 2;
 
 const PLAN_ICONS: Record<string, React.ReactNode> = {
   starter: <Zap size={18} />,
@@ -29,7 +35,7 @@ function PlansPage() {
   const { user } = useAuthStore();
   const session = useAuthStore((s) => s.session);
   const [plans, setPlans] = useState<Plan[]>([]);
-  const [loadingPlans, setLoadingPlans] = useState(true);
+  const [plansLoaded, setPlansLoaded] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [purchasing, setPurchasing] = useState(false);
   const walletBalance = useWalletStore((s) => s.balance);
@@ -37,16 +43,104 @@ function PlansPage() {
   const setWalletBalance = useWalletStore((s) => s.setBalance);
   const fetchWallet = useWalletStore((s) => s.fetchWallet);
 
-  useEffect(() => {
-    setLoadingPlans(true);
-    getPlansFn()
-      .then(setPlans)
-      .catch((err) => {
-        console.error("Failed to load plans:", err);
-        toast.error("Failed to load mining plans.");
-      })
-      .finally(() => setLoadingPlans(false));
+  const mountedRef = useRef(true);
+  const loadingPlansRef = useRef(false);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const walletBalanceKnown = walletBalance !== null && !loadingBalance;
+
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
   }, []);
+
+  const scheduleRetry = useCallback(
+    (loadFn: () => void) => {
+      clearRetryTimer();
+
+      if (retryCountRef.current >= MAX_AUTO_RETRIES) return;
+
+      retryCountRef.current += 1;
+      retryTimerRef.current = setTimeout(loadFn, AUTO_RETRY_DELAY_MS);
+    },
+    [clearRetryTimer],
+  );
+
+  const loadPlans = useCallback(
+    async (options?: { resetRetryCount?: boolean; resetLoaded?: boolean }) => {
+      if (loadingPlansRef.current) return;
+
+      if (options?.resetRetryCount) {
+        retryCountRef.current = 0;
+      }
+
+      if (options?.resetLoaded) {
+        setPlans([]);
+        setPlansLoaded(false);
+      }
+
+      clearRetryTimer();
+      loadingPlansRef.current = true;
+
+      try {
+        const rows = await withTimeout(
+          getPlansFn(),
+          PLAN_LOAD_TIMEOUT_MS,
+          "Plans request timed out.",
+        );
+
+        if (!mountedRef.current) return;
+
+        setPlans(rows);
+        setPlansLoaded(true);
+        retryCountRef.current = 0;
+      } catch (err) {
+        console.error("[QHash] Plans background refresh failed:", err);
+
+        if (!mountedRef.current) return;
+
+        scheduleRetry(() => {
+          void loadPlans();
+        });
+      } finally {
+        loadingPlansRef.current = false;
+      }
+    },
+    [clearRetryTimer, scheduleRetry],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void loadPlans({ resetRetryCount: true, resetLoaded: true });
+
+    return () => {
+      mountedRef.current = false;
+      clearRetryTimer();
+    };
+  }, [clearRetryTimer, loadPlans]);
+
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadPlans({ resetRetryCount: true });
+      }
+    };
+
+    const handleOnline = () => {
+      void loadPlans({ resetRetryCount: true });
+    };
+
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [loadPlans]);
 
   useEffect(() => {
     if (user?.id && walletBalance === null) {
@@ -55,23 +149,32 @@ function PlansPage() {
   }, [user?.id, walletBalance, fetchWallet]);
 
   const handlePurchase = async () => {
-    if (!session?.access_token || !selectedPlan) return;
+    if (!session?.access_token || !selectedPlan || purchasing) return;
     setPurchasing(true);
     try {
-      const result = await purchasePlanFn({
-        data: { planId: selectedPlan.id, accessToken: session.access_token },
-      });
+      const result = await withTimeout(
+        purchasePlanFn({
+          data: { planId: selectedPlan.id, accessToken: session.access_token },
+        }),
+        PURCHASE_TIMEOUT_MS,
+        "Purchase request timed out.",
+      );
       setWalletBalance(result.newBalance);
       toast.success(`${selectedPlan.name} activated! Mining starts now.`);
       setSelectedPlan(null);
     } catch (err: unknown) {
+      if (isTimeoutError(err)) {
+        toast.error("Purchase is taking too long. Please check your connection and try again.");
+        return;
+      }
+
       toast.error(getSafeErrorMessage(err, "PURCHASE").message);
     } finally {
       setPurchasing(false);
     }
   };
 
-  if (loadingPlans) {
+  if (!plansLoaded) {
     return (
       <div className="space-y-4">
         <div className="skeleton h-8 w-40 rounded-lg" />
@@ -93,11 +196,11 @@ function PlansPage() {
       {/* Balance pill */}
       <div className="flex items-center gap-2 bg-[#111] border border-[#1a1a1a] rounded-xl px-4 py-3">
         <span className="text-xs text-gray-500">Wallet:</span>
-        {loadingBalance ? (
-          <Spinner size="sm" />
+        {!walletBalanceKnown ? (
+          <span className="skeleton inline-block h-5 w-24 rounded" aria-label="Loading wallet balance" />
         ) : (
           <span className="text-sm font-bold text-[#00ff41]">
-            {walletBalance?.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "0.00"} ETB
+            {walletBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ETB
           </span>
         )}
         <Link to="/deposit" className="ml-auto text-[10px] text-gray-500 border border-[#2a2a2a] rounded-lg px-2.5 py-1 card-press">
@@ -198,13 +301,22 @@ function PlansPage() {
               </div>
               <div className="border-t border-[#1f1f1f] pt-3 flex justify-between text-sm">
                 <span className="text-gray-500">Your Wallet</span>
-                <span className={(walletBalance ?? 0) >= selectedPlan.investment_amount ? "text-[#00ff41]" : "text-red-400"}>
-                  {walletBalance?.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "0.00"} ETB
-                </span>
+                {!walletBalanceKnown ? (
+                  <span className="skeleton inline-block h-5 w-24 rounded" aria-label="Loading wallet balance" />
+                ) : (
+                  <span className={walletBalance >= selectedPlan.investment_amount ? "text-[#00ff41]" : "text-red-400"}>
+                    {walletBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ETB
+                  </span>
+                )}
               </div>
             </div>
 
-            {(walletBalance ?? 0) < selectedPlan.investment_amount ? (
+            {!walletBalanceKnown ? (
+              <div className="flex gap-3">
+                <Button variant="ghost" size="sm" fullWidth onClick={() => setSelectedPlan(null)}>Close</Button>
+                <Button variant="primary" size="sm" fullWidth disabled>Checking Wallet</Button>
+              </div>
+            ) : walletBalance < selectedPlan.investment_amount ? (
               <div className="text-center">
                 <p className="text-xs text-red-400 mb-3">Insufficient balance. Deposit funds to continue.</p>
                 <div className="flex gap-3">
