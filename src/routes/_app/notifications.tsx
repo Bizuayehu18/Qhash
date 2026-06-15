@@ -8,21 +8,25 @@ import {
   Eye,
   CheckCheck,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { formatDateTime } from "@/lib/format.js";
 import { useAuthStore } from "@/store/authStore.js";
-import { supabase } from "@/lib/supabase.js";
 import {
   getNotificationsFn,
   markNotificationsReadFn,
 } from "@/lib/server/notifications.js";
+import { withTimeout } from "@/lib/async.js";
 
 export const Route = createFileRoute("/_app/notifications")({
   component: NotificationsPage,
 });
 
 type Notification = Awaited<ReturnType<typeof getNotificationsFn>>[number];
+
+const NOTIFICATIONS_LOAD_TIMEOUT_MS = 10_000;
+const AUTO_RETRY_DELAY_MS = 1_500;
+const MAX_AUTO_RETRIES = 2;
 
 const TYPE_ICONS: Record<string, React.ReactNode> = {
   deposit_submitted: <ArrowDownCircle size={14} className="text-blue-400" />,
@@ -91,44 +95,123 @@ const getNotificationMessage = (
 };
 
 function NotificationsPage() {
-  const { user } = useAuthStore();
+  const user = useAuthStore((s) => s.user);
+  const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [notificationsLoaded, setNotificationsLoaded] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);
 
-  const loadNotifications = () => {
-    if (!user?.id) return;
-    setLoading(true);
-    supabase.auth
-      .getSession()
-      .then(({ data: sessionData }) => {
-        const accessToken = sessionData?.session?.access_token;
-        if (!accessToken) {
-          setNotifications([]);
-          return;
-        }
-        return getNotificationsFn({ data: { accessToken } }).then(
-          setNotifications,
+  const mountedRef = useRef(true);
+  const loadingRef = useRef(false);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleRetry = useCallback(
+    (loadFn: () => void) => {
+      clearRetryTimer();
+
+      if (retryCountRef.current >= MAX_AUTO_RETRIES) return;
+
+      retryCountRef.current += 1;
+      retryTimerRef.current = setTimeout(loadFn, AUTO_RETRY_DELAY_MS);
+    },
+    [clearRetryTimer],
+  );
+
+  const loadNotifications = useCallback(
+    async (options?: { resetRetryCount?: boolean }) => {
+      if (loadingRef.current) return;
+
+      if (options?.resetRetryCount) {
+        retryCountRef.current = 0;
+      }
+
+      if (!user?.id) return;
+
+      if (!accessToken) {
+        scheduleRetry(() => {
+          void loadNotifications();
+        });
+        return;
+      }
+
+      clearRetryTimer();
+      loadingRef.current = true;
+
+      try {
+        const rows = await withTimeout(
+          getNotificationsFn({ data: { accessToken } }),
+          NOTIFICATIONS_LOAD_TIMEOUT_MS,
+          "Notifications request timed out.",
         );
-      })
-      .catch(() => toast.error("Failed to load notifications"))
-      .finally(() => setLoading(false));
-  };
+
+        if (!mountedRef.current) return;
+
+        setNotifications(rows);
+        setNotificationsLoaded(true);
+        retryCountRef.current = 0;
+      } catch (err) {
+        console.error("[QHash] Notifications background refresh failed:", err);
+
+        if (!mountedRef.current) return;
+
+        scheduleRetry(() => {
+          void loadNotifications();
+        });
+      } finally {
+        loadingRef.current = false;
+      }
+    },
+    [accessToken, clearRetryTimer, scheduleRetry, user?.id],
+  );
 
   useEffect(() => {
-    loadNotifications();
-  }, [user?.id]);
+    mountedRef.current = true;
+    void loadNotifications({ resetRetryCount: true });
+
+    return () => {
+      mountedRef.current = false;
+      clearRetryTimer();
+    };
+  }, [clearRetryTimer, loadNotifications]);
+
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadNotifications({ resetRetryCount: true });
+      }
+    };
+
+    const handleOnline = () => {
+      void loadNotifications({ resetRetryCount: true });
+    };
+
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [loadNotifications]);
 
   const handleMarkAllRead = async () => {
     if (!user?.id) return;
+
+    if (!accessToken) {
+      toast.error("Session expired. Please sign in again.");
+      return;
+    }
+
     setMarkingAll(true);
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-      if (!accessToken) {
-        toast.error("Session expired. Please sign in again.");
-        return;
-      }
       await markNotificationsReadFn({ data: { accessToken } });
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
       toast.success("All notifications marked as read.");
@@ -146,11 +229,17 @@ function NotificationsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold">Notifications</h1>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {unreadCount > 0 ? `${unreadCount} unread` : "All caught up"}
-          </p>
+          <div className="mt-1 min-h-[14px]">
+            {!notificationsLoaded ? (
+              <span className="skeleton inline-block h-3 w-20 rounded" aria-label="Loading notification status" />
+            ) : (
+              <p className="text-xs text-gray-500">
+                {unreadCount > 0 ? `${unreadCount} unread` : "All caught up"}
+              </p>
+            )}
+          </div>
         </div>
-        {unreadCount > 0 && (
+        {notificationsLoaded && unreadCount > 0 && (
           <Button
             variant="ghost"
             size="sm"
@@ -163,7 +252,7 @@ function NotificationsPage() {
         )}
       </div>
 
-      {loading ? (
+      {!notificationsLoaded ? (
         <div className="space-y-2">
           {[1, 2, 3].map((i) => (
             <div key={i} className="skeleton h-16 rounded-xl" />
