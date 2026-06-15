@@ -1282,8 +1282,10 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
 
 
 function AdminSecurityTab({ userId }: { userId: string | undefined }) {
+  const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const [users, setUsers] = useState<AdminSecurityUser[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [usersLoaded, setUsersLoaded] = useState(false);
+  const [securityUsersRefreshing, setSecurityUsersRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedUser, setSelectedUser] = useState<AdminSecurityUser | null>(null);
   const [resetReason, setResetReason] = useState("");
@@ -1291,45 +1293,132 @@ function AdminSecurityTab({ userId }: { userId: string | undefined }) {
   const [resettingUserId, setResettingUserId] = useState<string | null>(null);
   const [resettingLoginUserId, setResettingLoginUserId] = useState<string | null>(null);
 
-  const loadUsers = () => {
-    if (!userId) return;
+  const mountedRef = useRef(true);
+  const loadingRef = useRef(false);
+  const selectedUserRef = useRef<AdminSecurityUser | null>(null);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    setLoading(true);
+  useEffect(() => {
+    selectedUserRef.current = selectedUser;
+  }, [selectedUser]);
 
-    (async () => {
-      try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const accessToken = sessionData?.session?.access_token;
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
 
-        if (!accessToken) {
-          toast.error("Session expired. Please sign in again.");
-          setUsers([]);
-          return;
-        }
+  const scheduleRetry = useCallback(
+    (loadFn: () => void) => {
+      clearRetryTimer();
 
-        const rows = await getAdminSecurityUsersFn({
-          data: {
-            accessToken,
-            searchQuery,
-          },
+      if (retryCountRef.current >= ADMIN_MAX_AUTO_RETRIES) return;
+
+      retryCountRef.current += 1;
+      retryTimerRef.current = setTimeout(loadFn, ADMIN_AUTO_RETRY_DELAY_MS);
+    },
+    [clearRetryTimer],
+  );
+
+  const loadUsers = useCallback(
+    async (options?: { resetRetryCount?: boolean; resetLoaded?: boolean }) => {
+      if (loadingRef.current) return;
+
+      if (options?.resetRetryCount) {
+        retryCountRef.current = 0;
+      }
+
+      if (options?.resetLoaded) {
+        setUsersLoaded(false);
+        setUsers([]);
+      }
+
+      if (!userId) return;
+
+      if (!accessToken) {
+        scheduleRetry(() => {
+          void loadUsers();
         });
+        return;
+      }
+
+      clearRetryTimer();
+      loadingRef.current = true;
+      setSecurityUsersRefreshing(true);
+
+      try {
+        const rows = await withTimeout(
+          getAdminSecurityUsersFn({
+            data: {
+              accessToken,
+              searchQuery,
+            },
+          }),
+          ADMIN_TAB_LOAD_TIMEOUT_MS,
+          "Admin security users request timed out.",
+        );
+
+        if (!mountedRef.current) return;
 
         setUsers(rows);
+        setUsersLoaded(true);
+        retryCountRef.current = 0;
 
-        if (selectedUser && !rows.some((row) => row.id === selectedUser.id)) {
+        const currentSelectedUser = selectedUserRef.current;
+        if (currentSelectedUser && !rows.some((row) => row.id === currentSelectedUser.id)) {
           setSelectedUser(null);
           setResetReason("");
           setTemporaryLoginPassword("");
         }
       } catch (err) {
-        toast.error(getSafeErrorMessage(err, "ADMIN").message);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  };
+        console.error("[QHash] Admin security users background refresh failed:", err);
 
-  useEffect(() => { loadUsers(); }, [userId]);
+        if (!mountedRef.current) return;
+
+        scheduleRetry(() => {
+          void loadUsers();
+        });
+      } finally {
+        loadingRef.current = false;
+        if (mountedRef.current) {
+          setSecurityUsersRefreshing(false);
+        }
+      }
+    },
+    [accessToken, clearRetryTimer, scheduleRetry, searchQuery, userId],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void loadUsers({ resetRetryCount: true, resetLoaded: true });
+
+    return () => {
+      mountedRef.current = false;
+      clearRetryTimer();
+    };
+  }, [clearRetryTimer, loadUsers]);
+
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadUsers({ resetRetryCount: true });
+      }
+    };
+
+    const handleOnline = () => {
+      void loadUsers({ resetRetryCount: true });
+    };
+
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [loadUsers]);
 
   const handleResetFundPassword = async () => {
     if (!selectedUser || resettingUserId) return;
@@ -1374,7 +1463,7 @@ function AdminSecurityTab({ userId }: { userId: string | undefined }) {
       toast.success(result.message);
       setResetReason("");
       setSelectedUser(null);
-      loadUsers();
+      void loadUsers({ resetRetryCount: true });
     } catch (err) {
       toast.error(getSafeErrorMessage(err, "ADMIN").message);
     } finally {
@@ -1426,7 +1515,7 @@ function AdminSecurityTab({ userId }: { userId: string | undefined }) {
       setTemporaryLoginPassword(result.temporaryPassword);
       setResetReason("");
       toast.success(result.message);
-      loadUsers();
+      void loadUsers({ resetRetryCount: true });
     } catch (err) {
       toast.error(getSafeErrorMessage(err, "ADMIN").message);
     } finally {
@@ -1469,14 +1558,14 @@ function AdminSecurityTab({ userId }: { userId: string | undefined }) {
           onChange={(e) => setSearchQuery(e.target.value)}
           hint="Leave empty to show recent users. Admin accounts cannot be reset from this panel."
         />
-        <Button size="sm" loading={loading} onClick={loadUsers}>
+        <Button size="sm" loading={securityUsersRefreshing} onClick={() => void loadUsers({ resetRetryCount: true, resetLoaded: true })}>
           Search Users
         </Button>
       </div>
 
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
         <div className="bg-[#111] rounded-xl border border-[#1a1a1a] divide-y divide-[#1a1a1a] overflow-hidden">
-          {loading ? (
+          {!usersLoaded ? (
             <div className="p-4 space-y-2">
               {[1, 2, 3].map((i) => <div key={i} className="skeleton h-14 rounded-xl" />)}
             </div>
