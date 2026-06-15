@@ -320,46 +320,129 @@ function OverviewTab({ userId }: { userId: string | undefined }) {
 }
 
 function DepositsTab({ userId }: { userId: string | undefined }) {
+  const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const [deposits, setDeposits] = useState<AdminDeposit[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [depositsLoaded, setDepositsLoaded] = useState(false);
   const [filter, setFilter] = useState("all");
   const [adminNote, setAdminNote] = useState("");
   const [approvalAmount, setApprovalAmount] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [selectedDeposit, setSelectedDeposit] = useState<AdminDeposit | null>(null);
 
-  const loadDeposits = () => {
-    if (!userId) return;
-    setLoading(true);
+  const mountedRef = useRef(true);
+  const loadingRef = useRef(false);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    (async () => {
-      try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const accessToken = sessionData?.session?.access_token;
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
 
-        if (!accessToken) {
-          toast.error("Session expired. Please sign in again.");
-          setLoading(false);
-          return;
-        }
+  const scheduleRetry = useCallback(
+    (loadFn: () => void) => {
+      clearRetryTimer();
 
-        const rows = await getAdminDepositsFn({
-          data: {
-            accessToken,
-            statusFilter: filter,
-          },
+      if (retryCountRef.current >= ADMIN_MAX_AUTO_RETRIES) return;
+
+      retryCountRef.current += 1;
+      retryTimerRef.current = setTimeout(loadFn, ADMIN_AUTO_RETRY_DELAY_MS);
+    },
+    [clearRetryTimer],
+  );
+
+  const loadDeposits = useCallback(
+    async (options?: { resetRetryCount?: boolean }) => {
+      if (loadingRef.current) return;
+
+      if (options?.resetRetryCount) {
+        retryCountRef.current = 0;
+      }
+
+      if (!userId) return;
+
+      if (!accessToken) {
+        scheduleRetry(() => {
+          void loadDeposits();
         });
+        return;
+      }
+
+      clearRetryTimer();
+      loadingRef.current = true;
+
+      try {
+        const rows = await withTimeout(
+          getAdminDepositsFn({
+            data: {
+              accessToken,
+              statusFilter: filter,
+            },
+          }),
+          ADMIN_TAB_LOAD_TIMEOUT_MS,
+          "Admin deposits request timed out.",
+        );
+
+        if (!mountedRef.current) return;
 
         setDeposits(rows);
+        setDepositsLoaded(true);
+        retryCountRef.current = 0;
       } catch (err) {
-        toast.error(getSafeErrorMessage(err, "ADMIN").message);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  };
+        console.error("[QHash] Admin deposits background refresh failed:", err);
 
-  useEffect(() => { loadDeposits(); }, [userId, filter]);
+        if (!mountedRef.current) return;
+
+        scheduleRetry(() => {
+          void loadDeposits();
+        });
+      } finally {
+        loadingRef.current = false;
+      }
+    },
+    [accessToken, clearRetryTimer, filter, scheduleRetry, userId],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      clearRetryTimer();
+    };
+  }, [clearRetryTimer]);
+
+  useEffect(() => {
+    setSelectedDeposit(null);
+    setAdminNote("");
+    setApprovalAmount("");
+    setDeposits([]);
+    setDepositsLoaded(false);
+    retryCountRef.current = 0;
+    void loadDeposits({ resetRetryCount: true });
+  }, [filter, loadDeposits]);
+
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadDeposits({ resetRetryCount: true });
+      }
+    };
+
+    const handleOnline = () => {
+      void loadDeposits({ resetRetryCount: true });
+    };
+
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [loadDeposits]);
 
   const handleReview = async (depositId: string, action: "approve" | "reject") => {
     if (!userId) return;
@@ -401,7 +484,7 @@ function DepositsTab({ userId }: { userId: string | undefined }) {
       setSelectedDeposit(null);
       setAdminNote("");
       setApprovalAmount("");
-      loadDeposits();
+      void loadDeposits({ resetRetryCount: true });
     } catch (err) {
       toast.error(getSafeErrorMessage(err, "ADMIN").message);
     } finally {
@@ -462,7 +545,7 @@ function DepositsTab({ userId }: { userId: string | undefined }) {
       )}
 
       {/* Deposit list */}
-      {loading ? (
+      {!depositsLoaded ? (
         <div className="space-y-2">{[1, 2, 3].map((i) => <div key={i} className="skeleton h-14 rounded-xl" />)}</div>
       ) : deposits.length === 0 ? (
         <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-8 text-center text-xs text-gray-600">No deposits found.</div>
@@ -506,7 +589,6 @@ function DepositsTab({ userId }: { userId: string | undefined }) {
     </div>
   );
 }
-
 
 function WithdrawalsTab({ userId }: { userId: string | undefined }) {
   const [withdrawals, setWithdrawals] = useState<AdminWithdrawal[]>([]);
