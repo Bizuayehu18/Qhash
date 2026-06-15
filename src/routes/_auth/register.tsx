@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/Input.js'
 import { Card } from '@/components/ui/Card.js'
 import { Hash, UserCheck } from 'lucide-react'
 import { getSafeErrorMessage } from '@/lib/errors.js'
+import { isTimeoutError, withTimeout } from '@/lib/async.js'
 
 export const Route = createFileRoute('/_auth/register')({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -17,6 +18,10 @@ export const Route = createFileRoute('/_auth/register')({
   }),
   component: RegisterPage,
 })
+
+const REGISTER_TIMEOUT_MS = 20_000
+const REGISTER_SIGN_IN_TIMEOUT_MS = 15_000
+const PROFILE_LOAD_TIMEOUT_MS = 8_000
 
 function RegisterPage() {
   const { ref } = Route.useSearch()
@@ -30,6 +35,7 @@ function RegisterPage() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (loading) return
 
     const cleanUsername = username.trim().toLowerCase()
     if (!/^[a-z0-9_]{3,30}$/.test(cleanUsername)) {
@@ -50,26 +56,38 @@ function RegisterPage() {
       const normalised = normaliseEthiopianPhone(phone)
 
       // Server function: creates auth user + profile + wallet
-      const result = await registerUserFn({
-        data: {
-          username: cleanUsername,
-          phone: normalised,
-          password,
-          referredBy: ref?.toLowerCase(),
-        },
-      })
+      const result = await withTimeout(
+        registerUserFn({
+          data: {
+            username: cleanUsername,
+            phone: normalised,
+            password,
+            referredBy: ref?.toLowerCase(),
+          },
+        }),
+        REGISTER_TIMEOUT_MS,
+        'Registration request timed out.',
+      )
 
       // Sign in after successful registration
-      const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
-        email: result.email,
-        password,
-      })
+      const { data: signInData, error: signInErr } = await withTimeout(
+        supabase.auth.signInWithPassword({
+          email: result.email,
+          password,
+        }),
+        REGISTER_SIGN_IN_TIMEOUT_MS,
+        'Registration sign-in timed out.',
+      )
       if (signInErr) throw signInErr
 
       setSession(signInData.session)
       if (signInData.session?.user) {
         try {
-          await loadProfile(signInData.session.user.id)
+          await withTimeout(
+            loadProfile(signInData.session.user.id),
+            PROFILE_LOAD_TIMEOUT_MS,
+            'Profile loading timed out.',
+          )
         } catch {
           // Profile will be loaded by auth state listener as fallback
         }
@@ -78,6 +96,11 @@ function RegisterPage() {
       toast.success('Account created! Welcome to QHash.')
       navigate({ to: '/dashboard' })
     } catch (err: unknown) {
+      if (isTimeoutError(err)) {
+        toast.error('Registration is taking too long. Please check your connection and try again.')
+        return
+      }
+
       toast.error(getSafeErrorMessage(err, 'AUTH').message)
     } finally {
       setLoading(false)
