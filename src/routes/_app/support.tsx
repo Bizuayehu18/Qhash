@@ -1,39 +1,121 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink, HeadphonesIcon, Info, MessageSquare, Send } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/Button.js";
-import { Spinner } from "@/components/ui/Spinner.js";
-import { getSafeErrorMessage } from "@/lib/errors.js";
 import {
   getSupportSettingsFn,
   type SupportSettings,
 } from "@/lib/server/support-settings.js";
+import { withTimeout } from "@/lib/async.js";
 
 export const Route = createFileRoute("/_app/support")({
   component: SupportPage,
 });
 
+const SUPPORT_SETTINGS_TIMEOUT_MS = 10_000;
+const AUTO_RETRY_DELAY_MS = 1_500;
+const MAX_AUTO_RETRIES = 2;
+
 function SupportPage() {
   const [settings, setSettings] = useState<SupportSettings | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
-  const loadSettings = () => {
-    setLoading(true);
+  const mountedRef = useRef(true);
+  const loadingRef = useRef(false);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    (async () => {
-      try {
-        const result = await getSupportSettingsFn({ data: {} });
-        setSettings(result);
-      } catch (err) {
-        toast.error(getSafeErrorMessage(err, "SUPPORT").message);
-      } finally {
-        setLoading(false);
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleRetry = useCallback(
+    (loadFn: () => void) => {
+      clearRetryTimer();
+
+      if (retryCountRef.current >= MAX_AUTO_RETRIES) return;
+
+      retryCountRef.current += 1;
+      retryTimerRef.current = setTimeout(loadFn, AUTO_RETRY_DELAY_MS);
+    },
+    [clearRetryTimer],
+  );
+
+  const loadSettings = useCallback(
+    async (options?: { resetRetryCount?: boolean; resetLoaded?: boolean }) => {
+      if (loadingRef.current) return;
+
+      if (options?.resetRetryCount) {
+        retryCountRef.current = 0;
       }
-    })();
-  };
 
-  useEffect(() => { loadSettings(); }, []);
+      if (options?.resetLoaded) {
+        setSettings(null);
+        setSettingsLoaded(false);
+      }
+
+      clearRetryTimer();
+      loadingRef.current = true;
+
+      try {
+        const result = await withTimeout(
+          getSupportSettingsFn({ data: {} }),
+          SUPPORT_SETTINGS_TIMEOUT_MS,
+          "Support settings request timed out.",
+        );
+
+        if (!mountedRef.current) return;
+
+        setSettings(result);
+        setSettingsLoaded(true);
+        retryCountRef.current = 0;
+      } catch (err) {
+        console.error("[QHash] Support settings background refresh failed:", err);
+
+        if (!mountedRef.current) return;
+
+        scheduleRetry(() => {
+          void loadSettings();
+        });
+      } finally {
+        loadingRef.current = false;
+      }
+    },
+    [clearRetryTimer, scheduleRetry],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void loadSettings({ resetRetryCount: true, resetLoaded: true });
+
+    return () => {
+      mountedRef.current = false;
+      clearRetryTimer();
+    };
+  }, [clearRetryTimer, loadSettings]);
+
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadSettings({ resetRetryCount: true });
+      }
+    };
+
+    const handleOnline = () => {
+      void loadSettings({ resetRetryCount: true });
+    };
+
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [loadSettings]);
 
   const openTelegram = () => {
     if (!settings?.telegramUrl) return;
@@ -53,9 +135,10 @@ function SupportPage() {
           <span className="text-xs font-semibold">Telegram Support</span>
         </div>
 
-        {loading ? (
-          <div className="flex items-center gap-2 text-xs text-gray-500">
-            <Spinner size="sm" /> Loading support contact...
+        {!settingsLoaded ? (
+          <div className="space-y-3">
+            <div className="skeleton h-16 rounded-xl" aria-label="Loading support contact" />
+            <div className="skeleton h-10 rounded-xl" />
           </div>
         ) : settings?.isConfigured ? (
           <>
