@@ -949,8 +949,9 @@ function formatEtb(value: number): string {
 }
 
 function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
+  const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [methodsLoaded, setMethodsLoaded] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [newType, setNewType] = useState<PaymentMethodType>("cbe");
   const [newName, setNewName] = useState("");
@@ -966,39 +967,125 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
   const [editInstructions, setEditInstructions] = useState("");
   const [editSaving, setEditSaving] = useState(false);
 
-  const loadMethods = () => {
-    if (!userId) return;
-    setLoading(true);
+  const mountedRef = useRef(true);
+  const loadingRef = useRef(false);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    (async () => {
-      try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const accessToken = sessionData?.session?.access_token;
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
 
-        if (!accessToken) {
-          toast.error("Session expired. Please sign in again.");
-          setLoading(false);
-          return;
-        }
+  const scheduleRetry = useCallback(
+    (loadFn: () => void) => {
+      clearRetryTimer();
 
-        const rows = await getPaymentMethodsFn({
-          data: {
-            activeOnly: false,
-            accessToken,
-            archiveFilter,
-          },
+      if (retryCountRef.current >= ADMIN_MAX_AUTO_RETRIES) return;
+
+      retryCountRef.current += 1;
+      retryTimerRef.current = setTimeout(loadFn, ADMIN_AUTO_RETRY_DELAY_MS);
+    },
+    [clearRetryTimer],
+  );
+
+  const loadMethods = useCallback(
+    async (options?: { resetRetryCount?: boolean; resetLoaded?: boolean }) => {
+      if (loadingRef.current) return;
+
+      if (options?.resetRetryCount) {
+        retryCountRef.current = 0;
+      }
+
+      if (options?.resetLoaded) {
+        setMethodsLoaded(false);
+        setMethods([]);
+      }
+
+      if (!userId) return;
+
+      if (!accessToken) {
+        scheduleRetry(() => {
+          void loadMethods();
         });
+        return;
+      }
+
+      clearRetryTimer();
+      loadingRef.current = true;
+
+      try {
+        const rows = await withTimeout(
+          getPaymentMethodsFn({
+            data: {
+              activeOnly: false,
+              accessToken,
+              archiveFilter,
+            },
+          }),
+          ADMIN_TAB_LOAD_TIMEOUT_MS,
+          "Admin payment methods request timed out.",
+        );
+
+        if (!mountedRef.current) return;
 
         setMethods(rows as PaymentMethod[]);
+        setMethodsLoaded(true);
+        retryCountRef.current = 0;
       } catch (err) {
-        toast.error(getSafeErrorMessage(err, "PAYMENT").message);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  };
+        console.error("[QHash] Admin payment methods background refresh failed:", err);
 
-  useEffect(() => { loadMethods(); }, [userId, archiveFilter]);
+        if (!mountedRef.current) return;
+
+        scheduleRetry(() => {
+          void loadMethods();
+        });
+      } finally {
+        loadingRef.current = false;
+      }
+    },
+    [accessToken, archiveFilter, clearRetryTimer, scheduleRetry, userId],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      clearRetryTimer();
+    };
+  }, [clearRetryTimer]);
+
+  useEffect(() => {
+    setEditingMethod(null);
+    setMethods([]);
+    setMethodsLoaded(false);
+    retryCountRef.current = 0;
+    void loadMethods({ resetRetryCount: true });
+  }, [archiveFilter, loadMethods]);
+
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadMethods({ resetRetryCount: true });
+      }
+    };
+
+    const handleOnline = () => {
+      void loadMethods({ resetRetryCount: true });
+    };
+
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [loadMethods]);
+
 
   const handleAdd = async () => {
     if (!userId || !newName.trim() || !newNumber.trim()) return;
@@ -1025,7 +1112,7 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
       toast.success("Payment method created.");
       setShowAdd(false);
       setNewName(""); setNewNumber(""); setNewInstructions("");
-      loadMethods();
+      void loadMethods({ resetRetryCount: true });
     } catch (err) {
       toast.error(getSafeErrorMessage(err, "PAYMENT").message);
     } finally {
@@ -1064,7 +1151,7 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
       });
       toast.success("Payment method updated.");
       setEditingMethod(null);
-      loadMethods();
+      void loadMethods({ resetRetryCount: true });
     } catch (err) {
       toast.error(getSafeErrorMessage(err, "PAYMENT").message);
     } finally {
@@ -1087,7 +1174,7 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
 
       await updatePaymentMethodFn({ data: { accessToken, methodId: method.id, isActive: !method.is_active } });
       toast.success(method.is_active ? "Disabled." : "Enabled.");
-      loadMethods();
+      void loadMethods({ resetRetryCount: true });
     } catch (err) {
       toast.error(getSafeErrorMessage(err, "PAYMENT").message);
     } finally {
@@ -1115,7 +1202,7 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
       await archivePaymentMethodFn({ data: { accessToken, methodId: method.id, archived } });
       toast.success(archived ? "Payment account archived." : "Payment account restored.");
       if (!archived) setArchiveFilter("visible");
-      loadMethods();
+      void loadMethods({ resetRetryCount: true });
     } catch (err) {
       toast.error(getSafeErrorMessage(err, "PAYMENT").message);
     } finally {
@@ -1202,7 +1289,7 @@ function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
         </div>
       )}
 
-      {loading ? (
+      {!methodsLoaded ? (
         <div className="space-y-2">{[1, 2].map((i) => <div key={i} className="skeleton h-16 rounded-xl" />)}</div>
       ) : methods.length === 0 ? (
         <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-8 text-center text-xs text-gray-600">{archiveFilter === "archived" ? "No archived payment methods." : "No payment methods configured."}</div>
