@@ -1,12 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
-import { Receipt, Clock, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Receipt, Clock, CheckCircle2, XCircle } from "lucide-react";
 import { TxIcon, txLabel, isOutgoingTx } from "@/components/ui/TransactionHelpers.js";
 import { formatDateTime } from "@/lib/format.js";
 import { useAuthStore } from "@/store/authStore.js";
-import { supabase } from "@/lib/supabase.js";
 import { getTransactionsFn } from "@/lib/server/transactions.js";
-import { getSafeErrorMessage } from "@/lib/errors.js";
+import { withTimeout } from "@/lib/async.js";
 
 export const Route = createFileRoute("/_app/transactions")({
   component: TransactionsPage,
@@ -21,6 +20,10 @@ const FILTER_TABS = [
 ];
 
 type Transaction = Awaited<ReturnType<typeof getTransactionsFn>>[number];
+
+const TRANSACTIONS_LOAD_TIMEOUT_MS = 10_000;
+const AUTO_RETRY_DELAY_MS = 1_500;
+const MAX_AUTO_RETRIES = 2;
 
 function StatusBadge({ status }: { status?: string }) {
   switch (status) {
@@ -53,38 +56,116 @@ function StatusBadge({ status }: { status?: string }) {
 }
 
 function TransactionsPage() {
-  const { user } = useAuthStore();
+  const user = useAuthStore((s) => s.user);
+  const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [transactionsLoaded, setTransactionsLoaded] = useState(false);
   const [activeFilter, setActiveFilter] = useState("all");
 
-  useEffect(() => {
-    if (!user?.id) return;
-    setLoading(true);
-    setError(null);
-    (async () => {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-      if (!accessToken) {
-        setError("Session expired. Please sign in again.");
-        return;
+  const mountedRef = useRef(true);
+  const requestIdRef = useRef(0);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleRetry = useCallback(
+    (loadFn: () => void) => {
+      clearRetryTimer();
+
+      if (retryCountRef.current >= MAX_AUTO_RETRIES) return;
+
+      retryCountRef.current += 1;
+      retryTimerRef.current = setTimeout(loadFn, AUTO_RETRY_DELAY_MS);
+    },
+    [clearRetryTimer],
+  );
+
+  const loadTransactions = useCallback(
+    async (options?: { resetRetryCount?: boolean }) => {
+      if (options?.resetRetryCount) {
+        retryCountRef.current = 0;
       }
-      const rows = await getTransactionsFn({ data: { accessToken, type: activeFilter } });
-      setTransactions(rows);
-    })()
-      .catch((err) => {
-        console.error("Transactions load failed:", err);
-        setError(getSafeErrorMessage(err, "SERVER").message);
-      })
-      .finally(() => setLoading(false));
-  }, [user?.id, activeFilter]);
+
+      if (!user?.id || !accessToken) return;
+
+      clearRetryTimer();
+
+      const requestId = requestIdRef.current + 1;
+      requestIdRef.current = requestId;
+      const filter = activeFilter;
+
+      try {
+        const rows = await withTimeout(
+          getTransactionsFn({ data: { accessToken, type: filter } }),
+          TRANSACTIONS_LOAD_TIMEOUT_MS,
+          "Transactions request timed out.",
+        );
+
+        if (!mountedRef.current || requestIdRef.current !== requestId) return;
+
+        setTransactions(rows);
+        setTransactionsLoaded(true);
+        retryCountRef.current = 0;
+      } catch (err) {
+        console.error("[QHash] Transactions background refresh failed:", err);
+
+        if (!mountedRef.current || requestIdRef.current !== requestId) return;
+
+        scheduleRetry(() => {
+          void loadTransactions();
+        });
+      }
+    },
+    [accessToken, activeFilter, clearRetryTimer, scheduleRetry, user?.id],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      clearRetryTimer();
+    };
+  }, [clearRetryTimer]);
+
+  useEffect(() => {
+    setTransactions([]);
+    setTransactionsLoaded(false);
+    retryCountRef.current = 0;
+    void loadTransactions({ resetRetryCount: true });
+  }, [activeFilter, loadTransactions]);
+
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadTransactions({ resetRetryCount: true });
+      }
+    };
+
+    const handleOnline = () => {
+      void loadTransactions({ resetRetryCount: true });
+    };
+
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [loadTransactions]);
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold">Transactions</h1>
-        {!loading && transactions.length > 0 && (
+        {transactionsLoaded && transactions.length > 0 && (
           <span className="text-[10px] text-gray-600 font-mono">
             {transactions.length} records
           </span>
@@ -108,16 +189,11 @@ function TransactionsPage() {
         ))}
       </div>
 
-      {loading ? (
+      {!transactionsLoaded ? (
         <div className="space-y-3 stagger-children">
           {[1, 2, 3, 4, 5].map((i) => (
             <div key={i} className="skeleton h-[68px] rounded-xl" />
           ))}
-        </div>
-      ) : error ? (
-        <div className="text-center py-16">
-          <AlertCircle size={24} className="mx-auto mb-3 text-red-400/60" />
-          <p className="text-xs text-red-400">{error}</p>
         </div>
       ) : transactions.length === 0 ? (
         <div className="text-center py-16">
@@ -162,4 +238,3 @@ function TransactionsPage() {
     </div>
   );
 }
-
