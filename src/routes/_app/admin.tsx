@@ -591,45 +591,127 @@ function DepositsTab({ userId }: { userId: string | undefined }) {
 }
 
 function WithdrawalsTab({ userId }: { userId: string | undefined }) {
+  const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const [withdrawals, setWithdrawals] = useState<AdminWithdrawal[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [withdrawalsLoaded, setWithdrawalsLoaded] = useState(false);
   const [filter, setFilter] = useState<"all" | "pending" | "approved" | "rejected">("pending");
   const [selectedWithdrawal, setSelectedWithdrawal] = useState<AdminWithdrawal | null>(null);
   const [adminNote, setAdminNote] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
 
-  const loadWithdrawals = () => {
-    if (!userId) return;
+  const mountedRef = useRef(true);
+  const loadingRef = useRef(false);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    setLoading(true);
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
 
-    (async () => {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
+  const scheduleRetry = useCallback(
+    (loadFn: () => void) => {
+      clearRetryTimer();
+
+      if (retryCountRef.current >= ADMIN_MAX_AUTO_RETRIES) return;
+
+      retryCountRef.current += 1;
+      retryTimerRef.current = setTimeout(loadFn, ADMIN_AUTO_RETRY_DELAY_MS);
+    },
+    [clearRetryTimer],
+  );
+
+  const loadWithdrawals = useCallback(
+    async (options?: { resetRetryCount?: boolean }) => {
+      if (loadingRef.current) return;
+
+      if (options?.resetRetryCount) {
+        retryCountRef.current = 0;
+      }
+
+      if (!userId) return;
 
       if (!accessToken) {
-        toast.error("Session expired. Please sign in again.");
-        setLoading(false);
+        scheduleRetry(() => {
+          void loadWithdrawals();
+        });
         return;
       }
 
-      try {
-        const rows = await getAdminWithdrawalsFn({
-          data: {
-            accessToken,
-            statusFilter: filter,
-          },
-        });
-        setWithdrawals(rows);
-      } catch (err) {
-        toast.error(getSafeErrorMessage(err, "ADMIN").message);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  };
+      clearRetryTimer();
+      loadingRef.current = true;
 
-  useEffect(() => { loadWithdrawals(); }, [userId, filter]);
+      try {
+        const rows = await withTimeout(
+          getAdminWithdrawalsFn({
+            data: {
+              accessToken,
+              statusFilter: filter,
+            },
+          }),
+          ADMIN_TAB_LOAD_TIMEOUT_MS,
+          "Admin withdrawals request timed out.",
+        );
+
+        if (!mountedRef.current) return;
+
+        setWithdrawals(rows);
+        setWithdrawalsLoaded(true);
+        retryCountRef.current = 0;
+      } catch (err) {
+        console.error("[QHash] Admin withdrawals background refresh failed:", err);
+
+        if (!mountedRef.current) return;
+
+        scheduleRetry(() => {
+          void loadWithdrawals();
+        });
+      } finally {
+        loadingRef.current = false;
+      }
+    },
+    [accessToken, clearRetryTimer, filter, scheduleRetry, userId],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      clearRetryTimer();
+    };
+  }, [clearRetryTimer]);
+
+  useEffect(() => {
+    setSelectedWithdrawal(null);
+    setAdminNote("");
+    setWithdrawals([]);
+    setWithdrawalsLoaded(false);
+    retryCountRef.current = 0;
+    void loadWithdrawals({ resetRetryCount: true });
+  }, [filter, loadWithdrawals]);
+
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadWithdrawals({ resetRetryCount: true });
+      }
+    };
+
+    const handleOnline = () => {
+      void loadWithdrawals({ resetRetryCount: true });
+    };
+
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [loadWithdrawals]);
 
   const handleReview = async (withdrawalId: string, action: "approve" | "reject") => {
     if (actionLoading) return;
@@ -674,7 +756,7 @@ function WithdrawalsTab({ userId }: { userId: string | undefined }) {
 
       setSelectedWithdrawal(null);
       setAdminNote("");
-      loadWithdrawals();
+      void loadWithdrawals({ resetRetryCount: true });
     } catch (err) {
       toast.error(getSafeErrorMessage(err, "ADMIN").message);
     } finally {
@@ -723,7 +805,7 @@ function WithdrawalsTab({ userId }: { userId: string | undefined }) {
         />
       )}
 
-      {loading ? (
+      {!withdrawalsLoaded ? (
         <div className="space-y-2">{[1, 2, 3].map((i) => <div key={i} className="skeleton h-16 rounded-xl" />)}</div>
       ) : withdrawals.length === 0 ? (
         <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-8 text-center text-xs text-gray-600">No withdrawals found.</div>
