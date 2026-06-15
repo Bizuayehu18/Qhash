@@ -39,6 +39,7 @@ function useReferralData() {
   const profile = useAuthStore((s) => s.profile);
   const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const [stats, setStats] = useState<ReferralStats>(EMPTY_REFERRAL_STATS);
+  const [statsLoaded, setStatsLoaded] = useState(false);
   const loadingRef = useRef(false);
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -70,6 +71,7 @@ function useReferralData() {
 
       if (!user || !accessToken) {
         setStats(EMPTY_REFERRAL_STATS);
+        setStatsLoaded(false);
         return;
       }
 
@@ -90,6 +92,7 @@ function useReferralData() {
           active: result.active,
           earned: result.earned,
         });
+        setStatsLoaded(true);
         retryCountRef.current = 0;
       } catch (err) {
         console.error("[QHash] Referral stats background refresh failed:", err);
@@ -138,12 +141,13 @@ function useReferralData() {
 
   return {
     stats,
+    statsLoaded,
     username: profile?.username ?? null,
   };
 }
 
 function ReferralsPage() {
-  const { stats, username } = useReferralData();
+  const { stats, statsLoaded, username } = useReferralData();
   const [copied, setCopied] = useState(false);
 
   const referralLink =
@@ -208,13 +212,14 @@ function ReferralsPage() {
       </Card>
 
       <div className="grid grid-cols-3 gap-3">
-        <StatCard icon={<Users size={18} />} label="Total" value={stats.total} />
-        <StatCard icon={<UserCheck size={18} />} label="Active" value={stats.active} accent />
+        <StatCard icon={<Users size={18} />} label="Total" value={stats.total} loading={!statsLoaded} />
+        <StatCard icon={<UserCheck size={18} />} label="Active" value={stats.active} accent loading={!statsLoaded} />
         <StatCard
           icon={<TrendingUp size={18} />}
           label="Earned"
           value={`$${stats.earned.toFixed(2)}`}
           accent
+          loading={!statsLoaded}
         />
       </div>
 
@@ -247,11 +252,13 @@ function StatCard({
   label,
   value,
   accent,
+  loading,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string | number;
   accent?: boolean;
+  loading?: boolean;
 }) {
   return (
     <Card padding="sm">
@@ -260,7 +267,11 @@ function StatCard({
           {icon}
         </div>
         <span className={`text-base font-bold ${accent ? "text-[#00ff41]" : "text-gray-100"}`}>
-          {value}
+          {loading ? (
+            <span className="skeleton inline-block h-5 w-12 rounded" aria-label={`Loading ${label}`} />
+          ) : (
+            value
+          )}
         </span>
         <span className="text-[10px] text-gray-600 uppercase tracking-wider">
           {label}
