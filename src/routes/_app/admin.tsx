@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
@@ -30,6 +30,7 @@ import { getSafeErrorMessage } from "@/lib/errors.js";
 import { formatDateTime } from "@/lib/format.js";
 import { useAuthStore } from "@/store/authStore.js";
 import { supabase } from "@/lib/supabase.js";
+import { withTimeout } from "@/lib/async.js";
 import { getAdminStatsFn } from "@/lib/server/admin.js";
 import {
   getPaymentMethodsFn,
@@ -68,6 +69,10 @@ type AdminWithdrawal = Awaited<ReturnType<typeof getAdminWithdrawalsFn>>[number]
 type AdminSecurityUser = Awaited<ReturnType<typeof getAdminSecurityUsersFn>>[number];
 
 const METHOD_LABELS: Record<string, string> = { cbe: "CBE", telebirr: "TeleBirr" };
+
+const ADMIN_TAB_LOAD_TIMEOUT_MS = 10_000;
+const ADMIN_AUTO_RETRY_DELAY_MS = 1_500;
+const ADMIN_MAX_AUTO_RETRIES = 2;
 
 function AdminPage() {
   const { user, profile } = useAuthStore();
@@ -126,39 +131,113 @@ function AdminPage() {
 }
 
 function OverviewTab({ userId }: { userId: string | undefined }) {
+  const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const [stats, setStats] = useState<AdminStats | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [statsLoaded, setStatsLoaded] = useState(false);
+  const mountedRef = useRef(true);
+  const loadingRef = useRef(false);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    if (!userId) return;
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
 
-    setLoading(true);
+  const scheduleRetry = useCallback(
+    (loadFn: () => void) => {
+      clearRetryTimer();
 
-    (async () => {
-      try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const accessToken = sessionData?.session?.access_token;
+      if (retryCountRef.current >= ADMIN_MAX_AUTO_RETRIES) return;
 
-        if (!accessToken) {
-          toast.error("Session expired. Please sign in again.");
-          setLoading(false);
-          return;
-        }
+      retryCountRef.current += 1;
+      retryTimerRef.current = setTimeout(loadFn, ADMIN_AUTO_RETRY_DELAY_MS);
+    },
+    [clearRetryTimer],
+  );
 
-        const result = await getAdminStatsFn({
-          data: {
-            accessToken,
-          },
+  const loadOverview = useCallback(
+    async (options?: { resetRetryCount?: boolean }) => {
+      if (loadingRef.current) return;
+
+      if (options?.resetRetryCount) {
+        retryCountRef.current = 0;
+      }
+
+      if (!userId) return;
+
+      if (!accessToken) {
+        scheduleRetry(() => {
+          void loadOverview();
         });
+        return;
+      }
+
+      clearRetryTimer();
+      loadingRef.current = true;
+
+      try {
+        const result = await withTimeout(
+          getAdminStatsFn({
+            data: {
+              accessToken,
+            },
+          }),
+          ADMIN_TAB_LOAD_TIMEOUT_MS,
+          "Admin overview request timed out.",
+        );
+
+        if (!mountedRef.current) return;
 
         setStats(result);
+        setStatsLoaded(true);
+        retryCountRef.current = 0;
       } catch (err) {
-        toast.error(getSafeErrorMessage(err, "ADMIN").message);
+        console.error("[QHash] Admin overview background refresh failed:", err);
+
+        if (!mountedRef.current) return;
+
+        scheduleRetry(() => {
+          void loadOverview();
+        });
       } finally {
-        setLoading(false);
+        loadingRef.current = false;
       }
-    })();
-  }, [userId]);
+    },
+    [accessToken, clearRetryTimer, scheduleRetry, userId],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void loadOverview({ resetRetryCount: true });
+
+    return () => {
+      mountedRef.current = false;
+      clearRetryTimer();
+    };
+  }, [clearRetryTimer, loadOverview]);
+
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadOverview({ resetRetryCount: true });
+      }
+    };
+
+    const handleOnline = () => {
+      void loadOverview({ resetRetryCount: true });
+    };
+
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [loadOverview]);
 
   return (
     <div className="space-y-4">
@@ -181,7 +260,11 @@ function OverviewTab({ userId }: { userId: string | undefined }) {
               <p className="text-[10px] text-gray-500">{s.label}</p>
               <span className="text-gray-600">{s.icon}</span>
             </div>
-            {loading ? <Spinner size="sm" /> : <p className="text-lg font-bold">{s.value ?? 0}</p>}
+            {!statsLoaded ? (
+              <span className="skeleton inline-block h-5 w-16 rounded" aria-label={`Loading ${s.label}`} />
+            ) : (
+              <p className="text-lg font-bold">{s.value ?? 0}</p>
+            )}
           </div>
         ))}
       </div>
@@ -189,7 +272,7 @@ function OverviewTab({ userId }: { userId: string | undefined }) {
       {/* Recent Users */}
       <div>
         <h2 className="text-xs font-semibold text-gray-400 mb-2">Recent Users</h2>
-        {loading ? (
+        {!statsLoaded ? (
           <div className="space-y-2">{[1, 2, 3].map((i) => <div key={i} className="skeleton h-12 rounded-xl" />)}</div>
         ) : !stats?.recentUsers.length ? (
           <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-6 text-center text-xs text-gray-600">No users yet.</div>
@@ -213,7 +296,7 @@ function OverviewTab({ userId }: { userId: string | undefined }) {
       {/* Pending Withdrawals */}
       <div>
         <h2 className="text-xs font-semibold text-gray-400 mb-2">Pending Withdrawals</h2>
-        {loading ? (
+        {!statsLoaded ? (
           <div className="skeleton h-16 rounded-xl" />
         ) : !stats?.pendingWithdrawalRecords.length ? (
           <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-6 text-center text-xs text-gray-600">No pending requests.</div>
