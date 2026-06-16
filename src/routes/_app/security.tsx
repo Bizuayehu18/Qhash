@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
 import { Spinner } from "@/components/ui/Spinner.js";
 import { getSafeErrorMessage } from "@/lib/errors.js";
-import { supabase } from "@/lib/supabase.js";
+import { withTimeout } from "@/lib/async.js";
 import {
   changeFundPasswordFn,
   changeLoginPasswordFn,
@@ -22,6 +22,9 @@ export const Route = createFileRoute("/_app/security")({
 });
 
 type SecurityTab = "login" | "fund";
+
+const SECURITY_STATUS_TIMEOUT_MS = 10_000;
+const SECURITY_ACTION_TIMEOUT_MS = 15_000;
 
 const EMPTY_SECURITY_STATUS: SecurityStatus = {
   hasFundPassword: false,
@@ -40,6 +43,7 @@ function isValidLoginPassword(value: string): boolean {
 
 function SecurityPage() {
   const { user, signOut } = useAuthStore();
+  const accessToken = useAuthStore((state) => state.session?.access_token ?? null);
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<SecurityTab>("login");
   const [status, setStatus] = useState<SecurityStatus>(EMPTY_SECURITY_STATUS);
@@ -58,7 +62,7 @@ function SecurityPage() {
   const [savingFundPassword, setSavingFundPassword] = useState(false);
 
   const loadSecurityStatus = useCallback(async () => {
-    if (!user?.id) {
+    if (!user?.id || !accessToken) {
       setStatus(EMPTY_SECURITY_STATUS);
       setLoadingStatus(false);
       return;
@@ -67,27 +71,42 @@ function SecurityPage() {
     setLoadingStatus(true);
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-
-      if (!accessToken) {
-        toast.error("Session expired. Please sign in again.");
-        setStatus(EMPTY_SECURITY_STATUS);
-        return;
-      }
-
-      const result = await getSecurityStatusFn({ data: { accessToken } });
+      const result = await withTimeout(
+        getSecurityStatusFn({ data: { accessToken } }),
+        SECURITY_STATUS_TIMEOUT_MS,
+        "Security status request timed out.",
+      );
       setStatus(result);
     } catch (err) {
-      toast.error(getSafeErrorMessage(err, "AUTH").message);
+      console.error("[QHash] Security status load failed:", err);
       setStatus(EMPTY_SECURITY_STATUS);
     } finally {
       setLoadingStatus(false);
     }
-  }, [user?.id]);
+  }, [accessToken, user?.id]);
 
   useEffect(() => {
     void loadSecurityStatus();
+  }, [loadSecurityStatus]);
+
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadSecurityStatus();
+      }
+    };
+
+    const refreshWhenOnline = () => {
+      void loadSecurityStatus();
+    };
+
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    window.addEventListener("online", refreshWhenOnline);
+
+    return () => {
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.removeEventListener("online", refreshWhenOnline);
+    };
   }, [loadSecurityStatus]);
 
   const resetLoginPasswordForm = () => {
@@ -127,25 +146,26 @@ function SecurityPage() {
       return;
     }
 
+    if (!accessToken) {
+      toast.error("Session expired. Please sign in again.");
+      return;
+    }
+
     setSavingLoginPassword(true);
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-
-      if (!accessToken) {
-        toast.error("Session expired. Please sign in again.");
-        return;
-      }
-
-      const result = await changeLoginPasswordFn({
-        data: {
-          accessToken,
-          currentLoginPassword,
-          newLoginPassword,
-          confirmNewLoginPassword: confirmLoginPassword,
-        },
-      });
+      const result = await withTimeout(
+        changeLoginPasswordFn({
+          data: {
+            accessToken,
+            currentLoginPassword,
+            newLoginPassword,
+            confirmNewLoginPassword: confirmLoginPassword,
+          },
+        }),
+        SECURITY_ACTION_TIMEOUT_MS,
+        "Login password update timed out.",
+      );
 
       if (result.success !== true) {
         toast.error(result.message);
@@ -176,24 +196,25 @@ function SecurityPage() {
       return;
     }
 
+    if (!accessToken) {
+      toast.error("Session expired. Please sign in again.");
+      return;
+    }
+
     setSavingFundPassword(true);
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-
-      if (!accessToken) {
-        toast.error("Session expired. Please sign in again.");
-        return;
-      }
-
-      const result = await setFundPasswordFn({
-        data: {
-          accessToken,
-          fundPassword,
-          confirmFundPassword,
-        },
-      });
+      const result = await withTimeout(
+        setFundPasswordFn({
+          data: {
+            accessToken,
+            fundPassword,
+            confirmFundPassword,
+          },
+        }),
+        SECURITY_ACTION_TIMEOUT_MS,
+        "Fund password creation timed out.",
+      );
 
       setStatus(result);
       resetFundPasswordForms();
@@ -227,25 +248,26 @@ function SecurityPage() {
       return;
     }
 
+    if (!accessToken) {
+      toast.error("Session expired. Please sign in again.");
+      return;
+    }
+
     setSavingFundPassword(true);
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-
-      if (!accessToken) {
-        toast.error("Session expired. Please sign in again.");
-        return;
-      }
-
-      const result = await changeFundPasswordFn({
-        data: {
-          accessToken,
-          currentFundPassword,
-          newFundPassword,
-          confirmNewFundPassword,
-        },
-      });
+      const result = await withTimeout(
+        changeFundPasswordFn({
+          data: {
+            accessToken,
+            currentFundPassword,
+            newFundPassword,
+            confirmNewFundPassword,
+          },
+        }),
+        SECURITY_ACTION_TIMEOUT_MS,
+        "Fund password update timed out.",
+      );
 
       setStatus(result);
       resetFundPasswordForms();
