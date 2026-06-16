@@ -35,7 +35,7 @@ function onlyFourDigits(value: string): string {
 }
 
 function isValidLoginPassword(value: string): boolean {
-  return value.trim().length >= 6;
+  return value.trim().length >= 8;
 }
 
 function SecurityPage() {
@@ -113,7 +113,7 @@ function SecurityPage() {
     }
 
     if (!isValidLoginPassword(newLoginPassword)) {
-      toast.error("New login password must be at least 6 characters.");
+      toast.error("New login password must be at least 8 characters.");
       return;
     }
 
@@ -307,7 +307,7 @@ function SecurityPage() {
             value={newLoginPassword}
             onChange={(e) => setNewLoginPassword(e.target.value)}
             autoComplete="new-password"
-            hint="Use at least 6 characters."
+            hint="Use at least 8 characters."
           />
 
           <Input

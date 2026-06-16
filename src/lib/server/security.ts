@@ -125,8 +125,8 @@ function normalizeLoginPassword(value: unknown, label: string): string {
 
   const password = value.trim();
 
-  if (password.length < 6) {
-    throwSafe("AUTH", `${label} must be at least 6 characters.`, `${label} too short`);
+  if (password.length < 8) {
+    throwSafe("AUTH", `${label} must be at least 8 characters.`, `${label} too short`);
   }
 
   return password;
