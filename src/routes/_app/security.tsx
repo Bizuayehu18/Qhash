@@ -147,6 +147,11 @@ function SecurityPage() {
         },
       });
 
+      if (result.success !== true) {
+        toast.error(result.message);
+        return;
+      }
+
       resetLoginPasswordForm();
       toast.success(result.message);
       await signOut();

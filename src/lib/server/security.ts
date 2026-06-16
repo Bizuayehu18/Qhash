@@ -42,10 +42,16 @@ export type SecurityStatus = {
   isFundPasswordLocked: boolean;
 };
 
-export type ChangeLoginPasswordResult = {
-  success: true;
-  message: string;
-};
+export type ChangeLoginPasswordResult =
+  | {
+      success: true;
+      message: string;
+    }
+  | {
+      success: false;
+      code: "incorrect_current_password";
+      message: string;
+    };
 
 type FundPasswordRpcResult = {
   success?: boolean;
@@ -486,7 +492,21 @@ export const changeLoginPasswordFn = createServerFn({ method: "POST" })
     });
 
     if (verifyError) {
-      throwSafe("AUTH", "Current login password is incorrect.", `Login password verification failed: ${verifyError.message}`);
+      const verifyMessage = verifyError.message ?? "Unknown login password verification error";
+
+      if (verifyMessage.toLowerCase().includes("invalid login credentials")) {
+        return {
+          success: false,
+          code: "incorrect_current_password",
+          message: "Current login password is incorrect.",
+        };
+      }
+
+      throwSafe(
+        "AUTH",
+        "Unable to verify current password. Please try again.",
+        `Login password verification failed: ${verifyMessage}`,
+      );
     }
 
     try {
