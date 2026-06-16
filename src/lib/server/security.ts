@@ -118,7 +118,21 @@ function normalizeFundPassword(
   return trimmed;
 }
 
-function normalizeLoginPassword(value: unknown, label: string): string {
+function normalizeExistingLoginPassword(value: unknown, label: string): string {
+  if (typeof value !== "string") {
+    throwSafe("AUTH", `${label} must be a valid password.`, `${label} must be a string`);
+  }
+
+  const password = value.trim();
+
+  if (password.length === 0) {
+    throwSafe("AUTH", `${label} is required.`, `${label} is empty`);
+  }
+
+  return password;
+}
+
+function normalizeNewLoginPassword(value: unknown, label: string): string {
   if (typeof value !== "string") {
     throwSafe("AUTH", `${label} must be a valid password.`, `${label} must be a string`);
   }
@@ -222,15 +236,15 @@ function validateChangeLoginPasswordInput(data: unknown): ChangeLoginPasswordInp
     confirmNewLoginPassword,
   } = data as Record<string, unknown>;
 
-  const normalizedCurrentLoginPassword = normalizeLoginPassword(
+  const normalizedCurrentLoginPassword = normalizeExistingLoginPassword(
     currentLoginPassword,
     "Current login password",
   );
-  const normalizedNewLoginPassword = normalizeLoginPassword(
+  const normalizedNewLoginPassword = normalizeNewLoginPassword(
     newLoginPassword,
     "New login password",
   );
-  const normalizedConfirmNewLoginPassword = normalizeLoginPassword(
+  const normalizedConfirmNewLoginPassword = normalizeNewLoginPassword(
     confirmNewLoginPassword,
     "Confirm login password",
   );
