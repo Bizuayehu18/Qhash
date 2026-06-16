@@ -43,11 +43,8 @@ async function buildReferralChain(
   referrerId: string,
 ): Promise<void> {
   if (referrerId === newUserId) {
-    console.log(`[QHash Referral] CHAIN circular-loop-prevented: self-referral newUser=${newUserId}`)
     return
   }
-
-  console.log(`[QHash Referral] CHAIN start: newUser=${newUserId} directReferrer=${referrerId}`)
 
   const inserted: Array<{ level: number; referrer: string }> = []
 
@@ -57,14 +54,10 @@ async function buildReferralChain(
     { onConflict: 'referrer_id,referred_user_id', ignoreDuplicates: true },
   )
   if (l1Err) {
-    console.log(`[QHash Referral] CHAIN level-1-error: referrer=${referrerId} referred=${newUserId} error=${l1Err.message}`)
     return
   }
   if (l1Status === 201) {
-    console.log(`[QHash Referral] CHAIN level-1-inserted: referrer=${referrerId} referred=${newUserId}`)
     inserted.push({ level: 1, referrer: referrerId })
-  } else {
-    console.log(`[QHash Referral] CHAIN level-1-duplicate-skipped: referrer=${referrerId} referred=${newUserId}`)
   }
 
   // Level 2: referrer's referrer -> new user
@@ -76,13 +69,9 @@ async function buildReferralChain(
 
   const l2Id = l1Profile?.referred_by
   if (!l2Id) {
-    console.log(`[QHash Referral] CHAIN level-2-skipped: referrer=${referrerId} has no upline`)
-    console.log(`[QHash Referral] CHAIN complete: newUser=${newUserId} levels=${inserted.length}`)
     return
   }
   if (l2Id === newUserId || l2Id === referrerId) {
-    console.log(`[QHash Referral] CHAIN circular-loop-prevented: level-2 l2=${l2Id} newUser=${newUserId} l1=${referrerId}`)
-    console.log(`[QHash Referral] CHAIN complete: newUser=${newUserId} levels=${inserted.length}`)
     return
   }
 
@@ -91,15 +80,10 @@ async function buildReferralChain(
     { onConflict: 'referrer_id,referred_user_id', ignoreDuplicates: true },
   )
   if (l2Err) {
-    console.log(`[QHash Referral] CHAIN level-2-error: referrer=${l2Id} referred=${newUserId} error=${l2Err.message}`)
-    console.log(`[QHash Referral] CHAIN complete: newUser=${newUserId} levels=${inserted.length}`)
     return
   }
   if (l2Status === 201) {
-    console.log(`[QHash Referral] CHAIN level-2-inserted: referrer=${l2Id} referred=${newUserId}`)
     inserted.push({ level: 2, referrer: l2Id })
-  } else {
-    console.log(`[QHash Referral] CHAIN level-2-duplicate-skipped: referrer=${l2Id} referred=${newUserId}`)
   }
 
   // Level 3: referrer's referrer's referrer -> new user
@@ -111,13 +95,9 @@ async function buildReferralChain(
 
   const l3Id = l2Profile?.referred_by
   if (!l3Id) {
-    console.log(`[QHash Referral] CHAIN level-3-skipped: l2=${l2Id} has no upline`)
-    console.log(`[QHash Referral] CHAIN complete: newUser=${newUserId} levels=${inserted.length}`)
     return
   }
   if (l3Id === newUserId || l3Id === referrerId || l3Id === l2Id) {
-    console.log(`[QHash Referral] CHAIN circular-loop-prevented: level-3 l3=${l3Id} newUser=${newUserId} l1=${referrerId} l2=${l2Id}`)
-    console.log(`[QHash Referral] CHAIN complete: newUser=${newUserId} levels=${inserted.length}`)
     return
   }
 
@@ -125,16 +105,11 @@ async function buildReferralChain(
     { referrer_id: l3Id, referred_user_id: newUserId, level: 3 },
     { onConflict: 'referrer_id,referred_user_id', ignoreDuplicates: true },
   )
-  if (l3Err) {
-    console.log(`[QHash Referral] CHAIN level-3-error: referrer=${l3Id} referred=${newUserId} error=${l3Err.message}`)
-  } else if (l3Status === 201) {
-    console.log(`[QHash Referral] CHAIN level-3-inserted: referrer=${l3Id} referred=${newUserId}`)
+  if (!l3Err && l3Status === 201) {
     inserted.push({ level: 3, referrer: l3Id })
-  } else {
-    console.log(`[QHash Referral] CHAIN level-3-duplicate-skipped: referrer=${l3Id} referred=${newUserId}`)
   }
 
-  console.log(`[QHash Referral] CHAIN complete: newUser=${newUserId} levels=${inserted.length}`)
+  void inserted
 }
 
 export const registerUserFn = createServerFn({ method: 'POST' })
@@ -165,22 +140,14 @@ export const registerUserFn = createServerFn({ method: 'POST' })
     }
 
     let referrerId: string | null = null
-    if (referredBy) {
-      console.log(`[QHash Referral] referral-link-parsed: ref=${referredBy} newUsername=${username}`)
-      if (referredBy === username) {
-        console.log(`[QHash Referral] self-referral-blocked: username=${username}`)
-      } else {
-        const { data: referrer } = await admin
-          .from('profiles')
-          .select('id')
-          .eq('username', referredBy)
-          .maybeSingle()
-        if (referrer) {
-          referrerId = referrer.id
-          console.log(`[QHash Referral] inviter-found: username=${referredBy} id=${referrerId}`)
-        } else {
-          console.log(`[QHash Referral] inviter-not-found: username=${referredBy}, proceeding without referral`)
-        }
+    if (referredBy && referredBy !== username) {
+      const { data: referrer } = await admin
+        .from('profiles')
+        .select('id')
+        .eq('username', referredBy)
+        .maybeSingle()
+      if (referrer) {
+        referrerId = referrer.id
       }
     }
 
@@ -220,7 +187,6 @@ export const registerUserFn = createServerFn({ method: 'POST' })
           console.error('[QHash] Profile insert error (retry without referral):', retryErr.message)
           throwSafe('AUTH', 'Account creation failed. Please try again.', `Profile insert error: ${retryErr.message}`)
         }
-        console.log(`[QHash Referral] profile-created: user=${userId} referrer=none (fallback)`)
         return { email }
       }
 
@@ -228,8 +194,6 @@ export const registerUserFn = createServerFn({ method: 'POST' })
       console.error('[QHash] Profile insert error:', profileErr.message)
       throwSafe('AUTH', 'Account creation failed. Please try again.', `Profile insert error: ${profileErr.message}`)
     }
-
-    console.log(`[QHash Referral] profile-created: user=${userId} referrer=${referrerId ?? 'none'}`)
 
     // Build referral chain server-side (DB trigger also creates rows as backup;
     // upsert with ignoreDuplicates ensures no double-inserts)
