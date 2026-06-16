@@ -2,9 +2,12 @@ import { create } from "zustand";
 import { getWalletBalanceFn } from "@/lib/server/wallet.js";
 import { getSafeErrorMessage } from "@/lib/errors.js";
 import { supabase } from "@/lib/supabase.js";
+import { withTimeout } from "@/lib/async.js";
 
 const WALLET_CACHE_TTL_MS = 60_000;
 const BACKGROUND_REFRESH_MS = 120_000;
+const WALLET_SESSION_TIMEOUT_MS = 8_000;
+const WALLET_BALANCE_TIMEOUT_MS = 10_000;
 
 interface WalletState {
   balance: number | null;
@@ -60,7 +63,11 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       set({ loading: get().balance === null, error: null });
 
       try {
-        const { data: sessionData } = await supabase.auth.getSession();
+        const { data: sessionData } = await withTimeout(
+          supabase.auth.getSession(),
+          WALLET_SESSION_TIMEOUT_MS,
+          "Wallet session request timed out.",
+        );
         const accessToken = sessionData?.session?.access_token;
 
         if (!accessToken) {
@@ -69,7 +76,11 @@ export const useWalletStore = create<WalletState>((set, get) => ({
           return;
         }
 
-        const { balance } = await getWalletBalanceFn({ data: { accessToken } });
+        const { balance } = await withTimeout(
+          getWalletBalanceFn({ data: { accessToken } }),
+          WALLET_BALANCE_TIMEOUT_MS,
+          "Wallet balance request timed out.",
+        );
         set({ balance, loading: false, lastFetchedAt: Date.now(), error: null });
       } catch (err) {
         const message = getSafeErrorMessage(err, "WALLET").message;
