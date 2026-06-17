@@ -347,7 +347,7 @@ function WithdrawPage() {
     setSubmitting(true);
 
     try {
-      await submitWithdrawalFn({
+      const result = await submitWithdrawalFn({
         data: {
           accessToken,
           amount: parsedAmount,
@@ -357,6 +357,15 @@ function WithdrawPage() {
           fundPassword,
         },
       });
+
+      if (result?.success !== true) {
+        toast.error(
+          typeof result?.message === "string" && result.message.trim().length > 0
+            ? result.message
+            : "Withdrawal request failed. Please try again.",
+        );
+        return;
+      }
 
       toast.success("Withdrawal request submitted.");
       resetForm();
