@@ -11,6 +11,17 @@ interface RegisterInput {
   referredBy?: string
 }
 
+export type RegisterUserResult =
+  | {
+      success: true
+      email: string
+    }
+  | {
+      success: false
+      code: 'username_taken' | 'phone_taken'
+      message: string
+    }
+
 function validateRegisterInput(data: unknown): RegisterInput {
   if (!data || typeof data !== 'object') {
     throwSafe('AUTH', 'Registration failed. Please try again.', 'Invalid request data')
@@ -114,7 +125,7 @@ async function buildReferralChain(
 
 export const registerUserFn = createServerFn({ method: 'POST' })
   .inputValidator((data: unknown) => validateRegisterInput(data))
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<RegisterUserResult> => {
     const { username, phone, password, referredBy } = data
 
     const admin = getAdminClient()
@@ -126,7 +137,11 @@ export const registerUserFn = createServerFn({ method: 'POST' })
       .maybeSingle()
 
     if (takenUsername) {
-      throwSafe('AUTH', 'That username is already taken.', 'Duplicate username: ' + username)
+      return {
+        success: false,
+        code: 'username_taken',
+        message: 'That username is already taken.',
+      }
     }
 
     const { data: takenPhone } = await admin
@@ -136,7 +151,11 @@ export const registerUserFn = createServerFn({ method: 'POST' })
       .maybeSingle()
 
     if (takenPhone) {
-      throwSafe('AUTH', 'That phone number is already registered.', 'Duplicate phone: ' + phone)
+      return {
+        success: false,
+        code: 'phone_taken',
+        message: 'That phone number is already registered.',
+      }
     }
 
     let referrerId: string | null = null
@@ -187,7 +206,7 @@ export const registerUserFn = createServerFn({ method: 'POST' })
           console.error('[QHash] Profile insert error (retry without referral):', retryErr.message)
           throwSafe('AUTH', 'Account creation failed. Please try again.', `Profile insert error: ${retryErr.message}`)
         }
-        return { email }
+        return { success: true, email }
       }
 
       await admin.auth.admin.deleteUser(userId)
@@ -205,5 +224,5 @@ export const registerUserFn = createServerFn({ method: 'POST' })
       }
     }
 
-    return { email }
+    return { success: true, email }
   })

@@ -69,6 +69,11 @@ function RegisterPage() {
         'Registration request timed out.',
       )
 
+      if (result.success !== true) {
+        toast.error(result.message)
+        return
+      }
+
       // Sign in after successful registration
       const { data: signInData, error: signInErr } = await withTimeout(
         supabase.auth.signInWithPassword({
