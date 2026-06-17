@@ -275,7 +275,7 @@ function DepositPage() {
         },
       });
 
-      toast.success("Deposit submitted. It will be verified by admin shortly.");
+      toast.success("Deposit submitted. It will be verified shortly.");
       resetForm();
       void loadHistory({ resetRetryCount: true });
       fetchWallet(user.id);
@@ -431,7 +431,7 @@ function DepositPage() {
               onChange={(e) => setAmount(e.target.value)}
               min="100"
               step="0.01"
-              hint="Admin will verify the actual amount from the receipt"
+              hint="The actual amount will be verified from the receipt"
             />
 
             <Button
