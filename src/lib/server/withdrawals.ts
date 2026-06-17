@@ -48,6 +48,25 @@ type RequestWithdrawalRpcResult = {
   [key: string]: unknown;
 };
 
+type SubmitWithdrawalFailureCode =
+  | "withdrawal_failed"
+  | "withdrawals_paused"
+  | "amount_below_minimum"
+  | "account_frozen_or_unavailable"
+  | "wallet_not_found"
+  | "insufficient_balance"
+  | "invalid_amount"
+  | "invalid_account_name"
+  | "invalid_account_number";
+
+type SubmitWithdrawalFailureResult = {
+  success: false;
+  code: SubmitWithdrawalFailureCode;
+  message: string;
+};
+
+type SubmitWithdrawalResult = RequestWithdrawalRpcResult | SubmitWithdrawalFailureResult;
+
 type RpcClient = {
   rpc(
     fn: "request_withdrawal_tx",
@@ -311,9 +330,79 @@ function safeDbMessage(error: DbError | null): string {
     .join(" | ");
 }
 
+function mapWithdrawalRpcError(error: DbError | null): SubmitWithdrawalFailureResult | null {
+  const message = safeDbMessage(error).toLowerCase();
+
+  if (message.includes("withdrawals_paused")) {
+    return {
+      success: false,
+      code: "withdrawals_paused",
+      message: "Withdrawals are temporarily unavailable. Please try again later.",
+    };
+  }
+
+  if (message.includes("amount_below_minimum")) {
+    return {
+      success: false,
+      code: "amount_below_minimum",
+      message: "Minimum withdrawal amount is 200 ETB.",
+    };
+  }
+
+  if (message.includes("account_frozen_or_unavailable")) {
+    return {
+      success: false,
+      code: "account_frozen_or_unavailable",
+      message: "Your account is temporarily unavailable for withdrawals. Please contact support.",
+    };
+  }
+
+  if (message.includes("wallet_not_found")) {
+    return {
+      success: false,
+      code: "wallet_not_found",
+      message: "Wallet not found. Please contact support.",
+    };
+  }
+
+  if (message.includes("insufficient_balance")) {
+    return {
+      success: false,
+      code: "insufficient_balance",
+      message: "Insufficient wallet balance.",
+    };
+  }
+
+  if (message.includes("invalid_amount")) {
+    return {
+      success: false,
+      code: "invalid_amount",
+      message: "Please enter a valid withdrawal amount.",
+    };
+  }
+
+  if (message.includes("invalid_account_name")) {
+    return {
+      success: false,
+      code: "invalid_account_name",
+      message: "Please enter a valid account name.",
+    };
+  }
+
+  if (message.includes("invalid_account_number")) {
+    return {
+      success: false,
+      code: "invalid_account_number",
+      message: "Please enter a valid account number.",
+    };
+  }
+
+  return null;
+}
+
 export const submitWithdrawalFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => validateSubmitWithdrawalInput(data))
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<SubmitWithdrawalResult> => {
     const admin = getAdminClient();
 
     const {
@@ -356,6 +445,11 @@ export const submitWithdrawalFn = createServerFn({ method: "POST" })
           }),
         );
 
+        const mappedError = mapWithdrawalRpcError(error);
+        if (mappedError) {
+          return mappedError;
+        }
+
         throwSafe(
           "WITHDRAWAL",
           "Withdrawal request failed. Please try again.",
@@ -363,7 +457,15 @@ export const submitWithdrawalFn = createServerFn({ method: "POST" })
         );
       }
 
-      return result ?? { success: false };
+      if (result?.success !== true) {
+        return {
+          success: false,
+          code: "withdrawal_failed",
+          message: "Withdrawal request failed. Please try again.",
+        };
+      }
+
+      return result;
     } catch (err) {
       console.error(
         "[QHash] Withdrawal submit error:",
