@@ -18,7 +18,7 @@ export type RegisterUserResult =
     }
   | {
       success: false
-      code: 'username_taken' | 'phone_taken'
+      code: 'username_taken' | 'phone_taken' | 'invalid_phone'
       message: string
     }
 
@@ -30,8 +30,8 @@ function validateRegisterInput(data: unknown): RegisterInput {
   if (typeof username !== 'string' || !/^[a-z0-9_]{3,30}$/.test(username)) {
     throwSafe('AUTH', 'Username must be 3–30 characters: lowercase letters, numbers, and underscores.', 'Invalid username format: ' + String(username))
   }
-  if (typeof phone !== 'string' || !/^\+251[79]\d{8}$/.test(phone)) {
-    throwSafe('AUTH', 'Invalid phone number format.', 'Invalid phone format: ' + String(phone))
+  if (typeof phone !== 'string') {
+    throwSafe('AUTH', 'Invalid phone number format.', 'Invalid phone value type: ' + typeof phone)
   }
   if (typeof password !== 'string' || password.length < 8) {
     throwSafe('AUTH', 'Password must be at least 8 characters.', 'Password too short')
@@ -127,6 +127,14 @@ export const registerUserFn = createServerFn({ method: 'POST' })
   .inputValidator((data: unknown) => validateRegisterInput(data))
   .handler(async ({ data }): Promise<RegisterUserResult> => {
     const { username, phone, password, referredBy } = data
+
+    if (!/^\+251[79]\d{8}$/.test(phone)) {
+      return {
+        success: false,
+        code: 'invalid_phone',
+        message: 'Invalid phone number format.',
+      }
+    }
 
     const admin = getAdminClient()
 
