@@ -253,9 +253,10 @@ function DepositPage() {
       return;
     }
 
-    const numAmount = amount ? parseFloat(amount) : 0;
-    if (amount && (isNaN(numAmount) || numAmount < 100)) {
-      toast.error("Minimum deposit amount is 100 ETB.");
+    const amountInput = amount.trim();
+    const numAmount = amountInput ? parseFloat(amountInput) : 0;
+    if (amountInput && (!Number.isFinite(numAmount) || numAmount <= 0)) {
+      toast.error("Enter a deposit amount above 0 ETB, or leave it blank.");
       return;
     }
 
@@ -429,7 +430,7 @@ function DepositPage() {
               placeholder="Enter deposit amount"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              min="100"
+              min="0.01"
               step="0.01"
               hint="The actual amount will be verified from the receipt"
             />
