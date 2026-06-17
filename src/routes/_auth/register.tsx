@@ -1,10 +1,10 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { supabase } from '@/lib/supabase.js'
-import { registerUserFn } from '@/lib/server/auth.js'
+import { useNavigate } from '@tanstack/react-router'
+import { supabase, normaliseEthiopianPhone } from '@/lib/supabase.js'
 import { useAuthStore } from '@/store/authStore.js'
-import { normaliseEthiopianPhone } from '@/lib/phone.js'
+import { registerUserFn } from '@/lib/server/auth.js'
 import { Button } from '@/components/ui/Button.js'
 import { Input } from '@/components/ui/Input.js'
 import { Card } from '@/components/ui/Card.js'
@@ -14,7 +14,7 @@ import { isTimeoutError, withTimeout } from '@/lib/async.js'
 
 export const Route = createFileRoute('/_auth/register')({
   validateSearch: (search: Record<string, unknown>) => ({
-    ref: typeof search.ref === 'string' ? search.ref : undefined,
+    ...(typeof search.ref === 'string' ? { ref: search.ref } : {}),
   }),
   component: RegisterPage,
 })
@@ -31,8 +31,7 @@ function RegisterPage() {
   const [confirm, setConfirm] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
-  const setSession = useAuthStore((s) => s.setSession)
-  const loadProfile = useAuthStore((s) => s.loadProfile)
+  const { setSession, loadProfile } = useAuthStore()
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -114,72 +113,72 @@ function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#050505] matrix-bg flex flex-col items-center justify-center p-4">
-      <div className="flex items-center gap-2 mb-8">
-        <Hash className="text-[#00ff41]" size={24} />
-        <span className="font-bold text-xl">QHash</span>
+    <Card neon className="mt-4">
+      <div className="flex items-center gap-2 mb-6">
+        <Hash size={18} className="text-[#00ff41]" />
+        <h1 className="text-lg font-bold">Create your account</h1>
       </div>
 
-      <Card className="w-full max-w-md p-6 border-[rgba(0,255,65,0.2)]">
-        <h1 className="text-2xl font-bold mb-6 flex items-center gap-2">
-          <Hash className="text-[#00ff41]" size={20} />
-          Create your account
-        </h1>
-
-        {ref && (
-          <div className="mb-5 flex items-start gap-2 rounded-xl border border-[rgba(0,255,65,0.2)] bg-[rgba(0,255,65,0.04)] px-3 py-3 text-xs text-gray-300">
-            <UserCheck size={16} className="text-[#00ff41] mt-0.5" />
-            <div>
-              <div className="font-semibold text-white">Referral applied</div>
-              <div className="text-gray-500 mt-1">Invited by @{ref.toLowerCase()}</div>
-            </div>
-          </div>
-        )}
-
-        <form onSubmit={handleRegister} className="space-y-4">
-          <Input
-            label="Username"
-            placeholder="e.g. abebe_mining"
-            value={username}
-            onChange={(e) => setUsername(e.target.value.toLowerCase())}
-            hint="3–30 chars. Letters, numbers, underscore. Permanent — choose carefully."
-          />
-          <Input
-            label="Phone Number"
-            placeholder="+2519..."
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-          />
-          <Input
-            label="Password"
-            type="password"
-            placeholder="Min. 8 characters"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          <Input
-            label="Confirm Password"
-            type="password"
-            placeholder="Repeat password"
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-          />
-
-          <Button type="submit" fullWidth loading={loading}>Create Account</Button>
-        </form>
-
-        <div className="text-center mt-5 text-sm text-gray-500">
-          Already have an account?{' '}
-          <button
-            onClick={() => navigate({ to: '/login' })}
-            className="text-[#00ff41] font-medium"
-          >
-            Sign in
-          </button>
+      {ref && (
+        <div className="mb-4 flex items-center gap-2 text-xs text-[#00ff41]/80 bg-[#00ff41]/5 border border-[#00ff41]/20 rounded-lg px-3 py-2">
+          <UserCheck size={13} />
+          Referred by <span className="font-mono font-bold ml-0.5">@{ref}</span>
         </div>
-      </Card>
+      )}
 
-      <footer className="mt-8 text-[11px] text-gray-700">© 2026 QHash. All rights reserved.</footer>
-    </div>
+      <form onSubmit={handleRegister} className="space-y-4">
+        <Input
+          label="Username"
+          type="text"
+          placeholder="e.g. abebe_kebede"
+          value={username}
+          onChange={(e) =>
+            setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))
+          }
+          hint="3–30 chars. Letters, numbers, underscore. Permanent — choose carefully."
+          autoComplete="username"
+          required
+        />
+        <Input
+          label="Phone Number"
+          type="tel"
+          placeholder="9XXXXXXXX"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          leftAddon="+251"
+          autoComplete="tel"
+          required
+        />
+        <Input
+          label="Password"
+          type="password"
+          placeholder="Min. 8 characters"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="new-password"
+          required
+        />
+        <Input
+          label="Confirm Password"
+          type="password"
+          placeholder="Repeat password"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          autoComplete="new-password"
+          required
+        />
+
+        <Button type="submit" fullWidth loading={loading}>
+          Create Account
+        </Button>
+      </form>
+
+      <p className="mt-4 text-center text-sm text-gray-600">
+        Already have an account?{' '}
+        <Link to="/login" className="text-[#00ff41] hover:underline">
+          Sign in
+        </Link>
+      </p>
+    </Card>
   )
 }
