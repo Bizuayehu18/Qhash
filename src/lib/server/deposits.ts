@@ -6,6 +6,7 @@ import { verifyCBEDeposit } from "./cbe-verify.js";
 import {
   recordDepositVerificationLog,
   type RecordDepositVerificationLogInput,
+  type DepositVerificationFreshness,
 } from "./deposit-verification-audit.js";
 
 const TELEBIRR_RECEIPT_BASE = "https://transactioninfo.ethiotelecom.et/receipt";
@@ -85,6 +86,154 @@ function parseOptionalDepositAmount(amount: unknown): number {
     "Enter a valid deposit amount, or leave it blank.",
     "Invalid deposit amount type: " + typeof amount,
   );
+}
+
+// Derive a safe, low-cardinality reason code from a CBE auto-reject admin note.
+// The raw admin note for a receiver-name mismatch embeds the receipt's receiver
+// name, so it must never be written to production console logs. The raw admin
+// note may be stored on the deposit itself via approve_deposit_tx, but the audit
+// table must only receive safe static messages and must never store raw receiver
+// names — this reason code is for log output only.
+function cbeRejectReasonCode(adminNote: string | null): string {
+  const note = adminNote ?? "";
+  if (note.includes("invalid CBE receipt link")) return "invalid_cbe_link";
+  if (note.includes("duplicate CBE receipt transaction reference"))
+    return "duplicate_extracted_reference";
+  if (note.includes("receiver name mismatch")) return "receiver_mismatch";
+  if (note.includes("unreadable CBE receipt")) return "unreadable_receipt";
+  return "auto_reject";
+}
+
+// --- Audit derivation helpers ----------------------------------------------
+// These derive low-cardinality, PII-free audit fields from the CBE verifier
+// result for the deposit_verification_logs audit trail. They read only the
+// already-computed decision (verified flag, action, generic admin note, parsed
+// receipt amount) — they do NOT change any CBE verification business rule.
+//
+// The hold/fail admin notes are generic and carry no PII. The only admin note
+// that embeds a raw receiver name is the auto-reject mismatch note, so audit
+// messages are always built from static text keyed by reason_code (below),
+// never from the raw admin note.
+
+// Map a CBE manual-review (hold) admin note to a low-cardinality reason code.
+function cbeManualReviewReasonCode(note: string | null): string {
+  const n = note ?? "";
+  if (n.includes("transaction reference missing"))
+    return "cbe_transaction_id_missing";
+  if (n.includes("duplicate reference check failed"))
+    return "duplicate_check_failed";
+  if (n.includes("duplicate transaction reference")) return "duplicate_reference";
+  if (n.includes("payment date missing")) return "payment_date_missing";
+  if (n.includes("payment date unparseable")) return "payment_date_unparseable";
+  if (n.includes("payment date too old")) return "payment_date_too_old";
+  if (n.includes("payment date is in the future")) return "payment_date_future";
+  if (n.includes("could not extract amount")) return "amount_unreadable";
+  if (n.includes("could not extract receiver name")) return "receiver_unreadable";
+  if (n.includes("unable to fetch") || n.includes("HTTP")) return "fetch_failed";
+  if (n.includes("PDF") || n.includes("unable to parse")) return "parse_failed";
+  if (n.includes("payment method not found") || n.includes("account_last_8"))
+    return "method_unavailable";
+  if (n.includes("already reviewed")) return "already_reviewed";
+  return "manual_review";
+}
+
+// Static, PII-free message for a CBE manual-review reason code.
+function safeManualReviewMessage(reasonCode: string): string {
+  switch (reasonCode) {
+    case "cbe_transaction_id_missing":
+      return "Held for review: CBE receipt transaction reference missing.";
+    case "canonical_reference_update_failed":
+      return "Held for review: CBE canonical reference update failed.";
+    case "duplicate_check_failed":
+      return "Held for review: CBE duplicate reference check failed.";
+    case "duplicate_reject_rpc_failed":
+      return "Duplicate CBE receipt reference detected, but auto-reject failed; held for manual review.";
+    case "duplicate_reference":
+      return "Held for review: duplicate CBE transaction reference.";
+    case "payment_date_missing":
+      return "Held for review: CBE receipt payment date missing.";
+    case "payment_date_unparseable":
+      return "Held for review: CBE receipt payment date unparseable.";
+    case "payment_date_too_old":
+      return "Held for review: CBE receipt payment date too old.";
+    case "payment_date_future":
+      return "Held for review: CBE receipt payment date is in the future.";
+    case "amount_unreadable":
+      return "Held for review: could not extract amount from CBE receipt.";
+    case "receiver_unreadable":
+      return "Held for review: could not extract receiver name from CBE receipt.";
+    case "fetch_failed":
+      return "Held for review: unable to fetch CBE receipt.";
+    case "parse_failed":
+      return "Held for review: unable to parse CBE receipt.";
+    case "method_unavailable":
+      return "Held for review: CBE payment method unavailable.";
+    case "already_reviewed":
+      return "Held for review: deposit already reviewed.";
+    default:
+      return "Held for review: CBE auto-verification could not reach a decision.";
+  }
+}
+
+// Static, PII-free message for a CBE auto-reject reason code. Note the
+// receiver-mismatch message here is intentionally name-free (unlike the raw
+// admin note, which embeds the receipt receiver name).
+function safeRejectMessage(reasonCode: string): string {
+  switch (reasonCode) {
+    case "invalid_cbe_link":
+      return "Auto-rejected: invalid CBE receipt link or transaction reference.";
+    case "duplicate_extracted_reference":
+      return "Auto-rejected: duplicate CBE receipt transaction reference.";
+    case "receiver_mismatch":
+      return "Auto-rejected: CBE receipt receiver name did not match.";
+    case "unreadable_receipt":
+      return "Auto-rejected: unreadable CBE receipt.";
+    default:
+      return "Auto-rejected: CBE verification failed.";
+  }
+}
+
+// Derive the freshness decision enum from a CBE hold admin note. Returns null
+// when the note is not a freshness hold (e.g. reject, fetch/parse failures).
+function cbeFreshnessFromNote(
+  note: string | null
+): DepositVerificationFreshness | null {
+  const n = note ?? "";
+  if (n.includes("payment date missing")) return "missing";
+  if (n.includes("payment date unparseable")) return "unparseable";
+  if (n.includes("payment date too old")) return "too_old";
+  if (n.includes("payment date is in the future")) return "future";
+  return null;
+}
+
+// Extract the receipt age in minutes from a "too old (N min ago)" hold note.
+function cbeAgeMinutesFromNote(note: string | null): number | null {
+  const m = (note ?? "").match(/\((\d+)\s*min ago\)/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
+}
+
+// receiver_matched: true once the verifier confirms a match, false on an
+// explicit receiver-name mismatch reject, null when the receiver check was
+// never reached.
+function cbeReceiverMatched(
+  verified: boolean,
+  note: string | null
+): boolean | null {
+  if (verified) return true;
+  if ((note ?? "").includes("receiver name mismatch")) return false;
+  return null;
+}
+
+// Receipt-extracted amount, only when a positive value is safely available.
+function safeReceiptAmount(
+  amount: number | null | undefined,
+  receiptAmount: number | null | undefined
+): number | null {
+  if (typeof amount === "number" && amount > 0) return amount;
+  if (typeof receiptAmount === "number" && receiptAmount > 0) return receiptAmount;
+  return null;
 }
 
 async function getActiveAdminId(admin: ReturnType<typeof getAdminClient>): Promise<string | null> {
@@ -408,6 +557,9 @@ export const submitDepositFn = createServerFn({ method: "POST" })
         }
 
         if (result.action === "reject") {
+          // Definitive auto-reject (e.g. readable CBE invalid-link response).
+          // Reject through the hardened RPC — no direct rejected update, no
+          // wallet credit. Resolve an active admin actor for the RPC.
           const adminId = await getActiveAdminId(admin);
 
           if (!adminId) {
@@ -422,6 +574,8 @@ export const submitDepositFn = createServerFn({ method: "POST" })
               .eq("id", deposit.id)
               .eq("status", "pending");
 
+            log("cbe_auto_reject_no_admin", { depositId: deposit.id });
+
             auditInput = {
               ...auditBase,
               event: "cbe_manual_review",
@@ -429,8 +583,8 @@ export const submitDepositFn = createServerFn({ method: "POST" })
               reason_code: "no_admin_available",
               reason_message_safe:
                 "Auto-reject deferred: no active admin available; held for manual review.",
-              amount: result.amount ?? result.receiptData?.amount ?? null,
-              receiver_matched: result.verified ? true : null,
+              amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
+              receiver_matched: cbeReceiverMatched(result.verified, result.adminNote),
               metadata: { decision_path: "reject_no_admin" },
             };
           } else {
@@ -451,29 +605,56 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                 ? "rpc_failed"
                 : (txResult?.error as string) ?? "unknown";
 
-              await admin
-                .from("deposits")
-                .update({
-                  auto_verified: false,
-                  admin_note: `CBE auto-reject failed (${errorCode}). Requires manual review.`,
-                })
-                .eq("id", deposit.id)
-                .eq("status", "pending");
+              if (!rpcError && errorCode === "already_reviewed") {
+                // Deposit already reviewed elsewhere — never overwrite its
+                // final state, and never report this as a generic RPC
+                // failure in the audit trail.
+                log("cbe_auto_reject_already_reviewed", {
+                  depositId: deposit.id,
+                });
 
-              auditInput = {
-                ...auditBase,
-                event: "cbe_manual_review",
-                action: "manual_review",
-                reason_code: "rpc_failed",
-                reason_message_safe: "CBE auto-reject failed; held for manual review.",
-                amount: result.amount ?? result.receiptData?.amount ?? null,
-                receiver_matched: result.verified ? true : null,
-                metadata: {
-                  decision_path: "reject_rpc_failed",
-                  rpc_error_code: errorCode,
-                },
-              };
+                auditInput = {
+                  ...auditBase,
+                  event: "cbe_manual_review",
+                  action: "manual_review",
+                  reason_code: "already_reviewed",
+                  reason_message_safe:
+                    "CBE auto-reject skipped: deposit already reviewed.",
+                  metadata: { decision_path: "reject_already_reviewed" },
+                };
+              } else {
+                await admin
+                  .from("deposits")
+                  .update({
+                    auto_verified: false,
+                    admin_note: `CBE auto-reject failed (${errorCode}). Requires manual review.`,
+                  })
+                  .eq("id", deposit.id)
+                  .eq("status", "pending");
+
+                log("cbe_auto_reject_rpc_failed", {
+                  depositId: deposit.id,
+                  errorCode,
+                });
+
+                auditInput = {
+                  ...auditBase,
+                  event: "cbe_manual_review",
+                  action: "manual_review",
+                  reason_code: "rpc_failed",
+                  reason_message_safe:
+                    "CBE auto-reject failed; held for manual review.",
+                  amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
+                  receiver_matched: cbeReceiverMatched(result.verified, result.adminNote),
+                  metadata: {
+                    decision_path: "reject_rpc_failed",
+                    rpc_error_code: errorCode,
+                  },
+                };
+              }
             } else {
+              // RPC set status/admin_note/reviewed_at atomically (no wallet
+              // credit on reject). Flag auto-verification and stamp verified_at.
               await admin
                 .from("deposits")
                 .update({
@@ -482,17 +663,25 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                 })
                 .eq("id", deposit.id);
 
+              const reasonCode = cbeRejectReasonCode(result.adminNote);
+
+              log("cbe_auto_reject_succeeded", {
+                depositId: deposit.id,
+                reasonCode,
+              });
+
               auditInput = {
                 ...auditBase,
                 event: "cbe_auto_rejected",
                 action: "reject",
-                reason_code: "cbe_receipt_rejected",
-                reason_message_safe: "Auto-rejected via CBE receipt verification.",
-                amount: result.amount ?? result.receiptData?.amount ?? null,
-                receiver_matched: result.verified ? true : null,
+                reason_code: reasonCode,
+                reason_message_safe: safeRejectMessage(reasonCode),
+                amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
+                receiver_matched: cbeReceiverMatched(result.verified, result.adminNote),
                 metadata: { decision_path: "auto_rejected" },
               };
 
+              // Notification must not block rejection.
               await notifyDepositRejected(
                 admin,
                 authUserId,
@@ -512,18 +701,27 @@ export const submitDepositFn = createServerFn({ method: "POST" })
             .eq("id", deposit.id)
             .eq("status", "pending");
 
+          log("cbe_auto_verification_failed", {
+            depositId: deposit.id,
+            reason: result.adminNote,
+          });
+
+          const reasonCode = cbeManualReviewReasonCode(result.adminNote);
+
           auditInput = {
             ...auditBase,
             event: "cbe_manual_review",
             action: "manual_review",
-            reason_code: "verification_failed",
-            reason_message_safe:
-              "Held for review: CBE auto-verification could not approve the receipt.",
-            amount: result.amount ?? result.receiptData?.amount ?? null,
-            receiver_matched: null,
+            reason_code: reasonCode,
+            reason_message_safe: safeManualReviewMessage(reasonCode),
+            amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
+            receiver_matched: cbeReceiverMatched(result.verified, result.adminNote),
+            freshness_decision: cbeFreshnessFromNote(result.adminNote),
+            age_minutes: cbeAgeMinutesFromNote(result.adminNote),
             metadata: { decision_path: "held" },
           };
         } else if (typeof result.amount !== "number" || result.amount <= 0) {
+          // Verified but no usable amount — never credit without a positive amount.
           await admin
             .from("deposits")
             .update({
@@ -534,6 +732,11 @@ export const submitDepositFn = createServerFn({ method: "POST" })
             .eq("id", deposit.id)
             .eq("status", "pending");
 
+          log("cbe_auto_approval_invalid_amount", {
+            depositId: deposit.id,
+            amount: result.amount,
+          });
+
           auditInput = {
             ...auditBase,
             event: "cbe_manual_review",
@@ -541,7 +744,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
             reason_code: "invalid_amount",
             reason_message_safe:
               "CBE auto-verification passed but extracted amount was invalid; held for manual review.",
-            amount: result.amount ?? result.receiptData?.amount ?? null,
+            amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
             receiver_matched: true,
             freshness_decision: "fresh",
             metadata: { decision_path: "invalid_amount" },
@@ -560,6 +763,8 @@ export const submitDepositFn = createServerFn({ method: "POST" })
               .eq("id", deposit.id)
               .eq("status", "pending");
 
+            log("cbe_auto_approval_no_admin", { depositId: deposit.id });
+
             auditInput = {
               ...auditBase,
               event: "cbe_manual_review",
@@ -567,7 +772,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
               reason_code: "no_admin_available",
               reason_message_safe:
                 "Auto-approve deferred: no active admin available; held for manual review.",
-              amount: result.amount,
+              amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
               receiver_matched: true,
               freshness_decision: "fresh",
               metadata: { decision_path: "approve_no_admin" },
@@ -597,6 +802,10 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                 approveBlocked = true;
 
                 if (canonicalError.code === "23505") {
+                  // The extracted canonical reference is already used by another
+                  // deposit (caught by the unique index). Auto-reject as a
+                  // duplicate extracted reference through the hardened RPC —
+                  // never credit the wallet.
                   const { data: rejectRpcResult, error: rejectRpcError } =
                     await admin.rpc("approve_deposit_tx", {
                       p_deposit_id: deposit.id,
@@ -617,14 +826,19 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                       })
                       .eq("id", deposit.id);
 
+                    log("cbe_canonical_update_duplicate", {
+                      depositId: deposit.id,
+                    });
+
                     auditInput = {
                       ...auditBase,
                       event: "cbe_auto_rejected",
                       action: "reject",
                       reason_code: "duplicate_extracted_reference",
-                      reason_message_safe:
-                        "Auto-rejected: duplicate CBE receipt transaction reference.",
-                      amount: result.amount,
+                      reason_message_safe: safeRejectMessage(
+                        "duplicate_extracted_reference",
+                      ),
+                      amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
                       receiver_matched: true,
                       metadata: {
                         decision_path: "canonical_update_duplicate",
@@ -632,6 +846,15 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                       },
                     };
                   } else {
+                    // The duplicate was detected, but the auto-reject RPC failed
+                    // or returned success:false. We must NOT audit this as a
+                    // rejection — the deposit was never actually rejected. Hold
+                    // it pending for manual review instead, and never credit the
+                    // wallet.
+                    const rpcErrorCode = rejectRpcError
+                      ? "rpc_failed"
+                      : (rejectTx?.error as string) ?? "unknown";
+
                     await admin
                       .from("deposits")
                       .update({
@@ -642,21 +865,29 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                       .eq("id", deposit.id)
                       .eq("status", "pending");
 
+                    log("cbe_canonical_update_duplicate_reject_failed", {
+                      depositId: deposit.id,
+                      errorCode: rpcErrorCode,
+                    });
+
                     auditInput = {
                       ...auditBase,
                       event: "cbe_manual_review",
                       action: "manual_review",
                       reason_code: "duplicate_reject_rpc_failed",
-                      reason_message_safe:
-                        "Duplicate CBE receipt reference detected, but auto-reject failed; held for manual review.",
-                      amount: result.amount,
+                      reason_message_safe: safeManualReviewMessage(
+                        "duplicate_reject_rpc_failed",
+                      ),
+                      amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
                       receiver_matched: true,
                       metadata: {
                         decision_path: "canonical_update_duplicate_reject_failed",
+                        rpc_error_code: rpcErrorCode,
                       },
                     };
                   }
                 } else {
+                  // Non-duplicate update failure — hold for manual review.
                   await admin
                     .from("deposits")
                     .update({
@@ -667,14 +898,20 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                     .eq("id", deposit.id)
                     .eq("status", "pending");
 
+                  log("cbe_canonical_update_failed", {
+                    depositId: deposit.id,
+                    errorCode: canonicalError.code,
+                  });
+
                   auditInput = {
                     ...auditBase,
                     event: "cbe_manual_review",
                     action: "manual_review",
                     reason_code: "canonical_reference_update_failed",
-                    reason_message_safe:
-                      "Held for review: CBE canonical reference update failed.",
-                    amount: result.amount,
+                    reason_message_safe: safeManualReviewMessage(
+                      "canonical_reference_update_failed",
+                    ),
+                    amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
                     receiver_matched: true,
                     freshness_decision: "fresh",
                     metadata: {
@@ -705,31 +942,58 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                   ? "rpc_failed"
                   : (txResult?.error as string) ?? "unknown";
 
-                await admin
-                  .from("deposits")
-                  .update({
-                    auto_verified: false,
-                    admin_note: `CBE auto-verification passed but RPC approval failed (${errorCode}). Requires manual review.`,
-                  })
-                  .eq("id", deposit.id)
-                  .eq("status", "pending");
+                if (!rpcError && errorCode === "already_reviewed") {
+                  // Deposit already approved/rejected elsewhere — do not
+                  // double-credit, and never report this as a generic RPC
+                  // failure in the audit trail.
+                  log("cbe_auto_approval_already_reviewed", {
+                    depositId: deposit.id,
+                  });
 
-                auditInput = {
-                  ...auditBase,
-                  event: "cbe_manual_review",
-                  action: "manual_review",
-                  reason_code: "rpc_failed",
-                  reason_message_safe:
-                    "CBE auto-approve failed; held for manual review.",
-                  amount: result.amount,
-                  receiver_matched: true,
-                  freshness_decision: "fresh",
-                  metadata: {
-                    decision_path: "approve_rpc_failed",
-                    rpc_error_code: errorCode,
-                  },
-                };
+                  auditInput = {
+                    ...auditBase,
+                    event: "cbe_manual_review",
+                    action: "manual_review",
+                    reason_code: "already_reviewed",
+                    reason_message_safe:
+                      "CBE auto-approve skipped: deposit already reviewed.",
+                    metadata: { decision_path: "approve_already_reviewed" },
+                  };
+                } else {
+                  // Do NOT fall back to direct wallet writes — leave for manual review.
+                  await admin
+                    .from("deposits")
+                    .update({
+                      auto_verified: false,
+                      admin_note: `CBE auto-verification passed but RPC approval failed (${errorCode}). Requires manual review.`,
+                    })
+                    .eq("id", deposit.id)
+                    .eq("status", "pending");
+
+                  log("cbe_auto_approval_rpc_failed", {
+                    depositId: deposit.id,
+                    errorCode,
+                  });
+
+                  auditInput = {
+                    ...auditBase,
+                    event: "cbe_manual_review",
+                    action: "manual_review",
+                    reason_code: "rpc_failed",
+                    reason_message_safe:
+                      "CBE auto-approve failed; held for manual review.",
+                    amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
+                    receiver_matched: true,
+                    freshness_decision: "fresh",
+                    metadata: {
+                      decision_path: "approve_rpc_failed",
+                      rpc_error_code: errorCode,
+                    },
+                  };
+                }
               } else {
+                // RPC already set status/amount/admin_note/reviewed_at atomically.
+                // Flag auto-verification and stamp verified_at.
                 await admin
                   .from("deposits")
                   .update({
@@ -738,13 +1002,21 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                   })
                   .eq("id", deposit.id);
 
+                log("cbe_auto_approval_succeeded", {
+                  depositId: deposit.id,
+                  amount: result.amount,
+                  balanceBefore: txResult.balance_before,
+                  balanceAfter: txResult.balance_after,
+                  transactionId: txResult.transaction_id,
+                });
+
                 auditInput = {
                   ...auditBase,
                   event: "cbe_auto_approved",
                   action: "approve",
                   reason_code: "cbe_receipt_verified",
                   reason_message_safe: "Auto-approved via CBE receipt verification.",
-                  amount: result.amount,
+                  amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
                   receiver_matched: true,
                   freshness_decision: "fresh",
                   metadata: {
@@ -754,6 +1026,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                   },
                 };
 
+                // Notification must not block approval.
                 await notifyDepositApproved(
                   admin,
                   authUserId,
