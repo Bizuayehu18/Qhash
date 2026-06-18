@@ -23,6 +23,71 @@ function log(event: string, data: Record<string, unknown>) {
   );
 }
 
+function maskTransactionReference(ref: string | null | undefined): string | null {
+  if (!ref) return null;
+  return "****" + ref.slice(-4);
+}
+
+function maskReceiptUrl(url: string | null): string | null {
+  if (!url) return url;
+  try {
+    return new URL(url).host;
+  } catch {
+    return "invalid_url";
+  }
+}
+
+function generateReceiptUrl(
+  type: string,
+  txRef: string,
+  accountLast8: string | null
+): string | null {
+  if (type === "telebirr") {
+    return `${TELEBIRR_RECEIPT_BASE}/${txRef}`;
+  }
+  if (type === "cbe" && accountLast8) {
+    return `${CBE_RECEIPT_BASE}/?id=${txRef}${accountLast8}`;
+  }
+  return null;
+}
+
+function parseOptionalDepositAmount(amount: unknown): number {
+  if (amount === undefined || amount === null || amount === "") return 0;
+
+  if (typeof amount === "number") {
+    if (!Number.isFinite(amount) || amount < 0) {
+      throwSafe(
+        "DEPOSIT",
+        "Enter a deposit amount above 0 ETB, or leave it blank.",
+        "Invalid deposit amount: " + String(amount),
+      );
+    }
+    return amount;
+  }
+
+  if (typeof amount === "string") {
+    const trimmedAmount = amount.trim();
+    if (trimmedAmount.length === 0) return 0;
+
+    const amountValue = Number(trimmedAmount);
+    if (!Number.isFinite(amountValue) || amountValue <= 0) {
+      throwSafe(
+        "DEPOSIT",
+        "Enter a deposit amount above 0 ETB, or leave it blank.",
+        "Invalid deposit amount: " + trimmedAmount,
+      );
+    }
+
+    return amountValue;
+  }
+
+  throwSafe(
+    "DEPOSIT",
+    "Enter a valid deposit amount, or leave it blank.",
+    "Invalid deposit amount type: " + typeof amount,
+  );
+}
+
 // Derive a safe, low-cardinality reason code from a CBE auto-reject admin note.
 // The raw admin note for a receiver-name mismatch embeds the receipt's receiver
 // name, so it must never be written to production console logs. The raw admin
@@ -171,65 +236,141 @@ function safeReceiptAmount(
   return null;
 }
 
-// Mask a receipt URL down to its host only. CBE receipt URLs embed the
-// transaction reference + account_last_8 and act as a fetch credential, so the
-// full URL must never be written to production logs.
-function maskReceiptUrl(url: string | null): string | null {
-  if (!url) return url;
+async function getActiveAdminId(admin: ReturnType<typeof getAdminClient>): Promise<string | null> {
+  const { data } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("is_admin", true)
+    .eq("is_frozen", false)
+    .limit(1)
+    .single();
+
+  return data?.id ?? null;
+}
+
+async function recordAudit(input: RecordDepositVerificationLogInput | null) {
+  if (!input) return;
+
   try {
-    return new URL(url).host;
-  } catch {
-    return "invalid_url";
+    const result = await recordDepositVerificationLog(input);
+    if (!result.ok) {
+      log("deposit_audit_log_failed", {
+        depositId: input.deposit_id,
+        error: result.error,
+      });
+    }
+  } catch (err) {
+    log("deposit_audit_log_exception", {
+      depositId: input.deposit_id,
+      error: err instanceof Error ? err.message : "unknown",
+    });
   }
 }
 
-// Mask a submitted transaction reference for log output: keep only the last 4
-// characters so the full reference is never written to production logs. Returns
-// a null/empty-safe value for missing input.
-function maskTransactionReference(ref: string | null | undefined): string | null {
-  if (!ref) return null;
-  return "****" + ref.slice(-4);
+async function notifyDepositApproved(
+  admin: ReturnType<typeof getAdminClient>,
+  userId: string,
+  depositId: string,
+  amount: number,
+  autoVerified: boolean,
+) {
+  try {
+    const { error } = await admin.from("notifications").insert({
+      user_id: userId,
+      title: "Deposit Approved",
+      message: `Your deposit of ${amount} ETB has been approved and credited to your wallet.`,
+      metadata: {
+        type: "deposit_approved",
+        deposit_id: depositId,
+        amount,
+        auto_verified: autoVerified,
+      },
+    });
+
+    if (error) {
+      log("deposit_approval_notification_failed", { depositId, error: error.message });
+    }
+  } catch (err) {
+    log("deposit_approval_notification_exception", {
+      depositId,
+      error: err instanceof Error ? err.message : "unknown",
+    });
+  }
 }
 
-function generateReceiptUrl(
-  type: string,
-  txRef: string,
-  accountLast8: string | null
-): string | null {
-  if (type === "telebirr") {
-    return `${TELEBIRR_RECEIPT_BASE}/${txRef}`;
+// amount here is the user-submitted deposit amount (deposit.amount), which is
+// optional and frequently 0 — CBE auto-rejects never carry a verified receipt
+// amount, since the receipt was never accepted. When amount is not a positive
+// number, the message omits the figure entirely instead of showing "0 ETB".
+async function notifyDepositRejected(
+  admin: ReturnType<typeof getAdminClient>,
+  userId: string,
+  depositId: string,
+  amount: number,
+  reason: string | null,
+) {
+  try {
+    const hasAmount = typeof amount === "number" && Number.isFinite(amount) && amount > 0;
+    const message = hasAmount
+      ? `Your deposit of ${amount} ETB was rejected. Please check the details and submit again.`
+      : "Your deposit was rejected. Please check the details and submit again.";
+
+    const { error } = await admin.from("notifications").insert({
+      user_id: userId,
+      title: "Deposit Rejected",
+      message,
+      metadata: {
+        type: "deposit_rejected",
+        deposit_id: depositId,
+        auto_verified: true,
+        amount: hasAmount ? amount : null,
+        reason,
+      },
+    });
+
+    if (error) {
+      log("deposit_rejection_notification_failed", { depositId, error: error.message });
+    }
+  } catch (err) {
+    log("deposit_rejection_notification_exception", {
+      depositId,
+      error: err instanceof Error ? err.message : "unknown",
+    });
   }
-  if (type === "cbe" && accountLast8) {
-    return `${CBE_RECEIPT_BASE}/?id=${txRef}${accountLast8}`;
-  }
-  return null;
 }
 
 export const submitDepositFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => {
-    if (!data || typeof data !== "object") throwSafe("DEPOSIT", "Unable to process deposit. Please try again.", "Invalid request data");
+    if (!data || typeof data !== "object") {
+      throwSafe(
+        "DEPOSIT",
+        "Unable to process deposit. Please try again.",
+        "Invalid request data",
+      );
+    }
+
     const {
       accessToken,
       amount,
       paymentMethodId,
       transactionReference,
     } = data as Record<string, unknown>;
-    if (typeof accessToken !== "string" || !accessToken)
+
+    if (typeof accessToken !== "string" || !accessToken) {
       throwSafe("DEPOSIT", "Unable to submit deposit.", "Missing access token");
-    if (typeof paymentMethodId !== "string" || !paymentMethodId)
+    }
+
+    if (typeof paymentMethodId !== "string" || !paymentMethodId) {
       throwSafe("DEPOSIT", "Please select a payment method.", "Missing payment method ID");
-    if (typeof transactionReference !== "string" || !transactionReference.trim())
+    }
+
+    if (typeof transactionReference !== "string" || !transactionReference.trim()) {
       throwSafe("DEPOSIT", "Transaction ID is required.", "Missing transaction reference");
-
-    const parsedAmount =
-      typeof amount === "number" ? amount : typeof amount === "string" ? parseFloat(amount) : NaN;
-
-    if (!isNaN(parsedAmount) && parsedAmount > 0 && parsedAmount < 100)
-      throwSafe("DEPOSIT", "Minimum deposit is 100 ETB.", "Amount below minimum: " + parsedAmount);
+    }
 
     return {
       accessToken,
-      amount: !isNaN(parsedAmount) && parsedAmount > 0 ? parsedAmount : 0,
+      amount: parseOptionalDepositAmount(amount),
       paymentMethodId,
       transactionReference: transactionReference.trim(),
     };
@@ -237,25 +378,25 @@ export const submitDepositFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const admin = getAdminClient();
 
-    // Derive the depositor identity from the session access token. Deposit
-    // submission must never trust a client-passed user id.
     const {
       data: { user: authUser },
       error: authError,
     } = await admin.auth.getUser(data.accessToken);
-    if (authError || !authUser)
+    if (authError || !authUser) {
       throwSafe("DEPOSIT", "Unable to submit deposit.", "Invalid or expired access token");
+    }
 
     const authUserId = authUser.id;
 
-    // Reject frozen or unavailable accounts before inserting a deposit row.
     const { data: profile, error: profileError } = await admin
       .from("profiles")
       .select("is_frozen")
       .eq("id", authUserId)
       .single();
-    if (profileError || !profile || profile.is_frozen === true)
+
+    if (profileError || !profile || profile.is_frozen === true) {
       throwSafe("DEPOSIT", "Unable to submit deposit.", "Account is frozen or unavailable");
+    }
 
     log("deposit_submit_started", {
       userId: authUserId,
@@ -270,23 +411,33 @@ export const submitDepositFn = createServerFn({ method: "POST" })
       .eq("id", data.paymentMethodId)
       .single();
 
-    if (!method || !method.is_active)
-      throwSafe("DEPOSIT", "Selected payment method is not available.", "Payment method inactive or missing: " + data.paymentMethodId);
-
-    log("deposit_method_loaded", {
-      paymentMethodId: method.id,
-      type: method.type,
-      isActive: method.is_active,
-    });
+    if (!method || !method.is_active) {
+      throwSafe(
+        "DEPOSIT",
+        "Selected payment method is not available.",
+        "Payment method inactive or missing: " + data.paymentMethodId,
+      );
+    }
 
     if (method.type === "cbe") {
       data.transactionReference = data.transactionReference.toUpperCase();
     }
 
-    if (method.type === "cbe" && !data.transactionReference.startsWith("FT"))
-      throwSafe("DEPOSIT", 'Please enter a valid CBE transaction ID starting with "FT".', "Invalid CBE tx ref last4: " + maskTransactionReference(data.transactionReference));
-    if (method.type === "telebirr" && !data.transactionReference.startsWith("D"))
-      throwSafe("DEPOSIT", 'Please enter a valid TeleBirr transaction ID starting with "D".', "Invalid TeleBirr tx ref last4: " + maskTransactionReference(data.transactionReference));
+    if (method.type === "cbe" && !data.transactionReference.startsWith("FT")) {
+      throwSafe(
+        "DEPOSIT",
+        'Please enter a valid CBE transaction ID starting with "FT".',
+        "Invalid CBE tx ref last4: " + maskTransactionReference(data.transactionReference),
+      );
+    }
+
+    if (method.type === "telebirr" && !data.transactionReference.startsWith("D")) {
+      throwSafe(
+        "DEPOSIT",
+        'Please enter a valid TeleBirr transaction ID starting with "D".',
+        "Invalid TeleBirr tx ref last4: " + maskTransactionReference(data.transactionReference),
+      );
+    }
 
     const { data: existing } = await admin
       .from("deposits")
@@ -294,17 +445,18 @@ export const submitDepositFn = createServerFn({ method: "POST" })
       .eq("transaction_reference", data.transactionReference)
       .limit(1);
 
-    if (existing && existing.length > 0)
+    if (existing && existing.length > 0) {
       throwSafe(
         "DEPOSIT",
         "This transaction ID has already been used. Please enter a unique transaction ID.",
         "Duplicate tx ref last4: " + maskTransactionReference(data.transactionReference),
       );
+    }
 
     const receiptUrl = generateReceiptUrl(
       method.type,
       data.transactionReference,
-      method.account_last_8 ?? null
+      method.account_last_8 ?? null,
     );
 
     const { data: deposit, error } = await admin
@@ -321,21 +473,42 @@ export const submitDepositFn = createServerFn({ method: "POST" })
       .single();
 
     if (error) {
-      console.error("[QHash] Deposit insert error:", JSON.stringify({ message: error.message, code: error.code }));
-      if (error.message?.includes("Deposits are currently paused"))
-        throwSafe("DEPOSIT", "Deposits are currently paused. Please try again later.", "DB trigger: deposits paused");
-      if (error.code === "23505")
-        throwSafe("DEPOSIT", "This transaction ID has already been used.", "Unique constraint violation: " + error.message);
-      if (error.code === "23503")
-        throwSafe("DEPOSIT", "Unable to process deposit. Please try again.", "Foreign key violation: " + error.message);
-      throwSafe("DEPOSIT", "Unable to process deposit. Please try again.", `DB error: ${error.message || error.code}`);
+      console.error(
+        "[QHash] Deposit insert error:",
+        JSON.stringify({ message: error.message, code: error.code }),
+      );
+
+      if (error.message?.includes("Deposits are currently paused")) {
+        throwSafe(
+          "DEPOSIT",
+          "Deposits are currently paused. Please try again later.",
+          "DB trigger: deposits paused",
+        );
+      }
+
+      if (error.code === "23505") {
+        throwSafe(
+          "DEPOSIT",
+          "This transaction ID has already been used.",
+          "Unique constraint violation: " + error.message,
+        );
+      }
+
+      if (error.code === "23503") {
+        throwSafe(
+          "DEPOSIT",
+          "Unable to process deposit. Please try again.",
+          "Foreign key violation: " + error.message,
+        );
+      }
+
+      throwSafe(
+        "DEPOSIT",
+        "Unable to process deposit. Please try again.",
+        `DB error: ${error.message || error.code}`,
+      );
     }
 
-    // TeleBirr: manual admin verification only.
-    // Receipt URL is geo-blocked outside Ethiopia, so auto-fetch from Netlify
-    // is unreliable. Admins can open the receipt URL from within Ethiopia.
-    // See src/lib/server/telebirr-verify.ts for future automation via
-    // Ethiopian VPS / proxy / Android bridge.
     if (method.type === "telebirr") {
       await admin
         .from("deposits")
@@ -358,12 +531,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
       };
     }
 
-    // CBE — attempt automatic receipt verification
     if (method.type === "cbe") {
-      // Accumulate a single audit row for the authoritative CBE outcome. It is
-      // written once, after the decision is final (see the recordDeposit-
-      // VerificationLog call after the try/catch). Audit logging never blocks
-      // or alters the deposit decision.
       const auditBase = {
         deposit_id: deposit.id,
         user_id: authUserId,
@@ -372,6 +540,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
         actor_type: "system" as const,
         source: "cbe_auto" as const,
       };
+
       let auditInput: RecordDepositVerificationLogInput | null = null;
 
       try {
@@ -383,9 +552,6 @@ export const submitDepositFn = createServerFn({ method: "POST" })
           admin,
         });
 
-        // Audit must mask the canonical (extracted) reference when one exists,
-        // so tx_ref_last4 reflects the receipt's real reference, not the
-        // potentially-mutated submitted one.
         if (result.canonicalReference) {
           auditBase.tx_ref_last4 = result.canonicalReference;
         }
@@ -394,15 +560,9 @@ export const submitDepositFn = createServerFn({ method: "POST" })
           // Definitive auto-reject (e.g. readable CBE invalid-link response).
           // Reject through the hardened RPC — no direct rejected update, no
           // wallet credit. Resolve an active admin actor for the RPC.
-          const { data: adminUser } = await admin
-            .from("profiles")
-            .select("id")
-            .eq("is_admin", true)
-            .eq("is_frozen", false)
-            .limit(1)
-            .single();
+          const adminId = await getActiveAdminId(admin);
 
-          if (!adminUser) {
+          if (!adminId) {
             await admin
               .from("deposits")
               .update({
@@ -432,10 +592,10 @@ export const submitDepositFn = createServerFn({ method: "POST" })
               "approve_deposit_tx",
               {
                 p_deposit_id: deposit.id,
-                p_admin_id: adminUser.id,
+                p_admin_id: adminId,
                 p_action: "reject",
                 p_admin_note: result.adminNote,
-              }
+              },
             );
 
             const txResult = rpcResult as Record<string, unknown> | null;
@@ -446,6 +606,9 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                 : (txResult?.error as string) ?? "unknown";
 
               if (!rpcError && errorCode === "already_reviewed") {
+                // Deposit already reviewed elsewhere — never overwrite its
+                // final state, and never report this as a generic RPC
+                // failure in the audit trail.
                 log("cbe_auto_reject_already_reviewed", {
                   depositId: deposit.id,
                 });
@@ -500,52 +663,32 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                 })
                 .eq("id", deposit.id);
 
+              const reasonCode = cbeRejectReasonCode(result.adminNote);
+
               log("cbe_auto_reject_succeeded", {
                 depositId: deposit.id,
-                reasonCode: cbeRejectReasonCode(result.adminNote),
+                reasonCode,
               });
 
-              {
-                const reasonCode = cbeRejectReasonCode(result.adminNote);
-                auditInput = {
-                  ...auditBase,
-                  event: "cbe_auto_rejected",
-                  action: "reject",
-                  reason_code: reasonCode,
-                  reason_message_safe: safeRejectMessage(reasonCode),
-                  amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
-                  receiver_matched: cbeReceiverMatched(result.verified, result.adminNote),
-                  metadata: { decision_path: "auto_rejected" },
-                };
-              }
+              auditInput = {
+                ...auditBase,
+                event: "cbe_auto_rejected",
+                action: "reject",
+                reason_code: reasonCode,
+                reason_message_safe: safeRejectMessage(reasonCode),
+                amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
+                receiver_matched: cbeReceiverMatched(result.verified, result.adminNote),
+                metadata: { decision_path: "auto_rejected" },
+              };
 
               // Notification must not block rejection.
-              try {
-                const { error: notifError } = await admin
-                  .from("notifications")
-                  .insert({
-                    user_id: authUserId,
-                    title: "Deposit Rejected",
-                    message: `Your deposit of ${deposit.amount} ETB was rejected. Please check the details and submit again.`,
-                    metadata: {
-                      type: "deposit_rejected",
-                      deposit_id: deposit.id,
-                      auto_verified: false,
-                      reason: result.adminNote,
-                    },
-                  });
-                if (notifError) {
-                  log("cbe_reject_notification_failed", {
-                    depositId: deposit.id,
-                    error: notifError.message,
-                  });
-                }
-              } catch (notifEx) {
-                log("cbe_reject_notification_exception", {
-                  depositId: deposit.id,
-                  error: notifEx instanceof Error ? notifEx.message : "unknown",
-                });
-              }
+              await notifyDepositRejected(
+                admin,
+                authUserId,
+                deposit.id,
+                Number(deposit.amount),
+                result.adminNote,
+              );
             }
           }
         } else if (!result.verified) {
@@ -563,21 +706,20 @@ export const submitDepositFn = createServerFn({ method: "POST" })
             reason: result.adminNote,
           });
 
-          {
-            const reasonCode = cbeManualReviewReasonCode(result.adminNote);
-            auditInput = {
-              ...auditBase,
-              event: "cbe_manual_review",
-              action: "manual_review",
-              reason_code: reasonCode,
-              reason_message_safe: safeManualReviewMessage(reasonCode),
-              amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
-              receiver_matched: cbeReceiverMatched(result.verified, result.adminNote),
-              freshness_decision: cbeFreshnessFromNote(result.adminNote),
-              age_minutes: cbeAgeMinutesFromNote(result.adminNote),
-              metadata: { decision_path: "held" },
-            };
-          }
+          const reasonCode = cbeManualReviewReasonCode(result.adminNote);
+
+          auditInput = {
+            ...auditBase,
+            event: "cbe_manual_review",
+            action: "manual_review",
+            reason_code: reasonCode,
+            reason_message_safe: safeManualReviewMessage(reasonCode),
+            amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
+            receiver_matched: cbeReceiverMatched(result.verified, result.adminNote),
+            freshness_decision: cbeFreshnessFromNote(result.adminNote),
+            age_minutes: cbeAgeMinutesFromNote(result.adminNote),
+            metadata: { decision_path: "held" },
+          };
         } else if (typeof result.amount !== "number" || result.amount <= 0) {
           // Verified but no usable amount — never credit without a positive amount.
           await admin
@@ -608,18 +750,9 @@ export const submitDepositFn = createServerFn({ method: "POST" })
             metadata: { decision_path: "invalid_amount" },
           };
         } else {
-          // Resolve an active admin actor for the hardened RPC.
-          // Mirrors the TeleBirr verifier: first profile with
-          // is_admin = true and is_frozen = false.
-          const { data: adminUser } = await admin
-            .from("profiles")
-            .select("id")
-            .eq("is_admin", true)
-            .eq("is_frozen", false)
-            .limit(1)
-            .single();
+          const adminId = await getActiveAdminId(admin);
 
-          if (!adminUser) {
+          if (!adminId) {
             await admin
               .from("deposits")
               .update({
@@ -645,26 +778,15 @@ export const submitDepositFn = createServerFn({ method: "POST" })
               metadata: { decision_path: "approve_no_admin" },
             };
           } else {
-            // Canonicalize the pending deposit row before approval so that
-            // deposits.transaction_reference holds the EXTRACTED CBE receipt
-            // reference and the unique index protects against future duplicates.
-            // Only needed when the submitted reference differs from the
-            // extracted canonical reference (otherwise the row is already
-            // canonical). On any failure we never approve and never write the
-            // wallet directly.
             let approveBlocked = false;
 
             if (result.submittedReferenceMismatch && result.canonicalReference) {
               const canonicalReceiptUrl = generateReceiptUrl(
                 "cbe",
                 result.canonicalReference,
-                method.account_last_8 ?? null
+                method.account_last_8 ?? null,
               );
 
-              // transaction_reference exists on the deposits row but is absent
-              // from the generated Update stub type, so the canonical payload is
-              // built and cast at this boundary only. The column is still sent
-              // at runtime; the cast just satisfies the incomplete stub.
               const canonicalUpdate = {
                 transaction_reference: result.canonicalReference,
                 receipt_url: canonicalReceiptUrl,
@@ -687,17 +809,15 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                   const { data: rejectRpcResult, error: rejectRpcError } =
                     await admin.rpc("approve_deposit_tx", {
                       p_deposit_id: deposit.id,
-                      p_admin_id: adminUser.id,
+                      p_admin_id: adminId,
                       p_action: "reject",
                       p_admin_note:
                         "Auto-rejected: duplicate CBE receipt transaction reference.",
                     });
-                  const rejectTx =
-                    rejectRpcResult as Record<string, unknown> | null;
+
+                  const rejectTx = rejectRpcResult as Record<string, unknown> | null;
 
                   if (!rejectRpcError && rejectTx?.success) {
-                    // Reject committed atomically (no wallet credit). Flag
-                    // auto-verification and audit as a definitive auto-reject.
                     await admin
                       .from("deposits")
                       .update({
@@ -716,12 +836,9 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                       action: "reject",
                       reason_code: "duplicate_extracted_reference",
                       reason_message_safe: safeRejectMessage(
-                        "duplicate_extracted_reference"
+                        "duplicate_extracted_reference",
                       ),
-                      amount: safeReceiptAmount(
-                        result.amount,
-                        result.receiptData?.amount
-                      ),
+                      amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
                       receiver_matched: true,
                       metadata: {
                         decision_path: "canonical_update_duplicate",
@@ -733,8 +850,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                     // or returned success:false. We must NOT audit this as a
                     // rejection — the deposit was never actually rejected. Hold
                     // it pending for manual review instead, and never credit the
-                    // wallet. approve_deposit_tx remains the only approve/reject
-                    // path; we simply leave the row pending here.
+                    // wallet.
                     const rpcErrorCode = rejectRpcError
                       ? "rpc_failed"
                       : (rejectTx?.error as string) ?? "unknown";
@@ -760,12 +876,9 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                       action: "manual_review",
                       reason_code: "duplicate_reject_rpc_failed",
                       reason_message_safe: safeManualReviewMessage(
-                        "duplicate_reject_rpc_failed"
+                        "duplicate_reject_rpc_failed",
                       ),
-                      amount: safeReceiptAmount(
-                        result.amount,
-                        result.receiptData?.amount
-                      ),
+                      amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
                       receiver_matched: true,
                       metadata: {
                         decision_path: "canonical_update_duplicate_reject_failed",
@@ -796,12 +909,9 @@ export const submitDepositFn = createServerFn({ method: "POST" })
                     action: "manual_review",
                     reason_code: "canonical_reference_update_failed",
                     reason_message_safe: safeManualReviewMessage(
-                      "canonical_reference_update_failed"
+                      "canonical_reference_update_failed",
                     ),
-                    amount: safeReceiptAmount(
-                      result.amount,
-                      result.receiptData?.amount
-                    ),
+                    amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
                     receiver_matched: true,
                     freshness_decision: "fresh",
                     metadata: {
@@ -814,134 +924,117 @@ export const submitDepositFn = createServerFn({ method: "POST" })
             }
 
             if (!approveBlocked) {
-            const { data: rpcResult, error: rpcError } = await admin.rpc(
-              "approve_deposit_tx",
-              {
-                p_deposit_id: deposit.id,
-                p_admin_id: adminUser.id,
-                p_action: "approve",
-                p_admin_note: "Auto-approved via CBE receipt verification",
-                p_amount: result.amount,
-              }
-            );
+              const { data: rpcResult, error: rpcError } = await admin.rpc(
+                "approve_deposit_tx",
+                {
+                  p_deposit_id: deposit.id,
+                  p_admin_id: adminId,
+                  p_action: "approve",
+                  p_admin_note: "Auto-approved via CBE receipt verification",
+                  p_amount: result.amount,
+                },
+              );
 
-            const txResult = rpcResult as Record<string, unknown> | null;
+              const txResult = rpcResult as Record<string, unknown> | null;
 
-            if (rpcError || !txResult?.success) {
-              const errorCode = rpcError
-                ? "rpc_failed"
-                : (txResult?.error as string) ?? "unknown";
+              if (rpcError || !txResult?.success) {
+                const errorCode = rpcError
+                  ? "rpc_failed"
+                  : (txResult?.error as string) ?? "unknown";
 
-              if (!rpcError && errorCode === "already_reviewed") {
-                // Deposit already approved/rejected elsewhere — do not double-credit.
-                log("cbe_auto_approval_already_reviewed", {
-                  depositId: deposit.id,
-                });
+                if (!rpcError && errorCode === "already_reviewed") {
+                  // Deposit already approved/rejected elsewhere — do not
+                  // double-credit, and never report this as a generic RPC
+                  // failure in the audit trail.
+                  log("cbe_auto_approval_already_reviewed", {
+                    depositId: deposit.id,
+                  });
 
-                auditInput = {
-                  ...auditBase,
-                  event: "cbe_manual_review",
-                  action: "manual_review",
-                  reason_code: "already_reviewed",
-                  reason_message_safe:
-                    "CBE auto-approve skipped: deposit already reviewed.",
-                  metadata: { decision_path: "approve_already_reviewed" },
-                };
+                  auditInput = {
+                    ...auditBase,
+                    event: "cbe_manual_review",
+                    action: "manual_review",
+                    reason_code: "already_reviewed",
+                    reason_message_safe:
+                      "CBE auto-approve skipped: deposit already reviewed.",
+                    metadata: { decision_path: "approve_already_reviewed" },
+                  };
+                } else {
+                  // Do NOT fall back to direct wallet writes — leave for manual review.
+                  await admin
+                    .from("deposits")
+                    .update({
+                      auto_verified: false,
+                      admin_note: `CBE auto-verification passed but RPC approval failed (${errorCode}). Requires manual review.`,
+                    })
+                    .eq("id", deposit.id)
+                    .eq("status", "pending");
+
+                  log("cbe_auto_approval_rpc_failed", {
+                    depositId: deposit.id,
+                    errorCode,
+                  });
+
+                  auditInput = {
+                    ...auditBase,
+                    event: "cbe_manual_review",
+                    action: "manual_review",
+                    reason_code: "rpc_failed",
+                    reason_message_safe:
+                      "CBE auto-approve failed; held for manual review.",
+                    amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
+                    receiver_matched: true,
+                    freshness_decision: "fresh",
+                    metadata: {
+                      decision_path: "approve_rpc_failed",
+                      rpc_error_code: errorCode,
+                    },
+                  };
+                }
               } else {
-                // Do NOT fall back to direct wallet writes — leave for manual review.
+                // RPC already set status/amount/admin_note/reviewed_at atomically.
+                // Flag auto-verification and stamp verified_at.
                 await admin
                   .from("deposits")
                   .update({
-                    auto_verified: false,
-                    admin_note: `CBE auto-verification passed but RPC approval failed (${errorCode}). Requires manual review.`,
+                    auto_verified: true,
+                    verified_at: new Date().toISOString(),
                   })
-                  .eq("id", deposit.id)
-                  .eq("status", "pending");
+                  .eq("id", deposit.id);
 
-                log("cbe_auto_approval_rpc_failed", {
+                log("cbe_auto_approval_succeeded", {
                   depositId: deposit.id,
-                  errorCode,
+                  amount: result.amount,
+                  balanceBefore: txResult.balance_before,
+                  balanceAfter: txResult.balance_after,
+                  transactionId: txResult.transaction_id,
                 });
 
                 auditInput = {
                   ...auditBase,
-                  event: "cbe_manual_review",
-                  action: "manual_review",
-                  reason_code: "rpc_failed",
-                  reason_message_safe:
-                    "CBE auto-approve failed; held for manual review.",
+                  event: "cbe_auto_approved",
+                  action: "approve",
+                  reason_code: "cbe_receipt_verified",
+                  reason_message_safe: "Auto-approved via CBE receipt verification.",
                   amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
                   receiver_matched: true,
                   freshness_decision: "fresh",
                   metadata: {
-                    decision_path: "approve_rpc_failed",
-                    rpc_error_code: errorCode,
+                    decision_path: "auto_approved",
+                    submitted_reference_mismatch:
+                      result.submittedReferenceMismatch === true,
                   },
                 };
+
+                // Notification must not block approval.
+                await notifyDepositApproved(
+                  admin,
+                  authUserId,
+                  deposit.id,
+                  result.amount,
+                  true,
+                );
               }
-            } else {
-              // RPC already set status/amount/admin_note/reviewed_at atomically.
-              // Flag auto-verification and stamp verified_at.
-              await admin
-                .from("deposits")
-                .update({
-                  auto_verified: true,
-                  verified_at: new Date().toISOString(),
-                })
-                .eq("id", deposit.id);
-
-              log("cbe_auto_approval_succeeded", {
-                depositId: deposit.id,
-                amount: result.amount,
-                balanceBefore: txResult.balance_before,
-                balanceAfter: txResult.balance_after,
-                transactionId: txResult.transaction_id,
-              });
-
-              auditInput = {
-                ...auditBase,
-                event: "cbe_auto_approved",
-                action: "approve",
-                reason_code: "cbe_receipt_verified",
-                reason_message_safe: "Auto-approved via CBE receipt verification.",
-                amount: safeReceiptAmount(result.amount, result.receiptData?.amount),
-                receiver_matched: true,
-                freshness_decision: "fresh",
-                metadata: {
-                  decision_path: "auto_approved",
-                  submitted_reference_mismatch:
-                    result.submittedReferenceMismatch === true,
-                },
-              };
-
-              // Notification must not block approval.
-              try {
-                const { error: notifError } = await admin
-                  .from("notifications")
-                  .insert({
-                    user_id: authUserId,
-                    title: "Deposit Approved",
-                    message: `Your deposit of ${result.amount} ETB has been approved and credited to your wallet.`,
-                    metadata: {
-                      type: "deposit_approved",
-                      deposit_id: deposit.id,
-                      amount: result.amount,
-                      auto_verified: true,
-                    },
-                  });
-                if (notifError) {
-                  log("cbe_notification_failed", {
-                    depositId: deposit.id,
-                    error: notifError.message,
-                  });
-                }
-              } catch (notifEx) {
-                log("cbe_notification_exception", {
-                  depositId: deposit.id,
-                  error: notifEx instanceof Error ? notifEx.message : "unknown",
-                });
-              }
-            }
             }
           }
         }
@@ -972,26 +1065,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
         };
       }
 
-      // Write the audit row for the now-final CBE outcome. This runs after the
-      // authoritative decision is known and must never block or alter it:
-      // recordDepositVerificationLog never throws, and the extra try/catch is a
-      // belt-and-suspenders guard so a logging fault cannot break the deposit.
-      if (auditInput) {
-        try {
-          const auditResult = await recordDepositVerificationLog(auditInput);
-          if (!auditResult.ok) {
-            log("cbe_audit_log_failed", {
-              depositId: deposit.id,
-              error: auditResult.error,
-            });
-          }
-        } catch (auditErr) {
-          log("cbe_audit_log_exception", {
-            depositId: deposit.id,
-            error: auditErr instanceof Error ? auditErr.message : "unknown",
-          });
-        }
-      }
+      await recordAudit(auditInput);
 
       return {
         ...deposit,
@@ -1000,7 +1074,6 @@ export const submitDepositFn = createServerFn({ method: "POST" })
       };
     }
 
-    // Other payment types — generic pending flow
     return {
       ...deposit,
       autoVerified: false,
@@ -1010,25 +1083,27 @@ export const submitDepositFn = createServerFn({ method: "POST" })
 
 export const getUserDepositsFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => {
-    if (!data || typeof data !== "object") throwSafe("DEPOSIT", "Unable to load deposits.", "Invalid request data");
+    if (!data || typeof data !== "object") {
+      throwSafe("DEPOSIT", "Unable to load deposits.", "Invalid request data");
+    }
+
     const { accessToken } = data as Record<string, unknown>;
-    if (typeof accessToken !== "string" || !accessToken)
+    if (typeof accessToken !== "string" || !accessToken) {
       throwSafe("DEPOSIT", "Unable to load deposits.", "Missing access token");
+    }
+
     return { accessToken };
   })
   .handler(async ({ data }) => {
     const admin = getAdminClient();
 
-    // Derive the caller identity from the session access token — the
-    // client-supplied id is never trusted for selecting deposit rows
-    // (mirrors getAdminDepositsFn). The deposits query is then scoped to the
-    // authenticated user's own id only.
     const {
       data: { user: authUser },
       error: authError,
     } = await admin.auth.getUser(data.accessToken);
-    if (authError || !authUser)
+    if (authError || !authUser) {
       throwSafe("DEPOSIT", "Unable to load deposits.", "Invalid or expired access token");
+    }
 
     const { data: deposits, error } = await admin
       .from("deposits")
@@ -1039,10 +1114,13 @@ export const getUserDepositsFn = createServerFn({ method: "POST" })
       .order("created_at", { ascending: false })
       .limit(50);
 
-    if (error) throwSafe("DEPOSIT", "Failed to load deposits.", `DB error: ${error.message}`);
+    if (error) {
+      throwSafe("DEPOSIT", "Failed to load deposits.", `DB error: ${error.message}`);
+    }
 
     const methodIds = [...new Set((deposits ?? []).map((d) => d.payment_method_id))];
     let methods: Array<{ id: string; type: string; account_name: string }> = [];
+
     if (methodIds.length > 0) {
       const { data: m } = await admin
         .from("payment_methods")
@@ -1063,10 +1141,15 @@ export const getUserDepositsFn = createServerFn({ method: "POST" })
 
 export const getAdminDepositsFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => {
-    if (!data || typeof data !== "object") throwSafe("ADMIN", "Failed to load deposits.", "Invalid request data");
+    if (!data || typeof data !== "object") {
+      throwSafe("ADMIN", "Failed to load deposits.", "Invalid request data");
+    }
+
     const { accessToken, statusFilter } = data as Record<string, unknown>;
-    if (typeof accessToken !== "string" || !accessToken)
+    if (typeof accessToken !== "string" || !accessToken) {
       throwSafe("ADMIN", "Unauthorized.", "Missing access token");
+    }
+
     return {
       accessToken,
       statusFilter:
@@ -1076,23 +1159,23 @@ export const getAdminDepositsFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const admin = getAdminClient();
 
-    // Admin gate — derive the caller identity from the session access token
-    // (mirrors getAdminStatsFn / getDepositVerificationLogsFn). The
-    // client-supplied id is never trusted for authorization.
     const {
       data: { user: authUser },
       error: authError,
     } = await admin.auth.getUser(data.accessToken);
-    if (authError || !authUser)
+    if (authError || !authUser) {
       throwSafe("ADMIN", "Unauthorized.", "Invalid or expired access token");
+    }
 
     const { data: profile } = await admin
       .from("profiles")
       .select("is_admin, is_frozen")
       .eq("id", authUser.id)
       .single();
-    if (!profile || profile.is_admin !== true || profile.is_frozen === true)
+
+    if (!profile || profile.is_admin !== true || profile.is_frozen === true) {
       throwSafe("ADMIN", "Unauthorized.", "Non-admin or frozen admin attempted admin deposits access");
+    }
 
     let query = admin
       .from("deposits")
@@ -1105,7 +1188,9 @@ export const getAdminDepositsFn = createServerFn({ method: "POST" })
     }
 
     const { data: deposits, error } = await query;
-    if (error) throwSafe("ADMIN", "Failed to load deposits.", `DB error: ${error.message}`);
+    if (error) {
+      throwSafe("ADMIN", "Failed to load deposits.", `DB error: ${error.message}`);
+    }
 
     const userIds = [...new Set((deposits ?? []).map((d) => d.user_id))];
     const methodIds = [
@@ -1128,6 +1213,7 @@ export const getAdminDepositsFn = createServerFn({ method: "POST" })
       account_number: string;
       account_last_8: string | null;
     }> = [];
+
     if (methodIds.length > 0) {
       const { data: m } = await admin
         .from("payment_methods")
@@ -1146,7 +1232,7 @@ export const getAdminDepositsFn = createServerFn({ method: "POST" })
           ? generateReceiptUrl(
               method.type,
               d.transaction_reference,
-              method.account_last_8
+              method.account_last_8,
             )
           : null);
 
@@ -1161,4 +1247,3 @@ export const getAdminDepositsFn = createServerFn({ method: "POST" })
       };
     });
   });
-

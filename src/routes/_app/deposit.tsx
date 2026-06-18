@@ -54,6 +54,14 @@ const METHOD_LABELS: Record<string, string> = {
   telebirr: "TeleBirr",
 };
 
+function parseOptionalAmount(input: string): number {
+  const trimmed = input.trim();
+  if (!trimmed) return 0;
+
+  const value = Number(trimmed);
+  return Number.isFinite(value) ? value : Number.NaN;
+}
+
 function DepositPage() {
   const user = useAuthStore((s) => s.user);
   const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
@@ -253,9 +261,11 @@ function DepositPage() {
       return;
     }
 
-    const numAmount = amount ? parseFloat(amount) : 0;
-    if (amount && (isNaN(numAmount) || numAmount < 100)) {
-      toast.error("Minimum deposit amount is 100 ETB.");
+    const amountInput = amount.trim();
+    const numAmount = parseOptionalAmount(amountInput);
+
+    if (amountInput && (!Number.isFinite(numAmount) || numAmount <= 0)) {
+      toast.error("Enter a deposit amount above 0 ETB, or leave it blank.");
       return;
     }
 
@@ -300,6 +310,7 @@ function DepositPage() {
   );
 
   const stepNum = step === "select" ? 1 : step === "pay" ? 2 : 3;
+  const confirmAmount = parseOptionalAmount(amount);
 
   return (
     <div className="space-y-5">
@@ -429,7 +440,7 @@ function DepositPage() {
               placeholder="Enter deposit amount"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              min="100"
+              min="0.01"
               step="0.01"
               hint="The actual amount will be verified from the receipt"
             />
@@ -465,11 +476,11 @@ function DepositPage() {
                 <span className="text-gray-500">Account</span>
                 <span className="text-gray-300">{selectedMethod.account_name}</span>
               </div>
-              {amount && parseFloat(amount) > 0 && (
+              {Number.isFinite(confirmAmount) && confirmAmount > 0 && (
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-gray-500">Amount</span>
                   <span className="text-[#00ff41] font-mono font-medium">
-                    {parseFloat(amount).toLocaleString("en-US", { minimumFractionDigits: 2 })} ETB
+                    {confirmAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} ETB
                   </span>
                 </div>
               )}
