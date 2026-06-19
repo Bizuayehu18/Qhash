@@ -46,6 +46,7 @@ const TELEBIRR_RECEIPT_BASE = "https://transactioninfo.ethiotelecom.et/receipt";
 const SAFE_REASON_MESSAGES: Record<string, string> = {
   telebirr_receipt_verified: "TeleBirr receipt verified; deposit auto-approved.",
   receiver_mismatch: "Receiver name did not match the expected account.",
+  receiver_name_missing: "Receiver name could not be extracted from the receipt.",
   unreadable_receipt: "Receipt unreadable: no amount, receiver, or date extracted.",
   amount_invalid_or_missing: "Receipt amount was invalid or missing.",
   payment_date_missing: "Payment date was missing from the receipt.",
@@ -305,6 +306,13 @@ export default async (req: Request) => {
           );
           rejectReasonCode = "receiver_mismatch";
         }
+      } else {
+        // Receiver name could not be extracted from the receipt. This must
+        // never fall through to auto-approval unverified — hold for manual
+        // review, mirroring the CBE path's explicit guard on a missing
+        // receiver name in cbe-verify.ts (`if (!receiptData.receiverName)`).
+        manualReviewReasons.push("Receiver name could not be extracted from receipt");
+        manualReviewReasonCodes.push("receiver_name_missing");
       }
 
       if (!hasAmount) {
