@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { useAuthStore } from '@/store/authStore.js'
 
 import '../styles.css'
+import '../withdraw-polish.css'
 
 export const Route = createRootRoute({
   head: () => ({
