@@ -14,10 +14,17 @@ function logError(step: string, data: Record<string, unknown>) {
   console.error(JSON.stringify({ fn: "verifier-submit-telebirr-result", step, ts: new Date().toISOString(), ...data }));
 }
 
+// Normalises a name for comparison. Keeps Latin letters AND Ethiopic (Ge'ez)
+// script characters — see the matching fix and full rationale in
+// src/lib/server/cbe-verify.ts. The previous Latin-only regex stripped any
+// Amharic receiver name to an empty string, which either falsely rejected a
+// correct TeleBirr deposit (Latin-configured account vs. Amharic receipt) or
+// silently bypassed the check entirely (Amharic-configured account vs. any
+// Amharic receipt, since "" === "" regardless of whose name it actually was).
 function normalizeName(name: string): string {
   return name
     .toLowerCase()
-    .replace(/[^a-z\s]/g, "")
+    .replace(/[^a-z\sሀ-፿]/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
