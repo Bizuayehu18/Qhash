@@ -1,0 +1,39 @@
+/* Withdraw page polish
+   Keeps the focused-flow logic but makes the method chooser feel compact and app-like. */
+
+/* Remove browser spinner controls from amount fields across the app. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Compact the current withdraw method cards without affecting ordinary buttons. */
+.app-content button.group.w-full.rounded-xl.border.border-\[\#1f1f1f\].bg-\[\#111\].p-4.text-left {
+  padding: 12px 14px !important;
+  border-radius: 12px !important;
+}
+
+.app-content button.group.w-full.rounded-xl.border.border-\[\#1f1f1f\].bg-\[\#111\].p-4.text-left > div {
+  align-items: center !important;
+  gap: 12px !important;
+}
+
+.app-content button.group.w-full.rounded-xl.border.border-\[\#1f1f1f\].bg-\[\#111\].p-4.text-left > div > div:first-child {
+  width: 36px !important;
+  height: 36px !important;
+  border-radius: 10px !important;
+}
+
+.app-content button.group.w-full.rounded-xl.border.border-\[\#1f1f1f\].bg-\[\#111\].p-4.text-left > div > div:nth-child(2) > p,
+.app-content button.group.w-full.rounded-xl.border.border-\[\#1f1f1f\].bg-\[\#111\].p-4.text-left > div > div:nth-child(2) > div.flex.flex-wrap {
+  display: none !important;
+}
+
+.app-content button.group.w-full.rounded-xl.border.border-\[\#1f1f1f\].bg-\[\#111\].p-4.text-left h3 {
+  line-height: 1.15 !important;
+}
