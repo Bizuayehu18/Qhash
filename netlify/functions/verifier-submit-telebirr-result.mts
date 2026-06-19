@@ -428,14 +428,24 @@ export default async (req: Request) => {
     }
 
     try {
+      // deposit.amount is the user-submitted amount, which is optional and
+      // frequently 0 for TeleBirr (the amount is only confirmed from the
+      // receipt). Omit the figure entirely rather than showing "0 ETB" when
+      // there is no real amount.
+      const rejectedAmount = Number(deposit.amount);
+      const hasRejectedAmount = Number.isFinite(rejectedAmount) && rejectedAmount > 0;
+      const rejectedMessage = hasRejectedAmount
+        ? `Your deposit of ${rejectedAmount} ETB was rejected. Please check the details and submit again.`
+        : "Your deposit was rejected. Please check the details and submit again.";
+
       const { error: notifError } = await admin.from("notifications").insert({
         user_id: deposit.user_id,
         title: "Deposit Rejected",
-        message: `Your deposit of ${deposit.amount} ETB was rejected. Please check the details and submit again.`,
+        message: rejectedMessage,
         metadata: {
           type: "deposit_rejected",
           deposit_id: depositId,
-          amount: deposit.amount,
+          amount: hasRejectedAmount ? rejectedAmount : null,
           auto_verified: true,
         },
       });
@@ -605,14 +615,21 @@ export default async (req: Request) => {
       .eq("id", depositId);
 
     try {
+      // Same blank-amount guard as the main reject path above.
+      const rejectedAmount = Number(deposit.amount);
+      const hasRejectedAmount = Number.isFinite(rejectedAmount) && rejectedAmount > 0;
+      const rejectedMessage = hasRejectedAmount
+        ? `Your deposit of ${rejectedAmount} ETB was rejected. Please check the details and submit again.`
+        : "Your deposit was rejected. Please check the details and submit again.";
+
       const { error: notifError } = await admin.from("notifications").insert({
         user_id: deposit.user_id,
         title: "Deposit Rejected",
-        message: `Your deposit of ${deposit.amount} ETB was rejected. Please check the details and submit again.`,
+        message: rejectedMessage,
         metadata: {
           type: "deposit_rejected",
           deposit_id: depositId,
-          amount: deposit.amount,
+          amount: hasRejectedAmount ? rejectedAmount : null,
           auto_verified: true,
         },
       });
