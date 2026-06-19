@@ -80,10 +80,23 @@ function receiptSummary(d: ReceiptData): Record<string, unknown> {
   };
 }
 
+// Normalises a name for comparison. Keeps Latin letters AND Ethiopic (Ge'ez)
+// script characters — CBE/TeleBirr receipts may print the receiver name in
+// Amharic, and the prior Latin-only regex (`[^a-z\s]`) stripped every Ge'ez
+// character, reducing any Amharic name to an empty string. Two empty strings
+// are equal, so this silently broke the receiver check in both directions:
+// a real Amharic receiver name compared against a Latin-configured account
+// name always read as a mismatch (false auto-reject of a legitimate deposit),
+// and an Amharic-configured account name compared against any Amharic
+// receiver name always read as a match regardless of whose name it actually
+// was (a verification bypass). Allowing the Ge'ez block (ሀ–፿, the same range
+// already used by the receiver-extraction regexes below) through the strip
+// keeps the comparison meaningful for both scripts instead of collapsing one
+// of them away.
 function normalizeName(name: string): string {
   return name
     .toLowerCase()
-    .replace(/[^a-z\s]/g, "")
+    .replace(/[^a-z\sሀ-፿]/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
