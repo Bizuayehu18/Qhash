@@ -86,6 +86,8 @@ export interface Database {
           daily_earning: number
           start_date: string
           end_date: string
+          ends_at: string | null
+          next_earning_at: string | null
           status: InvestmentStatus
           last_earning_at: string | null
           total_earned: number
@@ -99,6 +101,8 @@ export interface Database {
           daily_earning: number
           start_date?: string
           end_date: string
+          ends_at?: string | null
+          next_earning_at?: string | null
           status?: InvestmentStatus
           last_earning_at?: string | null
           total_earned?: number
@@ -109,6 +113,8 @@ export interface Database {
           daily_earning?: number
           start_date?: string
           end_date?: string
+          ends_at?: string | null
+          next_earning_at?: string | null
           status?: InvestmentStatus
           last_earning_at?: string | null
           total_earned?: number

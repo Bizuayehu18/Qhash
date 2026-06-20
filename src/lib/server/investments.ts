@@ -150,8 +150,10 @@ export const purchasePlanFn = createServerFn({ method: "POST" })
     // Step 6: Create investment record
     const now = new Date();
     const endDate = new Date(now.getTime() + plan.duration_days * 86400000);
-    const startStr = now.toISOString().split("T")[0];
-    const endStr = endDate.toISOString().split("T")[0];
+    const nextEarningDate = new Date(now.getTime() + 86400000);
+    const startIso = now.toISOString();
+    const endIso = endDate.toISOString();
+    const nextEarningIso = nextEarningDate.toISOString();
 
     console.log("[purchase] step=6_investment");
     const { data: investment, error: investError } = await admin
@@ -161,10 +163,12 @@ export const purchasePlanFn = createServerFn({ method: "POST" })
         plan_id: planId,
         invested_amount: plan.investment_amount,
         daily_earning: plan.daily_earning,
-        start_date: startStr,
-        end_date: endStr,
+        start_date: startIso,
+        end_date: endIso,
+        ends_at: endIso,
+        next_earning_at: nextEarningIso,
         status: "active" as const,
-        last_earning_at: now.toISOString(),
+        last_earning_at: startIso,
       })
       .select("id")
       .single();
@@ -263,8 +267,10 @@ export const purchasePlanFn = createServerFn({ method: "POST" })
         invested_amount: plan.investment_amount,
         daily_earning: plan.daily_earning,
         duration_days: plan.duration_days,
-        start_date: startStr,
-        end_date: endStr,
+        start_date: startIso,
+        end_date: endIso,
+        ends_at: endIso,
+        next_earning_at: nextEarningIso,
       },
       newBalance: actualNewBalance,
     };
