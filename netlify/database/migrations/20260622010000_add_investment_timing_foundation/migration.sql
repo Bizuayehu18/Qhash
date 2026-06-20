@@ -67,7 +67,7 @@ set
     coalesce(i.last_earning_at, i.created_at) + interval '24 hours'
   )
 from public.plans p
-where p.id = i.plan_id
+where p.id::text = i.plan_id::text
   and (i.ends_at is null or i.next_earning_at is null);
 
 create index if not exists idx_investments_due_earnings
