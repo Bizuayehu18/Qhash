@@ -1,5 +1,3 @@
-begin;
-
 -- Atomic wallet increment helper used by earning/referral processors.
 -- Live production IDs are UUID, so keep this function UUID-based.
 create or replace function public.increment_wallet_balance(
@@ -73,5 +71,3 @@ where p.id::text = i.plan_id::text
 create index if not exists idx_investments_due_earnings
   on public.investments (next_earning_at)
   where status = 'active';
-
-commit;
