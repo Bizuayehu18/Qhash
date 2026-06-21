@@ -15,7 +15,7 @@ const faqs = [
   {
     question: 'How do I get started?',
     answer:
-      'Register with your Ethiopian phone number, deposit funds into your wallet, and choose a mining plan that fits your budget. Your earnings begin immediately after activating a plan.',
+      'Register with your Ethiopian phone number, deposit funds into your wallet, and choose a mining plan that fits your budget. Your earnings begin after activating a plan and are credited automatically when each 24-hour earning cycle becomes due.',
   },
   {
     question: 'What mining plans are available?',
@@ -25,22 +25,22 @@ const faqs = [
   {
     question: 'How are daily earnings calculated?',
     answer:
-      'Each plan has a fixed daily earning rate. For example, the Starter plan earns 20 ETB per day for 150 days. Earnings are credited to your wallet automatically.',
+      'Each plan has a fixed daily earning rate. For example, the Starter plan earns 20 ETB per 24-hour earning cycle for 150 days. Earnings are credited automatically when each plan reaches its next earning time.',
   },
   {
     question: 'How do deposits work?',
     answer:
-      'You can deposit funds via supported payment gateways. The minimum deposit is 200 ETB. Funds are typically credited to your wallet within minutes of confirmation.',
+      'You can deposit funds via supported payment gateways. If you leave the amount blank, QHash verifies the amount from your receipt where possible. Funds are reviewed and credited after successful verification or admin approval.',
   },
   {
     question: 'How do withdrawals work?',
     answer:
-      'You can request a withdrawal from your wallet balance at any time. Withdrawals are reviewed and processed within 24 hours. A 2% processing fee applies. The minimum withdrawal amount is 500 ETB.',
+      'You can request a withdrawal from your wallet balance. A 5% processing fee applies, and the minimum withdrawal amount is 200 ETB. You can submit another withdrawal request 24 hours after your last request.',
   },
   {
     question: 'How does the referral program work?',
     answer:
-      'The referral program is currently being rebuilt. Check back soon for details on how you can earn by inviting friends to QHash.',
+      'Invite friends with your referral link and earn mining referral bonuses when eligible referred users receive mining earnings. Current mining referral tiers are 5% for direct referrals, 3% for level 2, and 2% for level 3.',
   },
   {
     question: 'Is my account secure?',

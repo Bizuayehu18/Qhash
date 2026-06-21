@@ -18,6 +18,7 @@ import { Route as AuthLoginRouteImport } from './routes/_auth/login'
 import { Route as AppWithdrawRouteImport } from './routes/_app/withdraw'
 import { Route as AppTransactionsRouteImport } from './routes/_app/transactions'
 import { Route as AppSupportRouteImport } from './routes/_app/support'
+import { Route as AppSecurityRouteImport } from './routes/_app/security'
 import { Route as AppReferralsRouteImport } from './routes/_app/referrals'
 import { Route as AppProfileRouteImport } from './routes/_app/profile'
 import { Route as AppPlansRouteImport } from './routes/_app/plans'
@@ -25,6 +26,7 @@ import { Route as AppNotificationsRouteImport } from './routes/_app/notification
 import { Route as AppDepositRouteImport } from './routes/_app/deposit'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppAdminRouteImport } from './routes/_app/admin'
+import { Route as AppAdminEarningsRouteImport } from './routes/_app/admin-earnings'
 
 const FaqRoute = FaqRouteImport.update({
   id: '/faq',
@@ -69,6 +71,11 @@ const AppSupportRoute = AppSupportRouteImport.update({
   path: '/support',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSecurityRoute = AppSecurityRouteImport.update({
+  id: '/security',
+  path: '/security',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppReferralsRoute = AppReferralsRouteImport.update({
   id: '/referrals',
   path: '/referrals',
@@ -104,10 +111,16 @@ const AppAdminRoute = AppAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAdminEarningsRoute = AppAdminEarningsRouteImport.update({
+  id: '/admin-earnings',
+  path: '/admin-earnings',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/faq': typeof FaqRoute
+  '/admin-earnings': typeof AppAdminEarningsRoute
   '/admin': typeof AppAdminRoute
   '/dashboard': typeof AppDashboardRoute
   '/deposit': typeof AppDepositRoute
@@ -115,6 +128,7 @@ export interface FileRoutesByFullPath {
   '/plans': typeof AppPlansRoute
   '/profile': typeof AppProfileRoute
   '/referrals': typeof AppReferralsRoute
+  '/security': typeof AppSecurityRoute
   '/support': typeof AppSupportRoute
   '/transactions': typeof AppTransactionsRoute
   '/withdraw': typeof AppWithdrawRoute
@@ -124,6 +138,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/faq': typeof FaqRoute
+  '/admin-earnings': typeof AppAdminEarningsRoute
   '/admin': typeof AppAdminRoute
   '/dashboard': typeof AppDashboardRoute
   '/deposit': typeof AppDepositRoute
@@ -131,6 +146,7 @@ export interface FileRoutesByTo {
   '/plans': typeof AppPlansRoute
   '/profile': typeof AppProfileRoute
   '/referrals': typeof AppReferralsRoute
+  '/security': typeof AppSecurityRoute
   '/support': typeof AppSupportRoute
   '/transactions': typeof AppTransactionsRoute
   '/withdraw': typeof AppWithdrawRoute
@@ -143,6 +159,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/_auth': typeof AuthRouteWithChildren
   '/faq': typeof FaqRoute
+  '/_app/admin-earnings': typeof AppAdminEarningsRoute
   '/_app/admin': typeof AppAdminRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/deposit': typeof AppDepositRoute
@@ -150,6 +167,7 @@ export interface FileRoutesById {
   '/_app/plans': typeof AppPlansRoute
   '/_app/profile': typeof AppProfileRoute
   '/_app/referrals': typeof AppReferralsRoute
+  '/_app/security': typeof AppSecurityRoute
   '/_app/support': typeof AppSupportRoute
   '/_app/transactions': typeof AppTransactionsRoute
   '/_app/withdraw': typeof AppWithdrawRoute
@@ -161,6 +179,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/faq'
+    | '/admin-earnings'
     | '/admin'
     | '/dashboard'
     | '/deposit'
@@ -168,6 +187,7 @@ export interface FileRouteTypes {
     | '/plans'
     | '/profile'
     | '/referrals'
+    | '/security'
     | '/support'
     | '/transactions'
     | '/withdraw'
@@ -177,6 +197,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/faq'
+    | '/admin-earnings'
     | '/admin'
     | '/dashboard'
     | '/deposit'
@@ -184,6 +205,7 @@ export interface FileRouteTypes {
     | '/plans'
     | '/profile'
     | '/referrals'
+    | '/security'
     | '/support'
     | '/transactions'
     | '/withdraw'
@@ -195,6 +217,7 @@ export interface FileRouteTypes {
     | '/_app'
     | '/_auth'
     | '/faq'
+    | '/_app/admin-earnings'
     | '/_app/admin'
     | '/_app/dashboard'
     | '/_app/deposit'
@@ -202,6 +225,7 @@ export interface FileRouteTypes {
     | '/_app/plans'
     | '/_app/profile'
     | '/_app/referrals'
+    | '/_app/security'
     | '/_app/support'
     | '/_app/transactions'
     | '/_app/withdraw'
@@ -281,6 +305,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSupportRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/security': {
+      id: '/_app/security'
+      path: '/security'
+      fullPath: '/security'
+      preLoaderRoute: typeof AppSecurityRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/referrals': {
       id: '/_app/referrals'
       path: '/referrals'
@@ -330,10 +361,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/admin-earnings': {
+      id: '/_app/admin-earnings'
+      path: '/admin-earnings'
+      fullPath: '/admin-earnings'
+      preLoaderRoute: typeof AppAdminEarningsRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
 interface AppRouteChildren {
+  AppAdminEarningsRoute: typeof AppAdminEarningsRoute
   AppAdminRoute: typeof AppAdminRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppDepositRoute: typeof AppDepositRoute
@@ -341,12 +380,14 @@ interface AppRouteChildren {
   AppPlansRoute: typeof AppPlansRoute
   AppProfileRoute: typeof AppProfileRoute
   AppReferralsRoute: typeof AppReferralsRoute
+  AppSecurityRoute: typeof AppSecurityRoute
   AppSupportRoute: typeof AppSupportRoute
   AppTransactionsRoute: typeof AppTransactionsRoute
   AppWithdrawRoute: typeof AppWithdrawRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppAdminEarningsRoute: AppAdminEarningsRoute,
   AppAdminRoute: AppAdminRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppDepositRoute: AppDepositRoute,
@@ -354,6 +395,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppPlansRoute: AppPlansRoute,
   AppProfileRoute: AppProfileRoute,
   AppReferralsRoute: AppReferralsRoute,
+  AppSecurityRoute: AppSecurityRoute,
   AppSupportRoute: AppSupportRoute,
   AppTransactionsRoute: AppTransactionsRoute,
   AppWithdrawRoute: AppWithdrawRoute,
