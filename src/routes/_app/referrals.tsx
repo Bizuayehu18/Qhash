@@ -217,7 +217,7 @@ function ReferralsPage() {
         <StatCard
           icon={<TrendingUp size={18} />}
           label="Earned"
-          value={`$${stats.earned.toFixed(2)}`}
+          value={`${stats.earned.toFixed(2)} ETB`}
           accent
           loading={!statsLoaded}
         />
