@@ -181,6 +181,18 @@ end;
 $$;
 
 revoke all on function public.process_due_investment_earning(uuid, text, text) from public;
-revoke all on function public.process_due_investment_earning(uuid, text, text) from anon;
-revoke all on function public.process_due_investment_earning(uuid, text, text) from authenticated;
-grant execute on function public.process_due_investment_earning(uuid, text, text) to service_role;
+
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    revoke all on function public.process_due_investment_earning(uuid, text, text) from anon;
+  end if;
+
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then
+    revoke all on function public.process_due_investment_earning(uuid, text, text) from authenticated;
+  end if;
+
+  if exists (select 1 from pg_roles where rolname = 'service_role') then
+    grant execute on function public.process_due_investment_earning(uuid, text, text) to service_role;
+  end if;
+end $$;
