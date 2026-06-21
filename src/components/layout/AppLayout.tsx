@@ -2,7 +2,7 @@ import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useAuthStore } from '@/store/authStore.js'
 import {
   Home, Layers, ArrowDownCircle, Users, User,
-  Hash, Bell, Wallet,
+  Hash, Bell, Wallet, Power,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase.js'
@@ -51,6 +51,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     return location.pathname.startsWith(to)
   }
 
+  const showAdminEarningsLink =
+    profile?.is_admin &&
+    (location.pathname === '/admin' || location.pathname.startsWith('/admin-earnings'))
+
   return (
     <div className="app-shell bg-[#0a0a0a]">
       {/* App Header */}
@@ -63,6 +67,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
 
         <div className="flex items-center gap-3">
+          {showAdminEarningsLink && (
+            <Link
+              to="/admin-earnings"
+              className="flex items-center gap-1.5 bg-[rgba(0,255,65,0.08)] border border-[rgba(0,255,65,0.15)] rounded-full px-3 py-1.5 card-press"
+            >
+              <Power size={13} className="text-[#00ff41]" />
+              <span className="text-[11px] font-semibold text-[#00ff41]">Earnings</span>
+            </Link>
+          )}
+
           <Link
             to="/deposit"
             className="flex items-center gap-1.5 bg-[rgba(0,255,65,0.08)] border border-[rgba(0,255,65,0.15)] rounded-full px-3 py-1.5 card-press"
