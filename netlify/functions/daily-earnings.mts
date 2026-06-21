@@ -29,5 +29,7 @@ export default async (req: Request) => {
 };
 
 export const config: Config = {
-  schedule: "0 21 * * *",
+  // Run frequently so each investment is credited close to its own next_earning_at.
+  // The DB-side due processor is idempotent and only credits investments that are due.
+  schedule: "*/5 * * * *",
 };
