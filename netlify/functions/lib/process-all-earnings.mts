@@ -4,15 +4,50 @@ import {
   processMiningReferralRewards,
 } from "./process-mining-referral-rewards.mts";
 
-interface ActiveInvestment {
+interface DueInvestment {
   id: string;
   user_id: string;
-  daily_earning: number;
-  total_earned: number;
-  start_date: string;
-  end_date: string;
-  last_earning_at: string | null;
+  next_earning_at: string | null;
+  ends_at: string | null;
+  status: string;
 }
+
+interface DueEarningRpcResult {
+  processed?: boolean;
+  reason?: string;
+  investment_id?: string;
+  user_id?: string;
+  amount?: number;
+  transaction_id?: string;
+  earning_due_at?: string;
+  earning_date?: string;
+  earning_day_index?: number;
+  balance_before?: number;
+  balance_after?: number;
+  next_earning_at?: string;
+  status?: string;
+  total_earned_after?: number;
+  [key: string]: unknown;
+}
+
+type DueEarningRpcClient = {
+  rpc(
+    fn: "process_due_investment_earning",
+    args: {
+      p_investment_id: string;
+      p_run_id: string;
+      p_trigger_type: "scheduled" | "manual";
+    },
+  ): Promise<{
+    data: DueEarningRpcResult | null;
+    error: {
+      message?: string;
+      code?: string;
+      details?: string;
+      hint?: unknown;
+    } | null;
+  }>;
+};
 
 export interface EarningTransaction {
   user_id: string;
@@ -45,6 +80,9 @@ export interface EarningRunStats {
   }>;
 }
 
+const MAX_DUE_INVESTMENTS_PER_RUN = 500;
+const MAX_EARNING_CYCLES_PER_INVESTMENT_PER_RUN = 30;
+
 function log(step: string, data: Record<string, unknown>) {
   console.log(
     JSON.stringify({
@@ -67,15 +105,34 @@ function logError(step: string, data: Record<string, unknown>) {
   );
 }
 
+function safeErrorMessage(error: unknown): string {
+  if (!error) return "Unknown error";
+  if (error instanceof Error) return error.message;
+
+  if (typeof error === "object" && error !== null && "message" in error) {
+    return String((error as { message?: unknown }).message ?? "Unknown error");
+  }
+
+  return String(error);
+}
+
+function isDue(nextEarningAt: string | null | undefined, checkedAt: Date): boolean {
+  if (!nextEarningAt) return false;
+  const nextTime = new Date(nextEarningAt).getTime();
+  return Number.isFinite(nextTime) && nextTime <= checkedAt.getTime();
+}
+
 export async function processAllEarnings(
   admin: SupabaseClient,
   triggerType: "scheduled" | "manual"
 ): Promise<EarningRunStats> {
   const runId = `earn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const checkedAt = new Date();
+
   const stats: EarningRunStats = {
     run_id: runId,
     trigger_type: triggerType,
-    started_at: new Date().toISOString(),
+    started_at: checkedAt.toISOString(),
     completed_at: null,
     status: "running",
     total_active_investments: 0,
@@ -90,238 +147,224 @@ export async function processAllEarnings(
     error_details: [],
   };
 
-  log("run_started", { run_id: runId, trigger_type: triggerType });
+  const processedUserIds = new Set<string>();
+  const processedInvestmentIds = new Set<string>();
+  const completedInvestmentIds = new Set<string>();
+
+  log("run_started", {
+    run_id: runId,
+    trigger_type: triggerType,
+    checked_at: checkedAt.toISOString(),
+  });
 
   try {
-    const { data: investments, error: fetchError } = await admin
+    const { count: activeCount, error: countError } = await admin
       .from("investments")
-      .select(
-        "id, user_id, daily_earning, total_earned, start_date, end_date, last_earning_at"
-      )
-      .eq("status", "active")
-      .order("user_id");
+      .select("id", { count: "exact", head: true })
+      .eq("status", "active");
 
-    if (fetchError) {
-      throw new Error(`Failed to fetch investments: ${fetchError.message}`);
+    if (countError) {
+      throw new Error(`Failed to count active investments: ${countError.message}`);
     }
 
-    if (!investments || investments.length === 0) {
-      log("no_investments", { message: "No active investments found" });
+    stats.total_active_investments = activeCount ?? 0;
+
+    const { data: investments, error: fetchError } = await admin
+      .from("investments")
+      .select("id, user_id, next_earning_at, ends_at, status")
+      .eq("status", "active")
+      .not("next_earning_at", "is", null)
+      .lte("next_earning_at", checkedAt.toISOString())
+      .order("next_earning_at", { ascending: true })
+      .limit(MAX_DUE_INVESTMENTS_PER_RUN);
+
+    if (fetchError) {
+      throw new Error(`Failed to fetch due investments: ${fetchError.message}`);
+    }
+
+    const dueInvestments = (investments ?? []) as DueInvestment[];
+
+    if (dueInvestments.length === 0) {
+      log("no_due_investments", {
+        active_investments: stats.total_active_investments,
+        checked_at: checkedAt.toISOString(),
+      });
       stats.status = "completed";
       stats.completed_at = new Date().toISOString();
       await saveRunLog(admin, stats);
       return stats;
     }
 
-    stats.total_active_investments = investments.length;
-    log("investments_found", { count: investments.length });
-
-    const userInvestments = new Map<string, ActiveInvestment[]>();
-    for (const inv of investments) {
-      const list = userInvestments.get(inv.user_id) ?? [];
-      list.push(inv as ActiveInvestment);
-      userInvestments.set(inv.user_id, list);
-    }
-
-    log("users_found", { count: userInvestments.size });
+    log("due_investments_found", {
+      count: dueInvestments.length,
+      active_investments: stats.total_active_investments,
+      limit: MAX_DUE_INVESTMENTS_PER_RUN,
+    });
 
     const miningPercentages = await loadMiningReferralPercentages(admin);
-    log("mining_referral_percentages_loaded", { levels: Object.keys(miningPercentages).length });
+    log("mining_referral_percentages_loaded", {
+      levels: Object.keys(miningPercentages).length,
+    });
 
-    const now = new Date();
+    for (const initialInvestment of dueInvestments) {
+      let cyclesProcessedForInvestment = 0;
+      let continueProcessing = true;
+      let nextEarningAt: string | null | undefined = initialInvestment.next_earning_at;
 
-    for (const [userId, invs] of userInvestments) {
-      try {
-        const { data: wallet } = await admin
-          .from("wallets")
-          .select("balance")
-          .eq("user_id", userId)
-          .single();
+      while (
+        continueProcessing &&
+        cyclesProcessedForInvestment < MAX_EARNING_CYCLES_PER_INVESTMENT_PER_RUN &&
+        isDue(nextEarningAt, checkedAt)
+      ) {
+        try {
+          const { data: result, error } = await (admin as unknown as DueEarningRpcClient).rpc(
+            "process_due_investment_earning",
+            {
+              p_investment_id: initialInvestment.id,
+              p_run_id: runId,
+              p_trigger_type: triggerType,
+            },
+          );
 
-        let currentBalance = wallet?.balance ?? 0;
-        let userEarnings = 0;
-        let userProcessed = 0;
-        let userSkipped = 0;
-        let userCompleted = 0;
-        const userEarningTxns: Array<{
-          transactionId: string;
-          investmentId: string;
-          amount: number;
-        }> = [];
+          if (error) {
+            const message = [
+              error.message,
+              error.code && `code=${error.code}`,
+              error.details && `details=${error.details}`,
+            ]
+              .filter(Boolean)
+              .join(" | ");
 
-        for (const inv of invs) {
-          try {
-            const lastEarning = new Date(inv.last_earning_at ?? inv.start_date);
-            const endDate = new Date(inv.end_date);
-            const effectiveNow = now > endDate ? endDate : now;
-
-            const msElapsed = effectiveNow.getTime() - lastEarning.getTime();
-            const daysElapsed = Math.floor(msElapsed / (24 * 60 * 60 * 1000));
-
-            if (daysElapsed <= 0) {
-              if (now >= endDate) {
-                await admin
-                  .from("investments")
-                  .update({ status: "completed" as const })
-                  .eq("id", inv.id);
-                userCompleted++;
-              }
-              userSkipped++;
-              continue;
-            }
-
-            const totalEarnings = daysElapsed * inv.daily_earning;
-            const DAY_MS = 24 * 60 * 60 * 1000;
-            const newLastEarningAt = new Date(
-              lastEarning.getTime() + daysElapsed * DAY_MS
-            ).toISOString();
-
-            for (let dayIdx = 1; dayIdx <= daysElapsed; dayIdx++) {
-              const earningDate = new Date(
-                lastEarning.getTime() + dayIdx * DAY_MS
-              )
-                .toISOString()
-                .slice(0, 10);
-              const balanceBefore = currentBalance;
-              const balanceAfter = currentBalance + inv.daily_earning;
-
-              const { data: txRow } = await admin.from("transactions").insert({
-                user_id: userId,
-                type: "earning",
-                amount: inv.daily_earning,
-                status: "completed",
-                description: "Daily mining earnings",
-                reference_id: inv.id,
-                balance_before: balanceBefore,
-                balance_after: balanceAfter,
-                metadata: {
-                  source: triggerType,
-                  run_id: runId,
-                  investment_id: inv.id,
-                  earning_date: earningDate,
-                  earning_day_index: dayIdx,
-                },
-              }).select("id").single();
-
-              currentBalance = balanceAfter;
-              const earningTxId = txRow?.id ?? undefined;
-              if (earningTxId) {
-                userEarningTxns.push({
-                  transactionId: earningTxId,
-                  investmentId: inv.id,
-                  amount: inv.daily_earning,
-                });
-              }
-              stats.earning_transactions.push({
-                user_id: userId,
-                investment_id: inv.id,
-                amount: inv.daily_earning,
-                earning_date: earningDate,
-                earning_day_index: dayIdx,
-                transaction_id: earningTxId,
-              });
-            }
-
-            await admin
-              .from("investments")
-              .update({
-                last_earning_at: newLastEarningAt,
-                total_earned: inv.total_earned + totalEarnings,
-                ...(now >= endDate
-                  ? { status: "completed" as const }
-                  : {}),
-              })
-              .eq("id", inv.id);
-
-            userEarnings += totalEarnings;
-            userProcessed++;
-            stats.total_transactions_created += daysElapsed;
-
-            if (now >= endDate) {
-              userCompleted++;
-            }
-          } catch (invErr) {
-            const msg =
-              invErr instanceof Error ? invErr.message : String(invErr);
-            logError("investment_error", {
-              user_id: userId,
-              investment_id: inv.id,
-              error: msg,
-            });
-            stats.error_details.push({
-              user_id: userId,
-              investment_id: inv.id,
-              error: msg,
-            });
-            stats.total_errors++;
+            throw new Error(message || "process_due_investment_earning failed");
           }
-        }
 
-        if (userEarnings > 0) {
-          if (wallet) {
-            await admin
-              .from("wallets")
-              .update({
-                balance: currentBalance,
-                updated_at: new Date().toISOString(),
-              })
-              .eq("user_id", userId);
-          } else {
-            await admin.from("wallets").insert({
-              user_id: userId,
-              balance: userEarnings,
+          if (!result?.processed) {
+            stats.total_skipped++;
+            log("investment_skipped", {
+              run_id: runId,
+              investment_id: initialInvestment.id,
+              user_id: initialInvestment.user_id,
+              reason: result?.reason ?? "unknown",
+              next_earning_at: result?.next_earning_at,
             });
-          }
-        }
 
-        // Process mining referral rewards (failures never rollback earnings)
-        if (
-          userEarningTxns.length > 0 &&
-          Object.keys(miningPercentages).length > 0
-        ) {
-          for (const etx of userEarningTxns) {
+            if (result?.status === "completed" || result?.reason === "investment_completed") {
+              completedInvestmentIds.add(initialInvestment.id);
+            }
+
+            break;
+          }
+
+          const investmentId = String(result.investment_id ?? initialInvestment.id);
+          const userId = String(result.user_id ?? initialInvestment.user_id);
+          const amount = Number(result.amount ?? 0);
+          const transactionId =
+            typeof result.transaction_id === "string" ? result.transaction_id : undefined;
+          const earningDate =
+            typeof result.earning_date === "string"
+              ? result.earning_date
+              : new Date(String(result.earning_due_at ?? checkedAt.toISOString()))
+                  .toISOString()
+                  .slice(0, 10);
+          const earningDayIndex =
+            typeof result.earning_day_index === "number"
+              ? result.earning_day_index
+              : cyclesProcessedForInvestment + 1;
+
+          processedUserIds.add(userId);
+          processedInvestmentIds.add(investmentId);
+          cyclesProcessedForInvestment++;
+          stats.total_transactions_created++;
+
+          if (Number.isFinite(amount) && amount > 0) {
+            stats.total_earnings_credited += amount;
+          }
+
+          if (result.status === "completed") {
+            completedInvestmentIds.add(investmentId);
+          }
+
+          stats.earning_transactions.push({
+            user_id: userId,
+            investment_id: investmentId,
+            amount,
+            earning_date: earningDate,
+            earning_day_index: earningDayIndex,
+            transaction_id: transactionId,
+          });
+
+          log("earning_processed", {
+            run_id: runId,
+            user_id: userId,
+            investment_id: investmentId,
+            transaction_id: transactionId,
+            amount,
+            earning_due_at: result.earning_due_at,
+            next_earning_at: result.next_earning_at,
+            status: result.status,
+          });
+
+          if (
+            transactionId &&
+            amount > 0 &&
+            Object.keys(miningPercentages).length > 0
+          ) {
             try {
               await processMiningReferralRewards(
                 admin,
                 userId,
-                etx.transactionId,
-                etx.investmentId,
-                etx.amount,
+                transactionId,
+                investmentId,
+                amount,
                 miningPercentages
               );
             } catch (refErr) {
-              const msg =
-                refErr instanceof Error ? refErr.message : String(refErr);
               logError("mining_referral_error", {
                 user_id: userId,
-                earning_transaction_id: etx.transactionId,
-                error: msg,
+                earning_transaction_id: transactionId,
+                investment_id: investmentId,
+                error: safeErrorMessage(refErr),
               });
             }
           }
+
+          nextEarningAt =
+            typeof result.next_earning_at === "string" ? result.next_earning_at : null;
+
+          if (result.status === "completed" || !isDue(nextEarningAt, checkedAt)) {
+            continueProcessing = false;
+          }
+        } catch (invErr) {
+          const msg = safeErrorMessage(invErr);
+          logError("investment_error", {
+            user_id: initialInvestment.user_id,
+            investment_id: initialInvestment.id,
+            error: msg,
+          });
+          stats.error_details.push({
+            user_id: initialInvestment.user_id,
+            investment_id: initialInvestment.id,
+            error: msg,
+          });
+          stats.total_errors++;
+          break;
         }
+      }
 
-        stats.total_investments_processed += userProcessed;
-        stats.total_skipped += userSkipped;
-        stats.total_completed_investments += userCompleted;
-        stats.total_earnings_credited += userEarnings;
-        stats.total_users_processed++;
-
-        log("user_processed", {
-          user_id: userId,
-          investments_processed: userProcessed,
-          skipped: userSkipped,
-          completed: userCompleted,
-          earnings: userEarnings,
+      if (cyclesProcessedForInvestment >= MAX_EARNING_CYCLES_PER_INVESTMENT_PER_RUN) {
+        stats.total_skipped++;
+        logError("investment_cycle_limit_reached", {
+          run_id: runId,
+          investment_id: initialInvestment.id,
+          user_id: initialInvestment.user_id,
+          limit: MAX_EARNING_CYCLES_PER_INVESTMENT_PER_RUN,
         });
-      } catch (userErr) {
-        const msg =
-          userErr instanceof Error ? userErr.message : String(userErr);
-        logError("user_error", { user_id: userId, error: msg });
-        stats.error_details.push({ user_id: userId, error: msg });
-        stats.total_errors++;
       }
     }
+
+    stats.total_users_processed = processedUserIds.size;
+    stats.total_investments_processed = processedInvestmentIds.size;
+    stats.total_completed_investments = completedInvestmentIds.size;
 
     stats.status = "completed";
     stats.completed_at = new Date().toISOString();
@@ -340,7 +383,7 @@ export async function processAllEarnings(
     await saveRunLog(admin, stats);
     return stats;
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = safeErrorMessage(err);
     logError("run_failed", { run_id: runId, error: msg });
     stats.status = "failed";
     stats.completed_at = new Date().toISOString();
@@ -386,7 +429,7 @@ async function saveRunLog(
       log("earning_run_log_insert_success", { run_id: stats.run_id });
     }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = safeErrorMessage(err);
     logError("earning_run_log_insert_failed", {
       run_id: stats.run_id,
       message: msg,
