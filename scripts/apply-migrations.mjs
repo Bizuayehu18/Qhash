@@ -67,6 +67,15 @@ function assertSafeConnectionString(value) {
   }
 }
 
+function getDatabaseSslConfig() {
+  // Supabase's session pooler can present a certificate chain that Netlify's
+  // build image does not trust. Keep TLS enabled for the production-only
+  // migration connection, and allow stricter verification later via env once a
+  // trusted CA bundle is available in the build environment.
+  const verifyServerCertificate = isEnabled(process.env.SUPABASE_DB_SSL_VERIFY_SERVER_CERTIFICATE);
+  return { rejectUnauthorized: verifyServerCertificate };
+}
+
 function assertNoTransactionControl(migration) {
   if (/\b(begin|commit|rollback)\s*;/i.test(migration.sql)) {
     throw new Error(
@@ -176,7 +185,7 @@ async function main() {
 
   const client = new Client({
     connectionString: dbUrl,
-    ssl: { rejectUnauthorized: true },
+    ssl: getDatabaseSslConfig(),
   });
 
   console.log(
