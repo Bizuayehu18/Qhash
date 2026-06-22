@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +13,7 @@ const repoRoot = path.resolve(__dirname, "..");
 const migrationsRoot = path.join(repoRoot, "netlify", "database", "migrations");
 const migrationsTable = "public._qhash_migrations";
 const advisoryLockKey = "qhash_netlify_database_migrations";
+const supabaseCaCertPath = path.join(__dirname, "certs", "supabase-ca.crt");
 // Production already has earlier manual migrations, including
 // 20260622143000_process_due_investment_earning. Start automatic migration
 // tracking at the first migration still missing from live production.
@@ -67,13 +69,24 @@ function assertSafeConnectionString(value) {
   }
 }
 
+function getDatabaseConnectionString(value) {
+  const parsed = new URL(value);
+
+  // node-postgres replaces the explicit ssl object when SSL settings are present
+  // in the connection string. We own SSL verification in code so the committed
+  // Supabase CA is always used for production migrations.
+  for (const key of ["sslmode", "sslcert", "sslkey", "sslrootcert"]) {
+    parsed.searchParams.delete(key);
+  }
+
+  return parsed.toString();
+}
+
 function getDatabaseSslConfig() {
-  // Supabase's session pooler can present a certificate chain that Netlify's
-  // build image does not trust. Keep TLS enabled for the production-only
-  // migration connection, and allow stricter verification later via env once a
-  // trusted CA bundle is available in the build environment.
-  const verifyServerCertificate = isEnabled(process.env.SUPABASE_DB_SSL_VERIFY_SERVER_CERTIFICATE);
-  return { rejectUnauthorized: verifyServerCertificate };
+  return {
+    ca: readFileSync(supabaseCaCertPath, "utf8"),
+    rejectUnauthorized: true,
+  };
 }
 
 function assertNoTransactionControl(migration) {
@@ -184,7 +197,7 @@ async function main() {
   }
 
   const client = new Client({
-    connectionString: dbUrl,
+    connectionString: getDatabaseConnectionString(dbUrl),
     ssl: getDatabaseSslConfig(),
   });
 
