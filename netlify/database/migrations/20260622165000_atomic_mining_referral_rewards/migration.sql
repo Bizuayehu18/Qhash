@@ -22,6 +22,7 @@ declare
   v_balance_before numeric;
   v_balance_after numeric;
   v_tx_id uuid;
+  v_constraint_name text;
 begin
   if p_referral_id is null then
     raise exception 'missing_referral_id';
@@ -124,6 +125,11 @@ begin
     );
   exception
     when unique_violation then
+      get stacked diagnostics v_constraint_name = constraint_name;
+      if v_constraint_name <> 'referral_reward_logs_unique_mining' then
+        raise;
+      end if;
+
       return jsonb_build_object(
         'processed', false,
         'skipped', true,
