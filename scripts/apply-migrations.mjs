@@ -12,6 +12,9 @@ const repoRoot = path.resolve(__dirname, "..");
 const migrationsRoot = path.join(repoRoot, "netlify", "database", "migrations");
 const migrationsTable = "public._qhash_migrations";
 const advisoryLockKey = "qhash_netlify_database_migrations";
+// Production already has earlier manual migrations, including
+// 20260622143000_process_due_investment_earning. Start automatic migration
+// tracking at the first migration still missing from live production.
 const defaultMigrationStartId = "20260622165000_atomic_mining_referral_rewards/migration.sql";
 const migrationStartId = process.env.QHASH_MIGRATION_START_ID || defaultMigrationStartId;
 
