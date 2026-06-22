@@ -12,6 +12,8 @@ const repoRoot = path.resolve(__dirname, "..");
 const migrationsRoot = path.join(repoRoot, "netlify", "database", "migrations");
 const migrationsTable = "public._qhash_migrations";
 const advisoryLockKey = "qhash_netlify_database_migrations";
+const defaultMigrationStartId = "20260622165000_atomic_mining_referral_rewards/migration.sql";
+const migrationStartId = process.env.QHASH_MIGRATION_START_ID || defaultMigrationStartId;
 
 function isEnabled(value) {
   return String(value ?? "").trim().toLowerCase() === "true";
@@ -55,18 +57,42 @@ function getMigrationId(filePath) {
   return path.relative(migrationsRoot, filePath).replaceAll(path.sep, "/");
 }
 
+function assertSafeConnectionString(value) {
+  const parsed = new URL(value);
+  if (parsed.port === "6543") {
+    throw new Error("Use a direct connection or session pooler URL on port 5432 for database migrations.");
+  }
+}
+
+function assertNoTransactionControl(migration) {
+  if (/\b(begin|commit|rollback)\s*;/i.test(migration.sql)) {
+    throw new Error(
+      `Migration ${migration.id} contains explicit transaction control. Remove transaction-control statements from migration files; the runner owns transaction boundaries.`,
+    );
+  }
+}
+
 async function ensureMigrationsTable(client) {
   await client.query(`
     create table if not exists public._qhash_migrations (
       id text primary key,
       checksum text not null,
-      applied_at timestamptz not null default now()
+      applied_at timestamptz not null default now(),
+      deploy_context text,
+      commit_ref text
     )
+  `);
+
+  await client.query(`
+    alter table public._qhash_migrations
+      add column if not exists deploy_context text,
+      add column if not exists commit_ref text
   `);
 }
 
 async function applyMigration(client, migration) {
   const { id, checksum, sql } = migration;
+  assertNoTransactionControl(migration);
 
   await client.query("begin");
   try {
@@ -91,8 +117,8 @@ async function applyMigration(client, migration) {
     console.log(`→ applying ${id}`);
     await client.query(sql);
     await client.query(
-      `insert into ${migrationsTable} (id, checksum) values ($1, $2)`,
-      [id, checksum],
+      `insert into ${migrationsTable} (id, checksum, deploy_context, commit_ref) values ($1, $2, $3, $4)`,
+      [id, checksum, process.env.CONTEXT ?? null, process.env.COMMIT_REF ?? null],
     );
     await client.query("commit");
     console.log(`✓ applied ${id}`);
@@ -109,15 +135,17 @@ async function main() {
   }
 
   const netlifyContext = process.env.CONTEXT;
-  if (netlifyContext && netlifyContext !== "production") {
-    console.log(`QHash DB migrations skipped: Netlify CONTEXT=${netlifyContext}.`);
+  if (netlifyContext !== "production") {
+    console.log(`QHash DB migrations skipped: CONTEXT=${netlifyContext ?? "(unset)"}.`);
     return;
   }
 
-  const connectionString = process.env.SUPABASE_DB_URL;
-  if (!connectionString) {
-    throw new Error("SUPABASE_DB_URL is required when APPLY_DB_MIGRATIONS=true.");
+  const dbUrl = process.env.SUPABASE_DB_URL;
+  if (!dbUrl) {
+    throw new Error("Database migration URL is required when APPLY_DB_MIGRATIONS=true.");
   }
+
+  assertSafeConnectionString(dbUrl);
 
   const migrationFiles = await findMigrationFiles(migrationsRoot);
   if (migrationFiles.length === 0) {
@@ -125,23 +153,32 @@ async function main() {
     return;
   }
 
-  const migrations = await Promise.all(
-    migrationFiles.map(async (filePath) => {
-      const sql = await readFile(filePath, "utf8");
-      return {
-        id: getMigrationId(filePath),
-        checksum: sha256(sql),
-        sql,
-      };
-    }),
-  );
+  const migrations = (
+    await Promise.all(
+      migrationFiles.map(async (filePath) => {
+        const sql = await readFile(filePath, "utf8");
+        return {
+          id: getMigrationId(filePath),
+          checksum: sha256(sql),
+          sql,
+        };
+      }),
+    )
+  ).filter((migration) => migration.id >= migrationStartId);
+
+  if (migrations.length === 0) {
+    console.log(`QHash DB migrations: no migrations at or after ${migrationStartId}.`);
+    return;
+  }
 
   const client = new Client({
-    connectionString,
-    ssl: { rejectUnauthorized: false },
+    connectionString: dbUrl,
+    ssl: { rejectUnauthorized: true },
   });
 
-  console.log(`QHash DB migrations: checking ${migrations.length} migration(s).`);
+  console.log(
+    `QHash DB migrations: checking ${migrations.length} migration(s) at or after ${migrationStartId}.`,
+  );
 
   await client.connect();
   try {
