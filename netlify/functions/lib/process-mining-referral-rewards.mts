@@ -8,6 +8,49 @@ interface MiningRewardResult {
   reason?: string;
 }
 
+interface ReferralRow {
+  id: string;
+  referrer_id: string;
+  level: number;
+}
+
+interface MiningRewardRpcResult {
+  processed?: boolean;
+  skipped?: boolean;
+  reason?: string | null;
+  level?: number;
+  referrer_user_id?: string;
+  reward_amount?: number;
+  transaction_id?: string;
+  balance_before?: number;
+  balance_after?: number;
+  [key: string]: unknown;
+}
+
+type MiningRewardRpcClient = {
+  rpc(
+    fn: "credit_mining_referral_reward",
+    args: {
+      p_referral_id: string;
+      p_earner_user_id: string;
+      p_referrer_user_id: string;
+      p_earning_transaction_id: string;
+      p_investment_id: string;
+      p_level: number;
+      p_percent: number;
+      p_earning_amount: number;
+    },
+  ): Promise<{
+    data: MiningRewardRpcResult | null;
+    error: {
+      message?: string;
+      code?: string;
+      details?: string;
+      hint?: unknown;
+    } | null;
+  }>;
+};
+
 function log(step: string, data: Record<string, unknown>) {
   console.log(
     JSON.stringify({
@@ -103,9 +146,9 @@ export async function processMiningReferralRewards(
     return results;
   }
 
-  for (const row of referralRows) {
-    const level = row.level;
-    const referrerId = row.referrer_id;
+  for (const row of referralRows as ReferralRow[]) {
+    const level = Number(row.level);
+    const referrerId = String(row.referrer_id);
     const percent = percentByLevel[level];
 
     if (!percent || percent <= 0) {
@@ -119,238 +162,94 @@ export async function processMiningReferralRewards(
       continue;
     }
 
-    // Eligibility: referrer must have at least one active investment
-    const { count: activeCount, error: activeErr } = await admin
-      .from("investments")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", referrerId)
-      .eq("status", "active");
+    try {
+      const { data, error } = await (admin as unknown as MiningRewardRpcClient).rpc(
+        "credit_mining_referral_reward",
+        {
+          p_referral_id: row.id,
+          p_earner_user_id: earnerUserId,
+          p_referrer_user_id: referrerId,
+          p_earning_transaction_id: earningTransactionId,
+          p_investment_id: investmentId,
+          p_level: level,
+          p_percent: percent,
+          p_earning_amount: earningAmount,
+        },
+      );
 
-    if (activeErr) {
-      logError("eligibility_check_error", {
-        level,
-        referrer_id: referrerId,
-        error: activeErr.message,
-      });
-      results.push({
-        level,
-        referrerId,
-        amount: 0,
-        skipped: true,
-        reason: "eligibility_check_error",
-      });
-      continue;
-    }
+      if (error) {
+        const message = [
+          error.message,
+          error.code && `code=${error.code}`,
+          error.details && `details=${error.details}`,
+        ]
+          .filter(Boolean)
+          .join(" | ");
 
-    if (!activeCount || activeCount === 0) {
-      log("inactive_level_skipped", { level, referrer_id: referrerId });
-      results.push({
-        level,
-        referrerId,
-        amount: 0,
-        skipped: true,
-        reason: "inactive",
-      });
-      continue;
-    }
-
-    // Duplicate check (application-level)
-    const { data: existingLog } = await admin
-      .from("referral_reward_logs")
-      .select("id")
-      .eq("earning_reference_id", earningTransactionId)
-      .eq("referrer_user_id", referrerId)
-      .eq("level", level)
-      .eq("reward_type", "mining")
-      .maybeSingle();
-
-    if (existingLog) {
-      log("duplicate_prevented", {
-        level,
-        referrer_id: referrerId,
-        earning_transaction_id: earningTransactionId,
-      });
-      results.push({
-        level,
-        referrerId,
-        amount: 0,
-        skipped: true,
-        reason: "duplicate",
-      });
-      continue;
-    }
-
-    const rewardAmount =
-      Math.round(((earningAmount * percent) / 100) * 100) / 100;
-    log("reward_calculated", {
-      level,
-      referrer_id: referrerId,
-      reward: rewardAmount,
-      percent,
-      earning_amount: earningAmount,
-    });
-
-    // 1. Insert referral_reward_logs FIRST — application-level check above is the
-    //    authoritative duplicate guard for mining rewards.  investment_id is set to
-    //    null so the (investment_id, referrer, level, type) unique constraint does
-    //    not falsely block subsequent daily earnings from the same investment.
-    const { error: logErr } = await admin
-      .from("referral_reward_logs")
-      .insert({
-        investment_id: null,
-        earning_reference_id: earningTransactionId,
-        purchaser_user_id: null,
-        earner_user_id: earnerUserId,
-        referrer_user_id: referrerId,
-        referred_user_id: earnerUserId,
-        level,
-        reward_type: "mining",
-        reward_amount: rewardAmount,
-      });
-
-    if (logErr) {
-      if (logErr.code === "23505") {
-        log("duplicate_prevented", {
+        logError("atomic_reward_failed", {
           level,
           referrer_id: referrerId,
           earning_transaction_id: earningTransactionId,
-          source: "unique_constraint",
+          error: message,
         });
         results.push({
           level,
           referrerId,
           amount: 0,
           skipped: true,
-          reason: "duplicate",
+          reason: "atomic_reward_failed",
         });
         continue;
-      } else {
-        logError("reward_log_create_failed", {
+      }
+
+      const rewardAmount = Number(data?.reward_amount ?? 0);
+      const reason = typeof data?.reason === "string" ? data.reason : undefined;
+
+      if (!data?.processed) {
+        log("reward_skipped", {
           level,
           referrer_id: referrerId,
-          error: logErr.message,
-          code: logErr.code,
+          reason: reason ?? "unknown",
+          earning_transaction_id: earningTransactionId,
         });
         results.push({
           level,
           referrerId,
           amount: rewardAmount,
           skipped: true,
-          reason: "reward_log_failed",
+          reason: reason ?? "skipped",
         });
         continue;
       }
-    }
-    log("reward_log_created", { level, referrer_id: referrerId });
 
-    // 2. Get current wallet balance
-    const { data: wallet, error: walletErr } = await admin
-      .from("wallets")
-      .select("balance")
-      .eq("user_id", referrerId)
-      .single();
-
-    if (walletErr || !wallet) {
-      logError("wallet_not_found", {
+      log("reward_processed", {
         level,
         referrer_id: referrerId,
-        error: walletErr?.message,
-      });
-      results.push({
-        level,
-        referrerId,
-        amount: rewardAmount,
-        skipped: true,
-        reason: "no_wallet",
-      });
-      continue;
-    }
-
-    const balanceBefore = Number(wallet.balance);
-    const balanceAfter = balanceBefore + rewardAmount;
-
-    // 3. Update wallet balance
-    const { error: updateErr } = await admin
-      .from("wallets")
-      .update({ balance: balanceAfter, updated_at: new Date().toISOString() })
-      .eq("user_id", referrerId);
-
-    if (updateErr) {
-      logError("wallet_update_failed", {
-        level,
-        referrer_id: referrerId,
-        error: updateErr.message,
-      });
-      results.push({
-        level,
-        referrerId,
-        amount: rewardAmount,
-        skipped: true,
-        reason: "wallet_update_failed",
-      });
-      continue;
-    }
-    log("wallet_updated", {
-      level,
-      referrer_id: referrerId,
-      balance_before: balanceBefore,
-      balance_after: balanceAfter,
-    });
-
-    // 4. Create transaction
-    const { error: txErr } = await admin.from("transactions").insert({
-      user_id: referrerId,
-      type: "referral_daily_bonus" as const,
-      amount: rewardAmount,
-      status: "completed" as const,
-      balance_before: balanceBefore,
-      balance_after: balanceAfter,
-      description: `Level ${level} daily mining referral bonus (${percent}%)`,
-      reference_id: earningTransactionId,
-      metadata: {
-        reward_type: "mining",
-        level,
-        percentage: percent,
+        reward: rewardAmount,
+        percent,
         earning_amount: earningAmount,
-        earner_user_id: earnerUserId,
-        investment_id: investmentId,
-      },
-    });
+        transaction_id: data.transaction_id,
+        balance_before: data.balance_before,
+        balance_after: data.balance_after,
+      });
 
-    if (txErr) {
-      logError("transaction_create_failed", {
+      results.push({ level, referrerId, amount: rewardAmount, skipped: false });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logError("atomic_reward_exception", {
         level,
         referrer_id: referrerId,
-        error: txErr.message,
+        earning_transaction_id: earningTransactionId,
+        error: message,
       });
-    } else {
-      log("transaction_created", { level, referrer_id: referrerId });
+      results.push({
+        level,
+        referrerId,
+        amount: 0,
+        skipped: true,
+        reason: "atomic_reward_exception",
+      });
     }
-
-    // 5. Update referrals.total_mining_rewards
-    const { data: currentRef } = await admin
-      .from("referrals")
-      .select("total_mining_rewards")
-      .eq("id", row.id)
-      .single();
-
-    if (currentRef) {
-      const newTotal = Number(currentRef.total_mining_rewards) + rewardAmount;
-      const { error: refUpdErr } = await admin
-        .from("referrals")
-        .update({ total_mining_rewards: newTotal })
-        .eq("id", row.id);
-
-      if (refUpdErr) {
-        logError("referral_total_update_failed", {
-          level,
-          referrer_id: referrerId,
-          error: refUpdErr.message,
-        });
-      }
-    }
-
-    results.push({ level, referrerId, amount: rewardAmount, skipped: false });
   }
 
   const rewarded = results.filter((r) => !r.skipped).length;
