@@ -57,6 +57,13 @@ export interface Database {
           daily_earning: number
           duration_days: number
           is_active: boolean
+          max_active_per_user: number
+          required_active_level1_referrals: number
+          required_active_level2_referrals: number
+          required_active_level3_referrals: number
+          display_order: number
+          is_popular: boolean
+          icon_key: string | null
           created_at: string
         }
         Insert: {
@@ -66,6 +73,13 @@ export interface Database {
           daily_earning: number
           duration_days: number
           is_active?: boolean
+          max_active_per_user?: number
+          required_active_level1_referrals?: number
+          required_active_level2_referrals?: number
+          required_active_level3_referrals?: number
+          display_order?: number
+          is_popular?: boolean
+          icon_key?: string | null
           created_at?: string
         }
         Update: {
@@ -74,6 +88,13 @@ export interface Database {
           daily_earning?: number
           duration_days?: number
           is_active?: boolean
+          max_active_per_user?: number
+          required_active_level1_referrals?: number
+          required_active_level2_referrals?: number
+          required_active_level3_referrals?: number
+          display_order?: number
+          is_popular?: boolean
+          icon_key?: string | null
         }
         Relationships: []
       }
@@ -432,6 +453,26 @@ export interface Database {
       }
       approve_deposit_tx: {
         Args: { p_deposit_id: string; p_admin_id: string; p_action: string; p_admin_note: string | null; p_amount?: number | null }
+        Returns: Json
+      }
+      purchase_plan_tx: {
+        Args: { p_user_id: string; p_plan_id: string }
+        Returns: Json
+      }
+      credit_investment_referral_reward: {
+        Args: {
+          p_referral_id: string
+          p_purchaser_user_id: string
+          p_referrer_user_id: string
+          p_investment_id: string
+          p_level: number
+          p_percent: number
+          p_investment_amount: number
+        }
+        Returns: Json
+      }
+      process_due_investment_earning: {
+        Args: { p_investment_id: string; p_run_id?: string | null; p_trigger_type?: string | null }
         Returns: Json
       }
     }
