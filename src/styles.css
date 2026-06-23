@@ -68,12 +68,32 @@ input:-webkit-autofill:focus {
   }
 }
 
-.app-content {
+.app-main-frame {
+  display: flex;
   flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: env(safe-area-inset-bottom, 0);
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+}
+
+@media (min-width: 1024px) {
+  .app-shell {
+    width: min(calc(100vw - 32px), 1180px);
+    max-width: 1180px;
+    flex-direction: row;
+    border-left: 1px solid #1a1a1a;
+    border-right: 1px solid #1a1a1a;
+  }
+
+  .desktop-side-rail {
+    background:
+      linear-gradient(180deg, rgba(0, 255, 65, 0.035) 0%, rgba(10, 10, 10, 0) 32%),
+      #0a0a0a;
+  }
+
+  .app-content {
+    padding-bottom: 0;
+  }
 }
 
 /* Bottom nav */
