@@ -11,6 +11,38 @@ interface RewardResult {
   reason?: string;
 }
 
+interface InvestmentRewardRpcResult {
+  processed?: boolean;
+  skipped?: boolean;
+  reason?: string | null;
+  level?: number;
+  referrer_user_id?: string;
+  reward_amount?: number;
+  transaction_id?: string;
+  balance_before?: number;
+  balance_after?: number;
+  investment_id?: string;
+  [key: string]: unknown;
+}
+
+type InvestmentRewardRpcClient = {
+  rpc(
+    fn: "credit_investment_referral_reward",
+    args: {
+      p_referral_id: string;
+      p_purchaser_user_id: string;
+      p_referrer_user_id: string;
+      p_investment_id: string;
+      p_level: number;
+      p_percent: number;
+      p_investment_amount: number;
+    },
+  ): Promise<{
+    data: InvestmentRewardRpcResult | null;
+    error: { message?: string; code?: string; details?: string; hint?: unknown } | null;
+  }>;
+};
+
 export async function processInvestmentReferralRewards(
   admin: Admin,
   purchaserId: string,
@@ -79,175 +111,86 @@ export async function processInvestmentReferralRewards(
       continue;
     }
 
-    // Anti-abuse: prevent self-reward
+    // Anti-abuse: prevent self-reward before calling the RPC. The RPC also
+    // enforces this so direct callers cannot bypass the rule.
     if (referrerId === purchaserId) {
       console.log(`${tag} level=${level} referrer=${referrerId} SKIP self-reward blocked`);
       results.push({ level, referrerId, amount: 0, skipped: true, reason: "self_reward" });
       continue;
     }
 
-    // Check for duplicate reward
-    const { data: existingLog } = await admin
-      .from("referral_reward_logs")
-      .select("id")
-      .eq("investment_id", investmentId)
-      .eq("referrer_user_id", referrerId)
-      .eq("level", level)
-      .eq("reward_type", "investment")
-      .maybeSingle();
-
-    if (existingLog) {
-      console.log(`${tag} level=${level} referrer=${referrerId} SKIP duplicate reward prevented`);
-      results.push({ level, referrerId, amount: 0, skipped: true, reason: "duplicate" });
-      continue;
-    }
-
-    // Eligibility: referrer must have at least one active investment
-    const { count: activeCount, error: activeErr } = await admin
-      .from("investments")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", referrerId)
-      .eq("status", "active");
-
-    if (activeErr) {
-      console.error(`${tag} level=${level} referrer=${referrerId} SKIP error checking active investments:`, activeErr.message);
-      results.push({ level, referrerId, amount: 0, skipped: true, reason: "eligibility_check_error" });
-      continue;
-    }
-
-    if (!activeCount || activeCount === 0) {
-      console.log(`${tag} level=${level} referrer=${referrerId} SKIP no active investment (inactive)`);
-      results.push({ level, referrerId, amount: 0, skipped: true, reason: "inactive" });
-      continue;
-    }
-
-    // Calculate reward
-    const rewardAmount = Math.round((investmentAmount * percent / 100) * 100) / 100;
-    console.log(`${tag} level=${level} referrer=${referrerId} reward=${rewardAmount} (${percent}% of ${investmentAmount})`);
-
-    // Get current wallet balance
-    const { data: wallet, error: walletErr } = await admin
-      .from("wallets")
-      .select("balance")
-      .eq("user_id", referrerId)
-      .single();
-
-    if (walletErr || !wallet) {
-      console.error(`${tag} level=${level} referrer=${referrerId} SKIP wallet not found:`, walletErr?.message);
-      results.push({ level, referrerId, amount: rewardAmount, skipped: true, reason: "no_wallet" });
-      continue;
-    }
-
-    const balanceBefore = Number(wallet.balance);
-    const balanceAfter = balanceBefore + rewardAmount;
-
-    // Update wallet balance
-    const { error: updateErr } = await admin
-      .from("wallets")
-      .update({ balance: balanceAfter })
-      .eq("user_id", referrerId);
-
-    if (updateErr) {
-      console.error(`${tag} level=${level} referrer=${referrerId} FAIL wallet update:`, updateErr.message);
-      results.push({ level, referrerId, amount: rewardAmount, skipped: true, reason: "wallet_update_failed" });
-      continue;
-    }
-    console.log(`${tag} level=${level} referrer=${referrerId} wallet updated ${balanceBefore} -> ${balanceAfter}`);
-
-    // Create transaction
-    const { error: txErr } = await admin
-      .from("transactions")
-      .insert({
-        user_id: referrerId,
-        type: "referral_investment_bonus" as const,
-        amount: rewardAmount,
-        status: "completed" as const,
-        balance_before: balanceBefore,
-        balance_after: balanceAfter,
-        description: `Level ${level} investment referral bonus (${percent}%)`,
-        reference_id: investmentId,
-        metadata: {
-          reward_type: "investment",
-          level,
-          percentage: percent,
-          investment_amount: investmentAmount,
-          purchaser_id: purchaserId,
+    try {
+      const { data, error } = await (admin as unknown as InvestmentRewardRpcClient).rpc(
+        "credit_investment_referral_reward",
+        {
+          p_referral_id: row.id,
+          p_purchaser_user_id: purchaserId,
+          p_referrer_user_id: referrerId,
+          p_investment_id: investmentId,
+          p_level: level,
+          p_percent: percent,
+          p_investment_amount: investmentAmount,
         },
-      });
+      );
 
-    if (txErr) {
-      console.error(`${tag} level=${level} referrer=${referrerId} WARN transaction insert failed:`, txErr.message);
-    } else {
-      console.log(`${tag} level=${level} referrer=${referrerId} transaction inserted`);
-    }
+      if (error) {
+        const message = [
+          error.message,
+          error.code && `code=${error.code}`,
+          error.details && `details=${error.details}`,
+        ]
+          .filter(Boolean)
+          .join(" | ");
 
-    // Create notification
-    console.log(`${tag} level=${level} referrer=${referrerId} notification_insert_started`);
-    const { error: notifErr } = await admin
-      .from("notifications")
-      .insert({
-        user_id: referrerId,
-        title: "Referral Bonus Received",
-        message: `You received a level ${level} investment referral bonus of ${rewardAmount} ETB.`,
-        is_read: false,
-        metadata: {
-          type: "referral_investment_bonus",
-          level,
-          amount: rewardAmount,
-          investment_id: investmentId,
-        },
-      });
-
-    if (notifErr) {
-      console.error(`${tag} level=${level} referrer=${referrerId} notification_insert_failed:`, notifErr.message, notifErr.code, notifErr.details);
-    } else {
-      console.log(`${tag} level=${level} referrer=${referrerId} notification_insert_success`);
-    }
-
-    // Update referrals.total_investment_rewards
-    const { data: currentRef } = await admin
-      .from("referrals")
-      .select("total_investment_rewards")
-      .eq("id", row.id)
-      .single();
-
-    if (currentRef) {
-      const newTotal = Number(currentRef.total_investment_rewards) + rewardAmount;
-      const { error: refUpdErr } = await admin
-        .from("referrals")
-        .update({ total_investment_rewards: newTotal })
-        .eq("id", row.id);
-
-      if (refUpdErr) {
-        console.error(`${tag} level=${level} referrer=${referrerId} WARN referral total update failed:`, refUpdErr.message);
-      } else {
-        console.log(`${tag} level=${level} referrer=${referrerId} referral total updated to ${newTotal}`);
+        console.error(`${tag} level=${level} referrer=${referrerId} RPC failed:`, message);
+        results.push({ level, referrerId, amount: 0, skipped: true, reason: "rpc_failed" });
+        continue;
       }
+
+      const rewardAmount = Number(data?.reward_amount ?? 0);
+      const skipped = Boolean(data?.skipped) || !data?.processed;
+      const reason = typeof data?.reason === "string" ? data.reason : skipped ? "skipped" : undefined;
+
+      if (skipped) {
+        console.log(`${tag} level=${level} referrer=${referrerId} SKIP ${reason ?? "skipped"}`);
+        results.push({ level, referrerId, amount: rewardAmount, skipped: true, reason });
+        continue;
+      }
+
+      console.log(`${tag} level=${level} referrer=${referrerId} reward=${rewardAmount} (${percent}% of ${investmentAmount})`);
+      console.log(`${tag} level=${level} referrer=${referrerId} transaction=${data?.transaction_id ?? "(unknown)"}`);
+
+      // Notification is intentionally best-effort. The wallet credit, reward log,
+      // referral total update, and transaction audit were already committed by
+      // the RPC; a notification failure should not undo them.
+      console.log(`${tag} level=${level} referrer=${referrerId} notification_insert_started`);
+      const { error: notifErr } = await admin
+        .from("notifications")
+        .insert({
+          user_id: referrerId,
+          title: "Referral Bonus Received",
+          message: `You received a level ${level} investment referral bonus of ${rewardAmount} ETB.`,
+          is_read: false,
+          metadata: {
+            type: "referral_investment_bonus",
+            level,
+            amount: rewardAmount,
+            investment_id: investmentId,
+            transaction_id: data?.transaction_id ?? null,
+          },
+        });
+
+      if (notifErr) {
+        console.error(`${tag} level=${level} referrer=${referrerId} notification_insert_failed:`, notifErr.message, notifErr.code, notifErr.details);
+      } else {
+        console.log(`${tag} level=${level} referrer=${referrerId} notification_insert_success`);
+      }
+
+      results.push({ level, referrerId, amount: rewardAmount, skipped: false });
+    } catch (err) {
+      console.error(`${tag} level=${level} referrer=${referrerId} ERROR:`, err instanceof Error ? err.message : String(err));
+      results.push({ level, referrerId, amount: 0, skipped: true, reason: "unexpected_error" });
     }
-
-    // Insert referral_reward_logs row
-    console.log(`${tag} level=${level} referrer=${referrerId} reward_log_insert_started`);
-    const { error: logErr } = await admin
-      .from("referral_reward_logs")
-      .insert({
-        investment_id: investmentId,
-        earning_reference_id: null,
-        purchaser_user_id: purchaserId,
-        earner_user_id: null,
-        referrer_user_id: referrerId,
-        referred_user_id: purchaserId,
-        level,
-        reward_type: "investment",
-        reward_amount: rewardAmount,
-      });
-
-    if (logErr) {
-      console.error(`${tag} level=${level} referrer=${referrerId} reward_log_insert_failed:`, logErr.message, logErr.code, logErr.details);
-    } else {
-      console.log(`${tag} level=${level} referrer=${referrerId} reward_log_insert_success`);
-    }
-
-    results.push({ level, referrerId, amount: rewardAmount, skipped: false });
   }
 
   const rewarded = results.filter(r => !r.skipped).length;
