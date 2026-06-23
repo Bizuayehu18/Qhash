@@ -76,6 +76,14 @@ input:-webkit-autofill:focus {
   height: 100%;
 }
 
+.app-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
 @media (min-width: 1024px) {
   .app-shell {
     width: min(calc(100vw - 32px), 1180px);
