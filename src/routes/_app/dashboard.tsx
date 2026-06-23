@@ -7,7 +7,6 @@ import {
   ChevronRight,
   ArrowDownCircle,
   ArrowUpCircle,
-  Zap,
   Server,
 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge.js";
@@ -207,15 +206,15 @@ function DashboardPage() {
 
           <div className="flex gap-3 mt-4">
             <Link to="/deposit" className="flex-1">
-              <button className="w-full flex items-center justify-center gap-1.5 bg-[#00ff41] text-black rounded-xl py-2.5 text-xs font-bold card-press">
+              <button className="w-full flex items-center justify-center gap-1.5 bg-[#00ff41] text-black rounded-xl py-2.5 text-xs font-bold card-press whitespace-nowrap">
                 <ArrowDownCircle size={14} />
                 Deposit
               </button>
             </Link>
-            <Link to="/withdraw" className="flex-1">
-              <button className="w-full flex items-center justify-center gap-1.5 bg-white/[0.06] border border-white/[0.08] text-gray-300 rounded-xl py-2.5 text-xs font-medium card-press">
-                <ArrowUpCircle size={14} />
-                Withdraw
+            <Link to="/plans" className="flex-1">
+              <button className="w-full flex items-center justify-center gap-1.5 bg-[rgba(0,255,65,0.08)] border border-[rgba(0,255,65,0.22)] text-[#00ff41] rounded-xl py-2.5 text-xs font-semibold card-press whitespace-nowrap">
+                <Layers size={14} />
+                Buy Contract
               </button>
             </Link>
           </div>
@@ -264,10 +263,10 @@ function DashboardPage() {
 
       {/* Quick Actions */}
       <div className="flex gap-3 overflow-x-auto hide-scrollbar -mx-4 px-4">
-        <Link to="/plans" className="shrink-0">
+        <Link to="/withdraw" className="shrink-0">
           <div className="flex items-center gap-2 premium-card rounded-xl px-4 py-3 card-press">
-            <Zap size={14} className="text-[#00ff41]" />
-            <span className="text-xs font-medium text-gray-300 whitespace-nowrap">Buy Plan</span>
+            <ArrowUpCircle size={14} className="text-[#00ff41]" />
+            <span className="text-xs font-medium text-gray-300 whitespace-nowrap">Withdraw</span>
           </div>
         </Link>
         <Link to="/referrals" className="shrink-0">
