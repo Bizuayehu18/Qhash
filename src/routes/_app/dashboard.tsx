@@ -170,9 +170,9 @@ function DashboardPage() {
   };
 
   return (
-    <div className="space-y-5 stagger-children">
+    <div className="space-y-5 stagger-children lg:grid lg:grid-cols-12 lg:gap-5 lg:space-y-0">
       {/* Greeting + Online Users */}
-      <div className="flex items-end justify-between">
+      <div className="flex items-end justify-between lg:col-span-12">
         <div>
           <p className="text-gray-500 text-xs">Welcome back</p>
           <h1 className="text-lg font-bold">@{profile?.username ?? "User"}</h1>
@@ -181,7 +181,7 @@ function DashboardPage() {
       </div>
 
       {/* Balance Card with Mining Animation */}
-      <div className="balance-card rounded-2xl p-5 mining-active relative">
+      <div className="balance-card rounded-2xl p-5 mining-active relative lg:col-span-8">
         {/* Mining animation background */}
         <div className="absolute inset-0 opacity-30">
           <MiningAnimation />
@@ -222,7 +222,7 @@ function DashboardPage() {
       </div>
 
       {/* Stats Row */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-3 lg:col-span-4 lg:grid-cols-1">
         <div className="premium-card rounded-xl p-3">
           <Cpu size={14} className="text-[#00ff41] mb-2" />
           <p className="text-sm font-bold stat-value-glow min-h-[20px]">
@@ -259,24 +259,26 @@ function DashboardPage() {
       </div>
 
       {/* Mining Network Status */}
-      <MiningStatus />
+      <div className="lg:col-span-8">
+        <MiningStatus />
+      </div>
 
       {/* Quick Actions */}
-      <div className="flex gap-3 overflow-x-auto hide-scrollbar -mx-4 px-4">
-        <Link to="/withdraw" className="shrink-0">
-          <div className="flex items-center gap-2 premium-card rounded-xl px-4 py-3 card-press">
+      <div className="flex gap-3 overflow-x-auto hide-scrollbar -mx-4 px-4 lg:col-span-4 lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0">
+        <Link to="/withdraw" className="shrink-0 lg:w-full">
+          <div className="flex items-center gap-2 premium-card rounded-xl px-4 py-3 card-press lg:w-full">
             <ArrowUpCircle size={14} className="text-[#00ff41]" />
             <span className="text-xs font-medium text-gray-300 whitespace-nowrap">Withdraw</span>
           </div>
         </Link>
-        <Link to="/referrals" className="shrink-0">
-          <div className="flex items-center gap-2 premium-card rounded-xl px-4 py-3 card-press">
+        <Link to="/referrals" className="shrink-0 lg:w-full">
+          <div className="flex items-center gap-2 premium-card rounded-xl px-4 py-3 card-press lg:w-full">
             <span className="text-xs">👥</span>
             <span className="text-xs font-medium text-gray-300 whitespace-nowrap">Invite & Earn</span>
           </div>
         </Link>
-        <Link to="/support" className="shrink-0">
-          <div className="flex items-center gap-2 premium-card rounded-xl px-4 py-3 card-press">
+        <Link to="/support" className="shrink-0 lg:w-full">
+          <div className="flex items-center gap-2 premium-card rounded-xl px-4 py-3 card-press lg:w-full">
             <span className="text-xs">💬</span>
             <span className="text-xs font-medium text-gray-300 whitespace-nowrap">Support</span>
           </div>
@@ -284,7 +286,7 @@ function DashboardPage() {
       </div>
 
       {/* Active Investments */}
-      <div>
+      <div className="lg:col-span-8">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold">Active Plans</h2>
           <Badge variant={activeInvestments.length > 0 ? "neon" : "default"}>
@@ -358,7 +360,7 @@ function DashboardPage() {
 
       {/* Completed Plans */}
       {completedInvestments.length > 0 && (
-        <div className="premium-card rounded-xl p-4">
+        <div className="premium-card rounded-xl p-4 lg:col-span-4 lg:order-last">
           <p className="text-xs font-semibold text-gray-400 mb-3">Completed Plans</p>
           <div className="space-y-2">
             {completedInvestments.slice(0, 3).map((inv) => (
@@ -372,10 +374,12 @@ function DashboardPage() {
       )}
 
       {/* Live Activity Feed */}
-      <ActivityFeed />
+      <div className="lg:col-span-4">
+        <ActivityFeed />
+      </div>
 
       {/* Recent Transactions */}
-      <div>
+      <div className="lg:col-span-8">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold">Recent Transactions</h2>
           <Link to="/transactions" className="text-[10px] text-gray-500 flex items-center gap-0.5">
