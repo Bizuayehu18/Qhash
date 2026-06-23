@@ -12,7 +12,6 @@ import {
   Lock,
   Server,
   ShieldCheck,
-  Users,
   Wallet,
   X,
   XCircle,
