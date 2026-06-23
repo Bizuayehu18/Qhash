@@ -10,12 +10,53 @@ alter table public.plans
   add column if not exists is_popular boolean not null default false,
   add column if not exists icon_key text;
 
-alter table public.plans
-  add constraint plans_max_active_per_user_positive check (max_active_per_user > 0) not valid,
-  add constraint plans_required_level1_nonnegative check (required_active_level1_referrals >= 0) not valid,
-  add constraint plans_required_level2_nonnegative check (required_active_level2_referrals >= 0) not valid,
-  add constraint plans_required_level3_nonnegative check (required_active_level3_referrals >= 0) not valid,
-  add constraint plans_display_order_nonnegative check (display_order >= 0) not valid;
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.plans'::regclass
+      and conname = 'plans_max_active_per_user_positive'
+  ) then
+    alter table public.plans
+      add constraint plans_max_active_per_user_positive check (max_active_per_user > 0) not valid;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.plans'::regclass
+      and conname = 'plans_required_level1_nonnegative'
+  ) then
+    alter table public.plans
+      add constraint plans_required_level1_nonnegative check (required_active_level1_referrals >= 0) not valid;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.plans'::regclass
+      and conname = 'plans_required_level2_nonnegative'
+  ) then
+    alter table public.plans
+      add constraint plans_required_level2_nonnegative check (required_active_level2_referrals >= 0) not valid;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.plans'::regclass
+      and conname = 'plans_required_level3_nonnegative'
+  ) then
+    alter table public.plans
+      add constraint plans_required_level3_nonnegative check (required_active_level3_referrals >= 0) not valid;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.plans'::regclass
+      and conname = 'plans_display_order_nonnegative'
+  ) then
+    alter table public.plans
+      add constraint plans_display_order_nonnegative check (display_order >= 0) not valid;
+  end if;
+end $$;
 
 -- Hide the previous plan set from new purchases while preserving historical plan_id references.
 update public.plans
