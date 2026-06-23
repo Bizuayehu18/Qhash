@@ -26,13 +26,73 @@ function validateAccessToken(data: unknown): { accessToken: string } {
   return { accessToken };
 }
 
+interface PurchasePlanRpcInvestment {
+  id: string;
+  plan_id?: string;
+  plan_name: string;
+  invested_amount: number;
+  daily_earning: number;
+  duration_days: number;
+  start_date: string;
+  end_date: string;
+  ends_at: string;
+  next_earning_at: string;
+  last_earning_at?: string;
+}
+
+interface PurchasePlanRpcResult {
+  success?: boolean;
+  code?: string;
+  balance?: number;
+  required?: number;
+  balance_before?: number;
+  balance_after?: number;
+  new_balance?: number;
+  transaction_id?: string;
+  investment?: PurchasePlanRpcInvestment;
+}
+
+type PurchasePlanRpcClient = {
+  rpc(
+    fn: "purchase_plan_tx",
+    args: { p_user_id: string; p_plan_id: string },
+  ): Promise<{
+    data: PurchasePlanRpcResult | null;
+    error: { message?: string; code?: string; details?: string; hint?: unknown } | null;
+  }>;
+};
+
+function throwPurchaseRpcFailure(result: PurchasePlanRpcResult | null): never {
+  const code = result?.code ?? "unknown";
+
+  switch (code) {
+    case "account_frozen":
+      throwSafe("PURCHASE", "Your account is frozen. Please contact support.", code);
+      break;
+    case "profile_not_found":
+      throwSafe("PURCHASE", "Unable to verify your account. Please contact support.", code);
+      break;
+    case "plan_not_found_or_inactive":
+    case "missing_plan_id":
+      throwSafe("PURCHASE", "Plan not found or no longer available.", code);
+      break;
+    case "wallet_not_found":
+      throwSafe("PURCHASE", "Unable to verify your wallet. Please contact support.", code);
+      break;
+    case "insufficient_balance":
+      throwSafe("PURCHASE", "Insufficient balance. Please deposit funds first.", code);
+      break;
+    default:
+      throwSafe("PURCHASE", "Failed to process purchase. Please try again.", `RPC returned ${code}`);
+  }
+}
+
 export const purchasePlanFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => validatePurchaseInput(data))
   .handler(async ({ data }) => {
     const { planId, accessToken } = data;
     const admin = getAdminClient();
 
-    // Step 1: Authenticate user
     console.log("[purchase] step=1_auth");
     const {
       data: { user: authUser },
@@ -43,219 +103,62 @@ export const purchasePlanFn = createServerFn({ method: "POST" })
       console.error("[purchase] step=1_auth FAILED:", authError?.message);
       throwSafe("PURCHASE", "Authentication failed. Please sign in again.", `Auth error: ${authError?.message}`);
     }
+
     const userId = authUser.id;
     console.log("[purchase] step=1_auth OK userId=" + userId);
+    console.log("[purchase] step=2_atomic_purchase planId=" + planId);
 
-    // Step 2: Verify user profile exists and is not frozen
-    console.log("[purchase] step=2_profile");
-    const { data: profile, error: profileError } = await admin
-      .from("profiles")
-      .select("id, is_frozen")
-      .eq("id", userId)
-      .single();
-
-    if (profileError || !profile) {
-      console.error(
-        "[purchase] step=2_profile FAILED:",
-        profileError?.message,
-        profileError?.code,
-      );
-      throwSafe("PURCHASE", "Unable to verify your account. Please contact support.", `Profile error: ${profileError?.message} code=${profileError?.code}`);
-    }
-    if (profile.is_frozen) {
-      console.error("[purchase] step=2_profile FAILED: account frozen");
-      throwSafe("PURCHASE", "Your account is frozen. Please contact support.", "Account frozen");
-    }
-    console.log("[purchase] step=2_profile OK");
-
-    // Step 3: Fetch and validate plan
-    console.log("[purchase] step=3_plan planId=" + planId);
-    const { data: plan, error: planError } = await admin
-      .from("plans")
-      .select("id, name, investment_amount, daily_earning, duration_days")
-      .eq("id", planId)
-      .eq("is_active", true)
-      .single();
-
-    if (planError || !plan) {
-      console.error(
-        "[purchase] step=3_plan FAILED:",
-        planError?.message,
-        planError?.code,
-      );
-      throwSafe("PURCHASE", "Plan not found or no longer available.", `Plan error: ${planError?.message} code=${planError?.code}`);
-    }
-    console.log(
-      "[purchase] step=3_plan OK name=" +
-        plan.name +
-        " amount=" +
-        plan.investment_amount,
+    const { data: result, error } = await (admin as unknown as PurchasePlanRpcClient).rpc(
+      "purchase_plan_tx",
+      {
+        p_user_id: userId,
+        p_plan_id: planId,
+      },
     );
 
-    // Step 4: Check wallet balance
-    console.log("[purchase] step=4_wallet");
-    const { data: wallet, error: walletError } = await admin
-      .from("wallets")
-      .select("balance")
-      .eq("user_id", userId)
-      .single();
+    if (error) {
+      const message = [
+        error.message,
+        error.code && `code=${error.code}`,
+        error.details && `details=${error.details}`,
+      ]
+        .filter(Boolean)
+        .join(" | ");
 
-    if (walletError || !wallet) {
-      console.error(
-        "[purchase] step=4_wallet FAILED:",
-        walletError?.message,
-        walletError?.code,
-      );
-      throwSafe("PURCHASE", "Unable to verify your wallet. Please contact support.", `Wallet error: ${walletError?.message} code=${walletError?.code}`);
+      console.error("[purchase] step=2_atomic_purchase FAILED:", message);
+      throwSafe("PURCHASE", "Failed to process purchase. Please try again.", message);
     }
 
-    const balanceBefore = Number(wallet.balance);
-    console.log(
-      "[purchase] step=4_wallet OK balance=" +
-        balanceBefore +
-        " required=" +
-        plan.investment_amount,
-    );
-
-    if (balanceBefore < plan.investment_amount) {
-      throwSafe("PURCHASE", "Insufficient balance. Please deposit funds first.", `Balance ${balanceBefore} < required ${plan.investment_amount}`);
+    if (!result?.success || !result.investment) {
+      console.error("[purchase] step=2_atomic_purchase REJECTED:", JSON.stringify(result));
+      throwPurchaseRpcFailure(result);
     }
 
-    // Step 5: Deduct wallet balance (conditional update prevents race conditions)
-    const balanceAfter = balanceBefore - plan.investment_amount;
-    console.log("[purchase] step=5_deduct amount=" + plan.investment_amount);
+    const investment = result.investment;
+    const newBalance = Number(result.new_balance ?? result.balance_after);
 
-    const { data: deducted, error: deductError } = await admin
-      .from("wallets")
-      .update({ balance: balanceAfter })
-      .eq("user_id", userId)
-      .gte("balance", plan.investment_amount)
-      .select("balance");
-
-    if (deductError) {
-      console.error(
-        "[purchase] step=5_deduct FAILED:",
-        deductError.message,
-        deductError.code,
-      );
-      throwSafe("PURCHASE", "Failed to process purchase. Please try again.", `Wallet deduct error: ${deductError.message} code=${deductError.code}`);
+    if (!Number.isFinite(newBalance)) {
+      console.error("[purchase] step=2_atomic_purchase FAILED: missing new balance", JSON.stringify(result));
+      throwSafe("PURCHASE", "Failed to process purchase. Please try again.", "RPC did not return a valid balance");
     }
-    if (!deducted || deducted.length === 0) {
-      console.error("[purchase] step=5_deduct FAILED: 0 rows matched (balance changed)");
-      throwSafe("PURCHASE", "Insufficient balance. Your balance may have changed.", "Race condition: 0 rows matched on wallet deduct");
-    }
-    const actualNewBalance = Number(deducted[0].balance);
-    console.log("[purchase] step=5_deduct OK newBalance=" + actualNewBalance);
 
-    // Step 6: Create investment record
-    const now = new Date();
-    const endDate = new Date(now.getTime() + plan.duration_days * 86400000);
-    const nextEarningDate = new Date(now.getTime() + 86400000);
-    const startIso = now.toISOString();
-    const endIso = endDate.toISOString();
-    const nextEarningIso = nextEarningDate.toISOString();
+    console.log("[purchase] step=2_atomic_purchase OK investment=" + investment.id + " newBalance=" + newBalance);
 
-    console.log("[purchase] step=6_investment");
-    const { data: investment, error: investError } = await admin
-      .from("investments")
-      .insert({
-        user_id: userId,
-        plan_id: planId,
-        invested_amount: plan.investment_amount,
-        daily_earning: plan.daily_earning,
-        start_date: startIso,
-        end_date: endIso,
-        ends_at: endIso,
-        next_earning_at: nextEarningIso,
-        status: "active" as const,
-        last_earning_at: startIso,
-      })
-      .select("id")
-      .single();
-
-    if (investError || !investment) {
-      console.error(
-        "[purchase] step=6_investment FAILED:",
-        investError?.message,
-        investError?.code,
-        investError?.details,
-      );
-      // Roll back wallet deduction
-      console.log("[purchase] step=6_rollback restoring balance=" + balanceBefore);
-      await admin
-        .from("wallets")
-        .update({ balance: balanceBefore })
-        .eq("user_id", userId);
-      throwSafe(
-        "PURCHASE",
-        "Failed to process purchase. Your balance has been restored. Please try again.",
-        `Investment insert error: ${investError?.message} code=${investError?.code} details=${investError?.details}`,
-      );
-    }
-    console.log("[purchase] step=6_investment OK id=" + investment.id);
-
-    // Step 7: Create transaction audit record
-    const txPayload = {
-      user_id: userId,
-      type: "plan_purchase" as const,
-      amount: plan.investment_amount,
-      status: "completed" as const,
-      balance_before: balanceBefore,
-      balance_after: actualNewBalance,
-      description: "Purchased " + plan.name,
-      reference_id: investment.id,
-      metadata: { plan_id: planId, plan_name: plan.name },
-    };
-    console.log(
-      "[purchase] step=7_transaction payload=" + JSON.stringify(txPayload),
-    );
-    console.log(
-      "[purchase] step=7_transaction field_types:" +
-        " user_id=" + typeof userId +
-        " type=" + typeof txPayload.type +
-        " amount=" + typeof txPayload.amount + "(" + txPayload.amount + ")" +
-        " reference_id=" + typeof txPayload.reference_id + "(" + txPayload.reference_id + ")",
-    );
-
-    const { data: txData, error: txError } = await admin
-      .from("transactions")
-      .insert(txPayload)
-      .select("id")
-      .single();
-
-    if (txError) {
-      console.error(
-        "[purchase] step=7_transaction FAILED:",
-        JSON.stringify({
-          message: txError.message,
-          code: txError.code,
-          details: txError.details,
-          hint: txError.hint ?? null,
-          status: null,
-          payload: txPayload,
-        }),
-      );
-      throwSafe(
-        "PURCHASE",
-        "Purchase completed but transaction record failed. Please contact support.",
-        `Transaction insert error: ${txError.message} code=${txError.code} details=${txError.details}`,
-      );
-    }
-    console.log("[purchase] step=7_transaction OK id=" + txData.id);
-
-    // Step 8: Process referral rewards (non-blocking — purchase is already complete)
-    console.log("[purchase] step=8_referral_rewards");
+    // Referral rewards are intentionally best-effort after the purchaser's atomic
+    // purchase commits. A referrer credit failure must not roll back the buyer's
+    // completed investment.
+    console.log("[purchase] step=3_referral_rewards");
     try {
       const rewardResults = await processInvestmentReferralRewards(
         admin,
         userId,
         investment.id,
-        plan.investment_amount,
+        Number(investment.invested_amount),
       );
       const rewarded = rewardResults.filter(r => !r.skipped).length;
-      console.log("[purchase] step=8_referral_rewards OK rewarded=" + rewarded + " total=" + rewardResults.length);
+      console.log("[purchase] step=3_referral_rewards OK rewarded=" + rewarded + " total=" + rewardResults.length);
     } catch (refErr) {
-      console.error("[purchase] step=8_referral_rewards ERROR (non-fatal):", refErr instanceof Error ? refErr.message : String(refErr));
+      console.error("[purchase] step=3_referral_rewards ERROR (non-fatal):", refErr instanceof Error ? refErr.message : String(refErr));
     }
 
     console.log("[purchase] COMPLETED successfully");
@@ -263,16 +166,16 @@ export const purchasePlanFn = createServerFn({ method: "POST" })
     return {
       investment: {
         id: investment.id,
-        plan_name: plan.name,
-        invested_amount: plan.investment_amount,
-        daily_earning: plan.daily_earning,
-        duration_days: plan.duration_days,
-        start_date: startIso,
-        end_date: endIso,
-        ends_at: endIso,
-        next_earning_at: nextEarningIso,
+        plan_name: investment.plan_name,
+        invested_amount: Number(investment.invested_amount),
+        daily_earning: Number(investment.daily_earning),
+        duration_days: Number(investment.duration_days),
+        start_date: investment.start_date,
+        end_date: investment.end_date,
+        ends_at: investment.ends_at,
+        next_earning_at: investment.next_earning_at,
       },
-      newBalance: actualNewBalance,
+      newBalance,
     };
   });
 
