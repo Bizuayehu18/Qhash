@@ -45,6 +45,10 @@ interface PurchasePlanRpcResult {
   code?: string;
   balance?: number;
   required?: number;
+  active_plan_count?: number;
+  max_active_per_user?: number;
+  active_referrals?: { level1?: number; level2?: number; level3?: number };
+  required_referrals?: { level1?: number; level2?: number; level3?: number };
   balance_before?: number;
   balance_after?: number;
   new_balance?: number;
@@ -74,10 +78,16 @@ function throwPurchaseRpcFailure(result: PurchasePlanRpcResult | null): never {
       break;
     case "plan_not_found_or_inactive":
     case "missing_plan_id":
-      throwSafe("PURCHASE", "Plan not found or no longer available.", code);
+      throwSafe("PURCHASE", "Contract not found or no longer available.", code);
       break;
     case "wallet_not_found":
       throwSafe("PURCHASE", "Unable to verify your wallet. Please contact support.", code);
+      break;
+    case "plan_limit_reached":
+      throwSafe("PURCHASE", "Active contract limit reached. You can buy again after one expires.", JSON.stringify(result));
+      break;
+    case "referral_requirement_not_met":
+      throwSafe("PURCHASE", "Referral requirement not met for this contract.", JSON.stringify(result));
       break;
     case "insufficient_balance":
       throwSafe("PURCHASE", "Insufficient balance. Please deposit funds first.", code);
