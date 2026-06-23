@@ -206,13 +206,13 @@ function DashboardPage() {
 
           <div className="flex gap-3 mt-4">
             <Link to="/deposit" className="flex-1">
-              <button className="w-full flex items-center justify-center gap-1.5 bg-[#00ff41] text-black rounded-xl py-2.5 text-xs font-bold card-press">
+              <button className="w-full flex items-center justify-center gap-1.5 bg-[#00ff41] text-black rounded-xl py-2.5 text-xs font-bold card-press whitespace-nowrap">
                 <ArrowDownCircle size={14} />
                 Deposit
               </button>
             </Link>
             <Link to="/plans" className="flex-1">
-              <button className="w-full flex items-center justify-center gap-1.5 bg-[rgba(0,255,65,0.08)] border border-[rgba(0,255,65,0.22)] text-[#00ff41] rounded-xl py-2.5 text-xs font-semibold card-press">
+              <button className="w-full flex items-center justify-center gap-1.5 bg-[rgba(0,255,65,0.08)] border border-[rgba(0,255,65,0.22)] text-[#00ff41] rounded-xl py-2.5 text-xs font-semibold card-press whitespace-nowrap">
                 <Layers size={14} />
                 Buy Contract
               </button>
