@@ -162,7 +162,7 @@ function TransactionsPage() {
   }, [loadTransactions]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 lg:max-w-3xl lg:mx-auto">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold">Transactions</h1>
         {transactionsLoaded && transactions.length > 0 && (
@@ -173,7 +173,7 @@ function TransactionsPage() {
       </div>
 
       {/* Filter pills */}
-      <div className="flex gap-2 overflow-x-auto hide-scrollbar -mx-4 px-4 pb-1">
+      <div className="flex gap-2 overflow-x-auto hide-scrollbar -mx-4 px-4 pb-1 lg:mx-0 lg:px-0">
         {FILTER_TABS.map((tab) => (
           <button
             key={tab.key}
