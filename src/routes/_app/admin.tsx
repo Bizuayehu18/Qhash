@@ -240,9 +240,9 @@ function OverviewTab({ userId }: { userId: string | undefined }) {
   }, [loadOverview]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 lg:grid lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
       {/* Stat cards */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 lg:col-span-12 lg:grid-cols-4">
         {[
           { label: "Total Users", value: stats?.totalUsers, icon: <Users size={14} /> },
           { label: "Active Plans", value: stats?.activeInvestments, icon: <ShieldCheck size={14} /> },
@@ -270,7 +270,7 @@ function OverviewTab({ userId }: { userId: string | undefined }) {
       </div>
 
       {/* Recent Users */}
-      <div>
+      <div className="lg:col-span-8">
         <h2 className="text-xs font-semibold text-gray-400 mb-2">Recent Users</h2>
         {!statsLoaded ? (
           <div className="space-y-2">{[1, 2, 3].map((i) => <div key={i} className="skeleton h-12 rounded-xl" />)}</div>
@@ -294,7 +294,7 @@ function OverviewTab({ userId }: { userId: string | undefined }) {
       </div>
 
       {/* Pending Withdrawals */}
-      <div>
+      <div className="lg:col-span-4">
         <h2 className="text-xs font-semibold text-gray-400 mb-2">Pending Withdrawals</h2>
         {!statsLoaded ? (
           <div className="skeleton h-16 rounded-xl" />
