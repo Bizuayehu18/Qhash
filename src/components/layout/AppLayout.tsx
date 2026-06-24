@@ -14,6 +14,11 @@ interface BottomTab {
   icon: React.ComponentType<{ size?: number; className?: string }>
 }
 
+interface RouteSectionLabel {
+  to: string
+  label: string
+}
+
 const BOTTOM_TABS: BottomTab[] = [
   { to: '/dashboard', label: 'Home', icon: Home },
   { to: '/plans', label: 'Plans', icon: Layers },
@@ -21,6 +26,31 @@ const BOTTOM_TABS: BottomTab[] = [
   { to: '/referrals', label: 'Team', icon: Users },
   { to: '/profile', label: 'Profile', icon: User },
 ]
+
+const ROUTE_SECTION_LABELS: RouteSectionLabel[] = [
+  { to: '/withdraw', label: 'Withdraw' },
+  { to: '/transactions', label: 'Transactions' },
+  { to: '/notifications', label: 'Notifications' },
+  { to: '/security', label: 'Security' },
+  { to: '/support', label: 'Support' },
+  { to: '/admin-earnings', label: 'Admin Earnings' },
+  { to: '/admin', label: 'Admin' },
+]
+
+function matchesRoute(pathname: string, route: string) {
+  return pathname === route || pathname.startsWith(`${route}/`)
+}
+
+function getSectionLabel(pathname: string) {
+  const tabLabel = BOTTOM_TABS.find((tab) => {
+    if (tab.to === '/dashboard') return pathname === '/dashboard' || pathname === '/'
+    return matchesRoute(pathname, tab.to)
+  })?.label
+
+  if (tabLabel) return tabLabel
+
+  return ROUTE_SECTION_LABELS.find((route) => matchesRoute(pathname, route.to))?.label ?? 'QHash'
+}
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const { profile, user } = useAuthStore()
@@ -51,7 +81,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     return location.pathname.startsWith(to)
   }
 
-  const currentSection = BOTTOM_TABS.find((tab) => isActive(tab.to))?.label ?? 'QHash'
+  const currentSection = getSectionLabel(location.pathname)
 
   const showAdminEarningsLink =
     profile?.is_admin &&
