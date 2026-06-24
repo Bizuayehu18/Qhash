@@ -239,61 +239,65 @@ function WithdrawPage() {
   };
 
   return (
-    <div className="space-y-4 pb-20">
-      <div>
+    <div className="space-y-4 pb-20 lg:grid lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
+      <div className="lg:col-span-12">
         <h1 className="text-lg font-bold">Withdraw</h1>
         <p className="text-xs text-gray-500 mt-1">Request a withdrawal to your CBE or TeleBirr account</p>
       </div>
 
-      <NoticeCard />
-      <BalanceCard walletBalance={walletBalance} />
+      <div className="space-y-4 lg:col-span-4 lg:order-2">
+        <NoticeCard />
+        <BalanceCard walletBalance={walletBalance} />
+      </div>
 
-      {!method ? (
-        <section className="space-y-2.5">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-sm font-semibold">Method</h2>
-              <p className="text-[11px] text-gray-500 mt-0.5">Choose where to receive your funds.</p>
+      <div className="space-y-4 lg:col-span-8 lg:order-1">
+        {!method ? (
+          <section className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold">Method</h2>
+                <p className="text-[11px] text-gray-500 mt-0.5">Choose where to receive your funds.</p>
+              </div>
+              <Badge variant="neon" className="text-[9px]">Secure</Badge>
             </div>
-            <Badge variant="neon" className="text-[9px]">Secure</Badge>
-          </div>
-          <div className="overflow-hidden rounded-xl border border-[#1f1f1f] bg-[#111]">
-            {(["cbe", "telebirr"] as WithdrawalMethod[]).map((value, index) => (
-              <MethodSelectorRow key={value} method={value} isLast={index === 1} onClick={() => setMethod(value)} />
-            ))}
-          </div>
-        </section>
-      ) : (
-        <section className="rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111] p-3.5 space-y-3.5">
-          <div className="flex items-center gap-3">
-            <button type="button" onClick={changeMethod} className="grid h-8 w-8 place-items-center rounded-lg border border-[#1f1f1f] bg-[#0b0b0b] text-gray-500 transition-colors hover:border-[rgba(0,255,65,0.35)] hover:text-[#00ff41] card-press" aria-label="Change withdrawal method">
-              <ArrowLeft size={14} />
-            </button>
-            <div className="grid h-8 w-8 place-items-center rounded-lg bg-[rgba(0,255,65,0.07)] text-[#00ff41]">{selectedMeta?.icon}</div>
-            <div className="min-w-0 flex-1">
-              <h2 className="text-sm font-semibold leading-tight">{selectedMeta?.title}</h2>
-              <p className="text-[10px] text-gray-500 mt-0.5">{selectedMeta?.description}</p>
+            <div className="overflow-hidden rounded-xl border border-[#1f1f1f] bg-[#111]">
+              {(["cbe", "telebirr"] as WithdrawalMethod[]).map((value, index) => (
+                <MethodSelectorRow key={value} method={value} isLast={index === 1} onClick={() => setMethod(value)} />
+              ))}
             </div>
-            <Badge variant="neon" className="shrink-0 text-[9px]">{method ? METHOD_LABELS[method] : ""}</Badge>
-          </div>
+          </section>
+        ) : (
+          <section className="rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111] p-3.5 space-y-3.5">
+            <div className="flex items-center gap-3">
+              <button type="button" onClick={changeMethod} className="grid h-8 w-8 place-items-center rounded-lg border border-[#1f1f1f] bg-[#0b0b0b] text-gray-500 transition-colors hover:border-[rgba(0,255,65,0.35)] hover:text-[#00ff41] card-press" aria-label="Change withdrawal method">
+                <ArrowLeft size={14} />
+              </button>
+              <div className="grid h-8 w-8 place-items-center rounded-lg bg-[rgba(0,255,65,0.07)] text-[#00ff41]">{selectedMeta?.icon}</div>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-sm font-semibold leading-tight">{selectedMeta?.title}</h2>
+                <p className="text-[10px] text-gray-500 mt-0.5">{selectedMeta?.description}</p>
+              </div>
+              <Badge variant="neon" className="shrink-0 text-[9px]">{method ? METHOD_LABELS[method] : ""}</Badge>
+            </div>
 
-          <div className="grid gap-3.5">
-            <SectionLabel title="Withdrawal Details" />
-            <Input label="Amount (ETB)" type="text" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" hint={`Minimum withdrawal is ${MIN_WITHDRAWAL_AMOUNT} ETB.`} />
-            <Input label={selectedMeta?.nameLabel ?? "Account Name"} type="text" placeholder="Enter account holder name" value={accountName} onChange={(e) => setAccountName(e.target.value)} />
-            <Input label={selectedMeta?.numberLabel ?? "Account Number"} type="text" placeholder={selectedMeta?.numberPlaceholder ?? "Enter account number"} value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} />
-            <SectionLabel title="Security Verification" />
-            <Input label="Fund Password" type="password" placeholder="Enter 4-digit fund password" value={fundPassword} onChange={(e) => setFundPassword(onlyFourDigits(e.target.value))} inputMode="numeric" maxLength={4} autoComplete="current-password" hint="Required for every withdrawal. Manage it from Profile → Security." />
-            {parsedAmount > 0 && <SummaryCard amount={parsedAmount} fee={feeAmount} net={netAmount} />}
-            {!hasEnoughBalance && <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-[11px] text-red-400">Insufficient wallet balance for this withdrawal amount.</div>}
-            <Button fullWidth loading={submitting} disabled={submitting || parsedAmount < MIN_WITHDRAWAL_AMOUNT || !hasEnoughBalance || accountName.trim().length < 2 || accountNumber.trim().length < 5 || fundPassword.length !== 4} onClick={handleSubmit}>
-              {selectedMeta?.submitLabel ?? "Submit Withdrawal"}
-            </Button>
-          </div>
-        </section>
-      )}
+            <div className="grid gap-3.5">
+              <SectionLabel title="Withdrawal Details" />
+              <Input label="Amount (ETB)" type="text" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" hint={`Minimum withdrawal is ${MIN_WITHDRAWAL_AMOUNT} ETB.`} />
+              <Input label={selectedMeta?.nameLabel ?? "Account Name"} type="text" placeholder="Enter account holder name" value={accountName} onChange={(e) => setAccountName(e.target.value)} />
+              <Input label={selectedMeta?.numberLabel ?? "Account Number"} type="text" placeholder={selectedMeta?.numberPlaceholder ?? "Enter account number"} value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} />
+              <SectionLabel title="Security Verification" />
+              <Input label="Fund Password" type="password" placeholder="Enter 4-digit fund password" value={fundPassword} onChange={(e) => setFundPassword(onlyFourDigits(e.target.value))} inputMode="numeric" maxLength={4} autoComplete="current-password" hint="Required for every withdrawal. Manage it from Profile → Security." />
+              {parsedAmount > 0 && <SummaryCard amount={parsedAmount} fee={feeAmount} net={netAmount} />}
+              {!hasEnoughBalance && <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-[11px] text-red-400">Insufficient wallet balance for this withdrawal amount.</div>}
+              <Button fullWidth loading={submitting} disabled={submitting || parsedAmount < MIN_WITHDRAWAL_AMOUNT || !hasEnoughBalance || accountName.trim().length < 2 || accountNumber.trim().length < 5 || fundPassword.length !== 4} onClick={handleSubmit}>
+                {selectedMeta?.submitLabel ?? "Submit Withdrawal"}
+              </Button>
+            </div>
+          </section>
+        )}
 
-      <WithdrawalHistory withdrawals={withdrawals} historyLoaded={historyLoaded} />
+        <WithdrawalHistory withdrawals={withdrawals} historyLoaded={historyLoaded} />
+      </div>
     </div>
   );
 }
