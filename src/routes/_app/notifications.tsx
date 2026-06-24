@@ -225,7 +225,7 @@ function NotificationsPage() {
   const unreadCount = notifications.filter((n) => !n.is_read).length;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 lg:max-w-3xl lg:mx-auto">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold">Notifications</h1>
