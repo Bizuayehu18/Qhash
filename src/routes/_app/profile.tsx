@@ -70,9 +70,9 @@ function ProfilePage() {
   });
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 lg:mx-auto lg:grid lg:max-w-4xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
       {/* Profile card */}
-      <div className="bg-[#111] rounded-2xl border border-[#1a1a1a] p-5 text-center">
+      <div className="bg-[#111] rounded-2xl border border-[#1a1a1a] p-5 text-center lg:col-span-4">
         <div className="h-16 w-16 rounded-full bg-[rgba(0,255,65,0.1)] border-2 border-[rgba(0,255,65,0.25)] flex items-center justify-center mx-auto mb-3">
           <User size={28} className="text-[#00ff41]" />
         </div>
@@ -92,7 +92,7 @@ function ProfilePage() {
       </div>
 
       {/* Menu items */}
-      <div className="bg-[#111] rounded-xl border border-[#1a1a1a] divide-y divide-[#1a1a1a]">
+      <div className="bg-[#111] rounded-xl border border-[#1a1a1a] divide-y divide-[#1a1a1a] lg:col-span-8">
         {menuItems.map((item) => (
           <Link
             key={item.to}
@@ -119,13 +119,13 @@ function ProfilePage() {
       {/* Sign out */}
       <button
         onClick={handleSignOut}
-        className="w-full flex items-center justify-center gap-2 bg-[#111] border border-[#1a1a1a] rounded-xl py-3.5 text-red-400 text-sm font-medium card-press"
+        className="w-full flex items-center justify-center gap-2 bg-[#111] border border-[#1a1a1a] rounded-xl py-3.5 text-red-400 text-sm font-medium card-press lg:col-span-12"
       >
         <LogOut size={16} />
         Sign Out
       </button>
 
-      <p className="text-center text-[10px] text-gray-700 pb-4">
+      <p className="text-center text-[10px] text-gray-700 pb-4 lg:col-span-12">
         QHash v1.0 — Cloud Mining Platform
       </p>
     </div>
