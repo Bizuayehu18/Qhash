@@ -281,7 +281,7 @@ function SecurityPage() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 lg:max-w-3xl lg:mx-auto">
       <div className="flex items-center gap-3">
         <ShieldCheck size={18} className="text-[#00ff41]" />
         <div>
@@ -291,7 +291,7 @@ function SecurityPage() {
         <Badge variant="neon" className="ml-auto">Protected</Badge>
       </div>
 
-      <div className="flex gap-2 overflow-x-auto hide-scrollbar -mx-4 px-4 pb-1">
+      <div className="flex gap-2 overflow-x-auto hide-scrollbar -mx-4 px-4 pb-1 lg:mx-0 lg:px-0">
         {([
           { key: "login", label: "Login Password" },
           { key: "fund", label: "Fund Password" },
