@@ -119,8 +119,8 @@ function AdminEarningsPage() {
   };
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center gap-3">
+    <div className="space-y-5 lg:grid lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
+      <div className="flex items-center gap-3 lg:col-span-12">
         <ShieldCheck size={18} className="text-[#00ff41]" />
         <div>
           <h1 className="text-lg font-bold">Earnings Processor</h1>
@@ -129,7 +129,7 @@ function AdminEarningsPage() {
         <Badge variant="neon" className="ml-auto">Admin</Badge>
       </div>
 
-      <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-4 space-y-4">
+      <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-4 space-y-4 lg:col-span-4">
         <div className="flex items-start gap-3">
           <Clock size={16} className="text-[#00ff41] mt-0.5 shrink-0" />
           <div>
@@ -145,7 +145,7 @@ function AdminEarningsPage() {
         {result && <RunSummaryGrid result={result} />}
       </div>
 
-      <section className="bg-[#111] rounded-xl border border-[#1a1a1a] p-4 space-y-3">
+      <section className="bg-[#111] rounded-xl border border-[#1a1a1a] p-4 space-y-3 lg:col-span-8">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-gray-200">Earning Run History</h2>
@@ -170,7 +170,7 @@ function AdminEarningsPage() {
         )}
       </section>
 
-      <Button variant="secondary" onClick={() => navigate({ to: "/admin" })} className="w-full">
+      <Button variant="secondary" onClick={() => navigate({ to: "/admin" })} className="w-full lg:col-span-12">
         Back to admin
       </Button>
     </div>
