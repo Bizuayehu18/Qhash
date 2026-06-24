@@ -123,7 +123,7 @@ function SupportPage() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 lg:max-w-3xl lg:mx-auto">
       <div>
         <h1 className="text-lg font-bold">Support</h1>
         <p className="text-xs text-gray-500 mt-1">Get help from the official QHash support team</p>
