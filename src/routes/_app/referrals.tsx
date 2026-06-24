@@ -164,15 +164,15 @@ function ReferralsPage() {
   }
 
   return (
-    <div className="space-y-5">
-      <div>
+    <div className="space-y-5 lg:mx-auto lg:grid lg:max-w-4xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
+      <div className="lg:col-span-12">
         <h1 className="text-lg font-bold">Team</h1>
         <p className="text-xs text-gray-500 mt-1">
           Invite friends, earn commissions
         </p>
       </div>
 
-      <Card neon>
+      <Card neon className="lg:col-span-12">
         <div className="flex items-center gap-2 mb-3">
           <Link2 size={16} className="text-[#00ff41]" />
           <span className="text-xs font-semibold text-[#00ff41] uppercase tracking-wider">
@@ -211,7 +211,7 @@ function ReferralsPage() {
         )}
       </Card>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-3 lg:col-span-4 lg:grid-cols-1">
         <StatCard icon={<Users size={18} />} label="Total" value={stats.total} loading={!statsLoaded} />
         <StatCard icon={<UserCheck size={18} />} label="Active" value={stats.active} accent loading={!statsLoaded} />
         <StatCard
@@ -223,7 +223,7 @@ function ReferralsPage() {
         />
       </div>
 
-      <Card>
+      <Card className="lg:col-span-8">
         <div className="flex items-center justify-between mb-4">
           <span className="text-sm font-semibold text-gray-100">
             Commission Tiers
