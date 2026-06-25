@@ -8,9 +8,17 @@ import {
   ArrowDownCircle,
   ArrowUpCircle,
   Server,
+  Users,
+  MessageCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
+import { SectionHeader } from "@/components/ui/SectionHeader.js";
+import { StatTile } from "@/components/ui/StatTile.js";
+import { ListPanel } from "@/components/ui/ListPanel.js";
+import { ListRow } from "@/components/ui/ListRow.js";
+import { EmptyState } from "@/components/ui/EmptyState.js";
+import { AmountText } from "@/components/ui/AmountText.js";
 import { TxIcon, txLabel, isOutgoingTx } from "@/components/ui/TransactionHelpers.js";
 import { MiningStatus } from "@/components/ui/MiningStatus.js";
 import { ActivityFeed } from "@/components/ui/ActivityFeed.js";
@@ -170,49 +178,49 @@ function DashboardPage() {
   };
 
   return (
-    <div className="space-y-5 stagger-children lg:grid lg:grid-cols-12 lg:gap-5 lg:space-y-0">
+    <div className="space-y-4 stagger-children lg:grid lg:grid-cols-12 lg:gap-5 lg:space-y-0">
       {/* Greeting + Online Users */}
       <div className="flex items-end justify-between lg:col-span-12">
         <div>
-          <p className="text-gray-500 text-xs">Welcome back</p>
-          <h1 className="text-lg font-bold">@{profile?.username ?? "User"}</h1>
+          <p className="text-xs text-gray-500">Welcome back</p>
+          <h1 className="text-lg font-bold leading-tight">@{profile?.username ?? "User"}</h1>
         </div>
         <OnlineUsers />
       </div>
 
       {/* Balance Card with Mining Animation */}
-      <div className="balance-card rounded-2xl p-5 mining-active relative lg:col-span-8">
+      <div className="balance-card mining-active relative overflow-hidden rounded-2xl p-4 lg:col-span-8 lg:p-5">
         {/* Mining animation background */}
         <div className="absolute inset-0 opacity-30">
           <MiningAnimation />
         </div>
 
         <div className="relative z-10">
-          <div className="flex items-center justify-between mb-1">
+          <div className="mb-1 flex items-center justify-between">
             <p className="text-xs text-gray-500">Total Balance</p>
             <div className="flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 rounded-full bg-[#00ff41] status-pulse" />
               <span className="text-[10px] text-gray-600">Mining Active</span>
             </div>
           </div>
-          <p className="text-3xl font-black neon-text tracking-tight min-h-[40px] flex items-baseline">
+          <p className="flex min-h-[38px] items-baseline text-3xl font-black tracking-tight neon-text">
             {balance === null ? (
               <span className="skeleton inline-block h-8 w-28 rounded-md" aria-label="Loading balance" />
             ) : (
               balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
             )}
-            <span className="text-sm font-normal text-gray-500 ml-1.5">ETB</span>
+            <span className="ml-1.5 text-sm font-normal text-gray-500">ETB</span>
           </p>
 
-          <div className="flex gap-3 mt-4">
+          <div className="mt-3 flex gap-2.5">
             <Link to="/deposit" className="flex-1">
-              <button className="w-full flex items-center justify-center gap-1.5 bg-[#00ff41] text-black rounded-xl py-2.5 text-xs font-bold card-press whitespace-nowrap">
+              <button className="flex w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-[#00ff41] py-2.5 text-xs font-bold text-black card-press">
                 <ArrowDownCircle size={14} />
                 Deposit
               </button>
             </Link>
             <Link to="/plans" className="flex-1">
-              <button className="w-full flex items-center justify-center gap-1.5 bg-[rgba(0,255,65,0.08)] border border-[rgba(0,255,65,0.22)] text-[#00ff41] rounded-xl py-2.5 text-xs font-semibold card-press whitespace-nowrap">
+              <button className="flex w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-[rgba(0,255,65,0.22)] bg-[rgba(0,255,65,0.08)] py-2.5 text-xs font-semibold text-[#00ff41] card-press">
                 <Layers size={14} />
                 Buy Contract
               </button>
@@ -222,40 +230,31 @@ function DashboardPage() {
       </div>
 
       {/* Stats Row */}
-      <div className="grid grid-cols-3 gap-3 lg:col-span-4 lg:grid-cols-1">
-        <div className="premium-card rounded-xl p-3">
-          <Cpu size={14} className="text-[#00ff41] mb-2" />
-          <p className="text-sm font-bold stat-value-glow min-h-[20px]">
-            {dailyEarningRate === null ? (
-              <span className="skeleton inline-block h-4 w-14 rounded" aria-label="Loading daily earning" />
-            ) : (
-              dailyEarningRate.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-            )}
-          </p>
-          <p className="text-[10px] text-gray-600">ETB/day</p>
-        </div>
-        <div className="premium-card rounded-xl p-3">
-          <TrendingUp size={14} className="text-[#00ff41] mb-2" />
-          <p className="text-sm font-bold stat-value-glow min-h-[20px]">
-            {totalEarned === null ? (
-              <span className="skeleton inline-block h-4 w-14 rounded" aria-label="Loading total earned" />
-            ) : (
-              totalEarned.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-            )}
-          </p>
-          <p className="text-[10px] text-gray-600">Total Earned</p>
-        </div>
-        <div className="premium-card rounded-xl p-3">
-          <Layers size={14} className="text-[#00ff41] mb-2" />
-          <p className="text-sm font-bold stat-value-glow min-h-[20px]">
-            {hasDashboardData ? (
-              activeInvestments.length
-            ) : (
-              <span className="skeleton inline-block h-4 w-8 rounded" aria-label="Loading active plans" />
-            )}
-          </p>
-          <p className="text-[10px] text-gray-600">Active Plans</p>
-        </div>
+      <div className="grid grid-cols-3 gap-2.5 lg:col-span-4 lg:grid-cols-1 lg:gap-3">
+        <StatTile
+          icon={<Cpu size={14} />}
+          label="Daily"
+          value={dailyEarningRate === null ? "" : <AmountText value={dailyEarningRate} currency="" size="sm" className="stat-value-glow" />}
+          caption="ETB/day"
+          accent
+          loading={dailyEarningRate === null}
+        />
+        <StatTile
+          icon={<TrendingUp size={14} />}
+          label="Earned"
+          value={totalEarned === null ? "" : <AmountText value={totalEarned} currency="" size="sm" className="stat-value-glow" />}
+          caption="Total"
+          accent
+          loading={totalEarned === null}
+        />
+        <StatTile
+          icon={<Layers size={14} />}
+          label="Plans"
+          value={activeInvestments.length}
+          caption="Active"
+          accent
+          loading={!hasDashboardData}
+        />
       </div>
 
       {/* Mining Network Status */}
@@ -266,50 +265,57 @@ function DashboardPage() {
       {/* Quick Actions */}
       <div className="flex gap-3 overflow-x-auto hide-scrollbar -mx-4 px-4 lg:col-span-4 lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0">
         <Link to="/withdraw" className="shrink-0 lg:w-full">
-          <div className="flex items-center gap-2 premium-card rounded-xl px-4 py-3 card-press lg:w-full">
+          <div className="flex items-center gap-2 rounded-xl border border-[#1a1a1a] bg-[#111] px-4 py-3 card-press lg:w-full">
             <ArrowUpCircle size={14} className="text-[#00ff41]" />
-            <span className="text-xs font-medium text-gray-300 whitespace-nowrap">Withdraw</span>
+            <span className="whitespace-nowrap text-xs font-medium text-gray-300">Withdraw</span>
           </div>
         </Link>
         <Link to="/referrals" className="shrink-0 lg:w-full">
-          <div className="flex items-center gap-2 premium-card rounded-xl px-4 py-3 card-press lg:w-full">
-            <span className="text-xs">👥</span>
-            <span className="text-xs font-medium text-gray-300 whitespace-nowrap">Invite & Earn</span>
+          <div className="flex items-center gap-2 rounded-xl border border-[#1a1a1a] bg-[#111] px-4 py-3 card-press lg:w-full">
+            <Users size={14} className="text-[#00ff41]" />
+            <span className="whitespace-nowrap text-xs font-medium text-gray-300">Invite & Earn</span>
           </div>
         </Link>
         <Link to="/support" className="shrink-0 lg:w-full">
-          <div className="flex items-center gap-2 premium-card rounded-xl px-4 py-3 card-press lg:w-full">
-            <span className="text-xs">💬</span>
-            <span className="text-xs font-medium text-gray-300 whitespace-nowrap">Support</span>
+          <div className="flex items-center gap-2 rounded-xl border border-[#1a1a1a] bg-[#111] px-4 py-3 card-press lg:w-full">
+            <MessageCircle size={14} className="text-[#00ff41]" />
+            <span className="whitespace-nowrap text-xs font-medium text-gray-300">Support</span>
           </div>
         </Link>
       </div>
 
       {/* Active Investments */}
       <div className="lg:col-span-8">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold">Active Plans</h2>
-          <Badge variant={activeInvestments.length > 0 ? "neon" : "default"}>
-            {hasDashboardData ? (
-              `${activeInvestments.length} active`
-            ) : (
-              <span className="skeleton inline-block h-3 w-12 rounded" aria-label="Loading active plan count" />
-            )}
-          </Badge>
-        </div>
+        <SectionHeader
+          title="Active Plans"
+          action={
+            <Badge variant={activeInvestments.length > 0 ? "neon" : "default"}>
+              {hasDashboardData ? (
+                `${activeInvestments.length} active`
+              ) : (
+                <span className="skeleton inline-block h-3 w-12 rounded" aria-label="Loading active plan count" />
+              )}
+            </Badge>
+          }
+          className="mb-3"
+        />
 
         {!hasDashboardData ? (
-          <div className="premium-card rounded-xl p-6">
+          <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-6">
             <div className="skeleton mx-auto mb-3 h-6 w-6 rounded-md" />
             <div className="skeleton mx-auto h-3 w-32 rounded" />
           </div>
         ) : activeInvestments.length === 0 ? (
-          <div className="premium-card rounded-xl p-6 text-center">
-            <Server size={24} className="mx-auto mb-3 text-gray-700" />
-            <p className="text-xs text-gray-600 mb-3">No active mining plans</p>
-            <Link to="/plans">
-              <Button variant="secondary" size="sm">Browse Plans</Button>
-            </Link>
+          <div className="rounded-xl border border-[#1a1a1a] bg-[#111]">
+            <EmptyState
+              icon={<Server size={24} />}
+              title="No active mining plans"
+              action={
+                <Link to="/plans">
+                  <Button variant="secondary" size="sm">Browse Plans</Button>
+                </Link>
+              }
+            />
           </div>
         ) : (
           <div className="space-y-3">
@@ -323,31 +329,31 @@ function DashboardPage() {
               const daysRemaining = Math.max(0, Math.ceil((endMs - nowMs) / (24 * 60 * 60 * 1000)));
 
               return (
-                <div key={inv.id} className="premium-card rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <span className="h-1.5 w-1.5 rounded-full bg-[#00ff41] status-pulse" />
-                      <span className="font-semibold text-sm">{getPlanName(inv.plan_id)}</span>
+                <div key={inv.id} className="rounded-xl border border-[#1a1a1a] bg-[#111] p-3.5">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#00ff41] status-pulse" />
+                      <span className="truncate text-sm font-semibold">{getPlanName(inv.plan_id)}</span>
                     </div>
-                    <span className="text-[10px] text-gray-600">{daysRemaining}d left</span>
+                    <span className="shrink-0 text-[10px] text-gray-600">{daysRemaining}d left</span>
                   </div>
-                  <div className="flex justify-between text-xs mb-3">
-                    <div>
-                      <p className="text-gray-600">Invested</p>
-                      <p className="font-medium text-gray-300">{inv.invested_amount.toLocaleString("en-US", { minimumFractionDigits: 2 })} ETB</p>
+                  <div className="mb-3 grid grid-cols-3 gap-2 text-xs">
+                    <div className="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] p-2">
+                      <p className="mb-1 text-[10px] text-gray-600">Invested</p>
+                      <AmountText value={inv.invested_amount} tone="neutral" size="sm" className="block truncate" />
                     </div>
-                    <div className="text-center">
-                      <p className="text-gray-600">Daily</p>
-                      <p className="font-medium text-gray-300">{inv.daily_earning.toLocaleString("en-US", { minimumFractionDigits: 2 })} ETB</p>
+                    <div className="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] p-2 text-center">
+                      <p className="mb-1 text-[10px] text-gray-600">Daily</p>
+                      <AmountText value={inv.daily_earning} tone="neutral" size="sm" className="block truncate" />
                     </div>
-                    <div className="text-right">
-                      <p className="text-gray-600">Earned</p>
-                      <p className="font-medium text-[#00ff41]">{inv.total_earned.toLocaleString("en-US", { minimumFractionDigits: 2 })} ETB</p>
+                    <div className="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] p-2 text-right">
+                      <p className="mb-1 text-[10px] text-gray-600">Earned</p>
+                      <AmountText value={inv.total_earned} tone="positive" size="sm" className="block truncate" />
                     </div>
                   </div>
-                  <div className="h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
+                  <div className="h-1.5 overflow-hidden rounded-full bg-[#1a1a1a]">
                     <div
-                      className="h-full bg-gradient-to-r from-[#00ff41] to-[#00cc33] rounded-full transition-all"
+                      className="h-full rounded-full bg-gradient-to-r from-[#00ff41] to-[#00cc33] transition-all"
                       style={{ width: `${Math.min(progress, 100)}%` }}
                     />
                   </div>
@@ -360,13 +366,13 @@ function DashboardPage() {
 
       {/* Completed Plans */}
       {completedInvestments.length > 0 && (
-        <div className="premium-card rounded-xl p-4 lg:col-span-4 lg:order-last">
-          <p className="text-xs font-semibold text-gray-400 mb-3">Completed Plans</p>
+        <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-3.5 lg:col-span-4 lg:order-last">
+          <SectionHeader title="Completed Plans" className="mb-3" />
           <div className="space-y-2">
             {completedInvestments.slice(0, 3).map((inv) => (
-              <div key={inv.id} className="flex items-center justify-between text-xs py-1.5">
-                <span className="text-gray-400">{getPlanName(inv.plan_id)}</span>
-                <span className="text-[#00ff41] font-mono text-[11px]">+{inv.total_earned.toLocaleString("en-US", { minimumFractionDigits: 2 })} ETB</span>
+              <div key={inv.id} className="flex items-center justify-between gap-3 py-1.5 text-xs">
+                <span className="min-w-0 truncate text-gray-400">{getPlanName(inv.plan_id)}</span>
+                <AmountText value={inv.total_earned} showSign tone="positive" size="sm" className="shrink-0" />
               </div>
             ))}
           </div>
@@ -380,38 +386,40 @@ function DashboardPage() {
 
       {/* Recent Transactions */}
       <div className="lg:col-span-8">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold">Recent Transactions</h2>
-          <Link to="/transactions" className="text-[10px] text-gray-500 flex items-center gap-0.5">
-            View All <ChevronRight size={12} />
-          </Link>
-        </div>
+        <SectionHeader
+          title="Recent Transactions"
+          action={
+            <Link to="/transactions" className="flex items-center gap-0.5 text-[10px] text-gray-500">
+              View All <ChevronRight size={12} />
+            </Link>
+          }
+          className="mb-3"
+        />
 
         {!hasDashboardData ? (
-          <div className="premium-card rounded-xl p-6">
+          <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-6">
             <div className="skeleton h-3 w-36 rounded" />
           </div>
         ) : recentTransactions.length === 0 ? (
-          <div className="premium-card rounded-xl p-6 text-center text-xs text-gray-600">
-            No transactions yet
+          <div className="rounded-xl border border-[#1a1a1a] bg-[#111]">
+            <EmptyState title="No transactions yet" className="py-10" />
           </div>
         ) : (
-          <div className="bg-[#111] rounded-xl border border-[#1a1a1a] divide-y divide-[#1a1a1a] overflow-hidden">
-            {recentTransactions.slice(0, 5).map((tx) => (
-              <div key={tx.id} className="flex items-center justify-between px-4 py-3 tx-row">
-                <div className="flex items-center gap-3">
-                  <TxIcon type={tx.type} />
-                  <div>
-                    <p className="text-xs font-medium text-gray-200">{txLabel(tx.type)}</p>
-                    <p className="text-[10px] text-gray-600">{formatDateTime(tx.created_at)}</p>
-                  </div>
-                </div>
-                <span className={`text-xs font-mono font-medium ${isOutgoingTx(tx.type) ? "text-red-400" : "text-[#00ff41]"}`}>
-                  {isOutgoingTx(tx.type) ? "-" : "+"}{Math.abs(tx.amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              </div>
-            ))}
-          </div>
+          <ListPanel>
+            {recentTransactions.slice(0, 5).map((tx) => {
+              const signedAmount = isOutgoingTx(tx.type) ? -Math.abs(tx.amount) : Math.abs(tx.amount);
+
+              return (
+                <ListRow
+                  key={tx.id}
+                  icon={<TxIcon type={tx.type} />}
+                  title={txLabel(tx.type)}
+                  meta={formatDateTime(tx.created_at)}
+                  right={<AmountText value={signedAmount} showSign currency="" size="sm" />}
+                />
+              );
+            })}
+          </ListPanel>
         )}
       </div>
     </div>
