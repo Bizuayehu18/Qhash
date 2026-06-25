@@ -15,13 +15,21 @@ interface PillTabsProps {
 
 export function PillTabs({ tabs, activeKey, onChange, className = "" }: PillTabsProps) {
   return (
-    <div className={["flex gap-2 overflow-x-auto hide-scrollbar -mx-4 px-4 pb-1 lg:mx-0 lg:px-0", className].join(" ")}>
+    <div
+      role="tablist"
+      className={[
+        "flex gap-2 overflow-x-auto hide-scrollbar -mx-4 px-4 pb-1 lg:mx-0 lg:px-0",
+        className,
+      ].join(" ")}
+    >
       {tabs.map((tab) => {
         const active = tab.key === activeKey;
         return (
           <button
             key={tab.key}
             type="button"
+            role="tab"
+            aria-selected={active}
             onClick={() => onChange(tab.key)}
             className={[
               "shrink-0 rounded-full border px-3 py-1.5 text-[11px] transition-colors card-press",
