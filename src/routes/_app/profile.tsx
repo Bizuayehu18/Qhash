@@ -6,12 +6,6 @@ import {
   ChevronRight, Bell, Wallet,
 } from "lucide-react";
 import { useCallback, useEffect } from "react";
-import { AmountText } from "@/components/ui/AmountText.js";
-import { Badge } from "@/components/ui/Badge.js";
-import { ListPanel } from "@/components/ui/ListPanel.js";
-import { ListRow } from "@/components/ui/ListRow.js";
-import { PageHeader } from "@/components/ui/PageHeader.js";
-import { SectionHeader } from "@/components/ui/SectionHeader.js";
 
 export const Route = createFileRoute("/_app/profile")({
   component: ProfilePage,
@@ -70,73 +64,68 @@ function ProfilePage() {
       : []),
   ];
 
-  return (
-    <div className="space-y-4 lg:mx-auto lg:grid lg:max-w-4xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
-      <PageHeader
-        title="Profile"
-        description="Manage your account, wallet, and platform settings"
-        icon={<User size={18} />}
-        badge={profile?.is_admin ? <Badge variant="neon">Admin</Badge> : undefined}
-        className="lg:col-span-12"
-      />
+  const balanceLabel = walletBalance?.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
+  return (
+    <div className="space-y-5 lg:mx-auto lg:grid lg:max-w-4xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
       {/* Profile card */}
-      <div className="rounded-2xl border border-[#1a1a1a] bg-[#111] p-4 text-center lg:col-span-4 lg:p-5">
-        <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full border-2 border-[rgba(0,255,65,0.25)] bg-[rgba(0,255,65,0.1)]">
+      <div className="bg-[#111] rounded-2xl border border-[#1a1a1a] p-5 text-center lg:col-span-4">
+        <div className="h-16 w-16 rounded-full bg-[rgba(0,255,65,0.1)] border-2 border-[rgba(0,255,65,0.25)] flex items-center justify-center mx-auto mb-3">
           <User size={28} className="text-[#00ff41]" />
         </div>
-        <h2 className="text-base font-bold leading-tight">@{profile?.username ?? "User"}</h2>
-        <p className="mt-0.5 min-h-[16px] text-xs text-gray-500">{profile?.phone ?? ""}</p>
+        <h2 className="text-base font-bold">@{profile?.username ?? "User"}</h2>
+        <p className="text-xs text-gray-500 mt-0.5">{profile?.phone ?? ""}</p>
 
-        <div className="mt-4 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-3 text-left">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <span className="text-xs text-gray-500">Wallet Balance</span>
-            <Wallet size={14} className="text-[#00ff41]" />
-          </div>
+        <div className="mt-4 bg-[#0a0a0a] rounded-xl p-3 flex items-center justify-between">
+          <span className="text-xs text-gray-500">Wallet Balance</span>
           {walletBalance === null ? (
-            <span className="skeleton inline-block h-4 w-24 rounded" aria-label="Loading wallet balance" />
+            <span className="skeleton inline-block h-4 w-20 rounded" aria-label="Loading wallet balance" />
           ) : (
-            <AmountText value={walletBalance} tone="positive" size="lg" />
+            <span className="text-sm font-bold text-[#00ff41]">
+              {balanceLabel} ETB
+            </span>
           )}
         </div>
       </div>
 
       {/* Menu items */}
-      <div className="lg:col-span-8">
-        <SectionHeader title="Account" description="Quick access to your activity and settings" className="mb-3" />
-        <ListPanel>
-          {menuItems.map((item) => (
-            <Link key={item.to} to={item.to} className="block card-press">
-              <ListRow
-                icon={<item.icon size={16} className="text-gray-400" />}
-                title={item.label}
-                description={item.desc}
-                right={
-                  <div className="flex items-center gap-2">
-                    {"soon" in item && item.soon && (
-                      <span className="rounded-full border border-[rgba(0,255,65,0.2)] bg-[rgba(0,255,65,0.1)] px-2 py-0.5 text-[9px] font-semibold text-[#00ff41]">
-                        Soon
-                      </span>
-                    )}
-                    <ChevronRight size={14} className="text-gray-700" />
-                  </div>
-                }
-              />
-            </Link>
-          ))}
-        </ListPanel>
+      <div className="bg-[#111] rounded-xl border border-[#1a1a1a] divide-y divide-[#1a1a1a] lg:col-span-8">
+        {menuItems.map((item) => (
+          <Link
+            key={item.to}
+            to={item.to}
+            className="flex items-center gap-3 px-4 py-3.5 card-press"
+          >
+            <div className="h-9 w-9 rounded-xl bg-white/[0.04] flex items-center justify-center">
+              <item.icon size={16} className="text-gray-400" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-200">{item.label}</p>
+              <p className="text-[10px] text-gray-600">{item.desc}</p>
+            </div>
+            {"soon" in item && item.soon && (
+              <span className="text-[9px] font-semibold text-[#00ff41] bg-[rgba(0,255,65,0.1)] border border-[rgba(0,255,65,0.2)] rounded-full px-2 py-0.5">
+                Soon
+              </span>
+            )}
+            <ChevronRight size={14} className="text-gray-700" />
+          </Link>
+        ))}
       </div>
 
       {/* Sign out */}
       <button
         onClick={handleSignOut}
-        className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#1a1a1a] bg-[#111] py-3.5 text-sm font-medium text-red-400 card-press lg:col-span-12"
+        className="w-full flex items-center justify-center gap-2 bg-[#111] border border-[#1a1a1a] rounded-xl py-3.5 text-red-400 text-sm font-medium card-press lg:col-span-12"
       >
         <LogOut size={16} />
         Sign Out
       </button>
 
-      <p className="pb-4 text-center text-[10px] text-gray-700 lg:col-span-12">
+      <p className="text-center text-[10px] text-gray-700 pb-4 lg:col-span-12">
         QHash v1.0 — Cloud Mining Platform
       </p>
     </div>
