@@ -1,8 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getAdminClient } from "./supabase-admin.js";
-import { db } from "../../../db/index.js";
-import { supportTickets } from "../../../db/schema.js";
-import { eq, desc } from "drizzle-orm";
 import { throwSafe } from "../errors.js";
 
 function validateAccessToken(data: unknown): { accessToken: string } {
@@ -114,34 +111,6 @@ export const getAdminStatsFn = createServerFn({ method: "POST" })
         };
       });
 
-      const openTickets = await db
-        .select()
-        .from(supportTickets)
-        .where(eq(supportTickets.status, "open"))
-        .orderBy(desc(supportTickets.createdAt))
-        .limit(10);
-
-      let ticketUserProfiles: Array<{ id: string; username: string }> = [];
-      const ticketUserIds = [...new Set(openTickets.map((t) => t.userId))];
-      if (ticketUserIds.length > 0) {
-        const { data: profiles } = await admin
-          .from("profiles")
-          .select("id, username")
-          .in("id", ticketUserIds);
-        ticketUserProfiles = profiles ?? [];
-      }
-
-      const openTicketRecords = openTickets.map((t) => {
-        const prof = ticketUserProfiles.find((p) => p.id === t.userId);
-        return {
-          id: t.id,
-          userId: t.userId,
-          username: prof?.username ?? "Unknown",
-          subject: t.subject,
-          createdAt: t.createdAt,
-        };
-      });
-
       return {
         totalUsers: totalUsers ?? 0,
         activeInvestments,
@@ -150,7 +119,6 @@ export const getAdminStatsFn = createServerFn({ method: "POST" })
         totalRevenue,
         recentUsers: recentUsers ?? [],
         pendingWithdrawalRecords,
-        openTicketRecords,
       };
     } catch (err) {
       if (err instanceof Error && err.message.includes("Unauthorized")) {
