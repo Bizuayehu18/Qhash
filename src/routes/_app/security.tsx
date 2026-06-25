@@ -37,10 +37,10 @@ const EMPTY_SECURITY_STATUS: SecurityStatus = {
   isFundPasswordLocked: false,
 };
 
-const SECURITY_TABS = [
+const SECURITY_TABS: { key: SecurityTab; label: string }[] = [
   { key: "login", label: "Login Password" },
   { key: "fund", label: "Fund Password" },
-] as const;
+];
 
 function onlyFourDigits(value: string): string {
   return value.replace(/\D/g, "").slice(0, 4);
