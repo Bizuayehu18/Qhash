@@ -10,7 +10,6 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@netlify/database": "^1.0.0",
     "@netlify/functions": "^5.2.1",
     "@supabase/supabase-js": "^2.47.0",
     "@tanstack/react-router": "1.168.22",
