@@ -1,5 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Button } from "@/components/ui/Button.js";
+import { EmptyState } from "@/components/ui/EmptyState.js";
+import { ListPanel } from "@/components/ui/ListPanel.js";
+import { ListRow } from "@/components/ui/ListRow.js";
+import { PageHeader } from "@/components/ui/PageHeader.js";
 import {
   Bell,
   CheckCircle,
@@ -223,34 +227,32 @@ function NotificationsPage() {
   };
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;
+  const description = !notificationsLoaded
+    ? "Checking notification status"
+    : unreadCount > 0
+      ? `${unreadCount} unread`
+      : "All caught up";
 
   return (
-    <div className="space-y-4 lg:max-w-3xl lg:mx-auto">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-bold">Notifications</h1>
-          <div className="mt-1 min-h-[14px]">
-            {!notificationsLoaded ? (
-              <span className="skeleton inline-block h-3 w-20 rounded" aria-label="Loading notification status" />
-            ) : (
-              <p className="text-xs text-gray-500">
-                {unreadCount > 0 ? `${unreadCount} unread` : "All caught up"}
-              </p>
-            )}
-          </div>
-        </div>
-        {notificationsLoaded && unreadCount > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            loading={markingAll}
-            onClick={handleMarkAllRead}
-          >
-            <CheckCheck size={13} />
-            <span className="text-[11px]">Read all</span>
-          </Button>
-        )}
-      </div>
+    <div className="space-y-4 lg:mx-auto lg:max-w-3xl">
+      <PageHeader
+        icon={<Bell size={16} />}
+        title="Notifications"
+        description={description}
+        action={
+          notificationsLoaded && unreadCount > 0 ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              loading={markingAll}
+              onClick={handleMarkAllRead}
+            >
+              <CheckCheck size={13} />
+              <span className="text-[11px]">Read all</span>
+            </Button>
+          ) : undefined
+        }
+      />
 
       {!notificationsLoaded ? (
         <div className="space-y-2">
@@ -259,51 +261,32 @@ function NotificationsPage() {
           ))}
         </div>
       ) : notifications.length === 0 ? (
-        <div className="text-center py-16">
-          <Bell size={24} className="mx-auto mb-3 text-gray-700" />
-          <p className="text-xs text-gray-600">No notifications yet</p>
-        </div>
+        <EmptyState icon={<Bell size={24} />} title="No notifications yet" />
       ) : (
-        <div className="bg-[#111] rounded-xl border border-[#1a1a1a] divide-y divide-[#1a1a1a]">
+        <ListPanel>
           {notifications.map((n) => {
             const notificationType = getNotificationType(n);
+            const icon = notificationType
+              ? TYPE_ICONS[notificationType] ?? <Bell size={14} className="text-gray-500" />
+              : <Bell size={14} className="text-gray-500" />;
 
             return (
-              <div
+              <ListRow
                 key={n.id}
-                className={`flex gap-3 px-4 py-3 ${
-                  !n.is_read ? "bg-[rgba(0,255,65,0.02)]" : ""
-                }`}
-              >
-                <div className="h-8 w-8 rounded-full bg-white/5 flex items-center justify-center shrink-0 mt-0.5">
-                  {notificationType ? (
-                    TYPE_ICONS[notificationType] ?? (
-                      <Bell size={14} className="text-gray-500" />
-                    )
-                  ) : (
-                    <Bell size={14} className="text-gray-500" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-gray-200">
-                      {getNotificationTitle(n, notificationType)}
-                    </span>
-                    {!n.is_read && (
-                      <span className="h-1.5 w-1.5 rounded-full bg-[#00ff41]" />
-                    )}
-                  </div>
-                  <p className="text-[11px] text-gray-500 mt-0.5">
-                    {getNotificationMessage(n, notificationType)}
-                  </p>
-                  <p className="text-[10px] text-gray-700 mt-1">
-                    {formatDateTime(n.created_at)}
-                  </p>
-                </div>
-              </div>
+                unread={!n.is_read}
+                icon={icon}
+                title={
+                  <span className="inline-flex min-w-0 items-center gap-2">
+                    <span className="truncate">{getNotificationTitle(n, notificationType)}</span>
+                    {!n.is_read && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#00ff41]" />}
+                  </span>
+                }
+                description={getNotificationMessage(n, notificationType)}
+                meta={formatDateTime(n.created_at)}
+              />
             );
           })}
-        </div>
+        </ListPanel>
       )}
     </div>
   );
