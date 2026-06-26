@@ -10,8 +10,6 @@ import { AmountText } from "@/components/ui/AmountText.js";
 import { Badge } from "@/components/ui/Badge.js";
 import { ListPanel } from "@/components/ui/ListPanel.js";
 import { ListRow } from "@/components/ui/ListRow.js";
-import { PageHeader } from "@/components/ui/PageHeader.js";
-import { SectionHeader } from "@/components/ui/SectionHeader.js";
 
 export const Route = createFileRoute("/_app/profile")({
   component: ProfilePage,
@@ -60,41 +58,44 @@ function ProfilePage() {
   };
 
   const menuItems = [
-    { to: "/transactions", label: "Transactions", icon: Receipt, desc: "View all activity" },
-    { to: "/notifications", label: "Notifications", icon: Bell, desc: "Alerts & updates" },
-    { to: "/withdraw", label: "Withdraw", icon: Wallet, desc: "Cash out earnings" },
-    { to: "/security", label: "Security", icon: ShieldCheck, desc: "Passwords & fund PIN" },
-    { to: "/support", label: "Support", icon: HeadphonesIcon, desc: "Get help" },
+    { to: "/transactions", label: "Transactions", icon: Receipt },
+    { to: "/notifications", label: "Notifications", icon: Bell },
+    { to: "/withdraw", label: "Withdraw", icon: Wallet },
+    { to: "/security", label: "Security", icon: ShieldCheck },
+    { to: "/support", label: "Support", icon: HeadphonesIcon },
     ...(profile?.is_admin
-      ? [{ to: "/admin", label: "Admin Panel", icon: ShieldCheck, desc: "Manage platform" }]
+      ? [{ to: "/admin", label: "Admin Panel", icon: ShieldCheck }]
       : []),
   ];
 
   return (
-    <div className="space-y-4 lg:mx-auto lg:grid lg:max-w-4xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
-      <PageHeader
-        title="Profile"
-        description="Manage your account, wallet, and platform settings"
-        icon={<User size={18} />}
-        badge={profile?.is_admin ? <Badge variant="neon">Admin</Badge> : undefined}
-        className="lg:col-span-12"
-      />
-
-      {/* Profile card */}
-      <div className="rounded-2xl border border-[#1a1a1a] bg-[#111] p-4 text-center lg:col-span-4 lg:p-5">
-        <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full border-2 border-[rgba(0,255,65,0.25)] bg-[rgba(0,255,65,0.1)]">
-          <User size={28} className="text-[#00ff41]" />
+    <div className="space-y-3 lg:mx-auto lg:grid lg:max-w-4xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
+      {/* Profile summary */}
+      <div className="rounded-2xl border border-[#1a1a1a] bg-[#111] p-4 lg:col-span-4 lg:p-5">
+        <div className="flex items-start gap-3">
+          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-[rgba(0,255,65,0.25)] bg-[rgba(0,255,65,0.1)]">
+            <User size={22} className="text-[#00ff41]" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <h1 className="truncate text-base font-bold leading-tight text-gray-100">
+                @{profile?.username ?? "User"}
+              </h1>
+              {profile?.is_admin && <Badge variant="neon">Admin</Badge>}
+            </div>
+            <p className="mt-1 min-h-[16px] truncate text-xs text-gray-500">
+              {profile?.phone ?? ""}
+            </p>
+          </div>
         </div>
-        <h2 className="text-base font-bold leading-tight">@{profile?.username ?? "User"}</h2>
-        <p className="mt-0.5 min-h-[16px] text-xs text-gray-500">{profile?.phone ?? ""}</p>
 
-        <div className="mt-4 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-3 text-left">
+        <div className="mt-3 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-3">
           <div className="mb-2 flex items-center justify-between gap-3">
-            <span className="text-xs text-gray-500">Wallet Balance</span>
+            <span className="text-[11px] text-gray-500">Wallet Balance</span>
             <Wallet size={14} className="text-[#00ff41]" />
           </div>
           {walletBalance === null ? (
-            <span className="skeleton inline-block h-4 w-24 rounded" aria-label="Loading wallet balance" />
+            <span className="skeleton inline-block h-5 w-28 rounded" aria-label="Loading wallet balance" />
           ) : (
             <AmountText value={walletBalance} tone="positive" size="lg" />
           )}
@@ -103,34 +104,31 @@ function ProfilePage() {
 
       {/* Menu items */}
       <div className="lg:col-span-8">
-        <SectionHeader title="Account" description="Quick access to your activity and settings" className="mb-3" />
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
+          Account
+        </p>
         <ListPanel>
-          {menuItems.map((item) => (
-            <Link key={item.to} to={item.to} className="block card-press">
-              <ListRow
-                icon={<item.icon size={16} className="text-gray-400" />}
-                title={item.label}
-                description={item.desc}
-                right={
-                  <div className="flex items-center gap-2">
-                    {"soon" in item && item.soon && (
-                      <span className="rounded-full border border-[rgba(0,255,65,0.2)] bg-[rgba(0,255,65,0.1)] px-2 py-0.5 text-[9px] font-semibold text-[#00ff41]">
-                        Soon
-                      </span>
-                    )}
-                    <ChevronRight size={14} className="text-gray-700" />
-                  </div>
-                }
-              />
-            </Link>
-          ))}
+          {menuItems.map((item) => {
+            const Icon = item.icon;
+
+            return (
+              <Link key={item.to} to={item.to} className="block card-press">
+                <ListRow
+                  className="py-2.5"
+                  icon={<Icon size={16} className="text-gray-400" />}
+                  title={item.label}
+                  right={<ChevronRight size={14} className="text-gray-700" />}
+                />
+              </Link>
+            );
+          })}
         </ListPanel>
       </div>
 
       {/* Sign out */}
       <button
         onClick={handleSignOut}
-        className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#1a1a1a] bg-[#111] py-3.5 text-sm font-medium text-red-400 card-press lg:col-span-12"
+        className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#1a1a1a] bg-[#111] py-3 text-sm font-medium text-red-400 card-press lg:col-span-12"
       >
         <LogOut size={16} />
         Sign Out
