@@ -80,7 +80,6 @@ function ProfilePage() {
         <h1 className="mt-1 text-lg font-bold leading-tight text-gray-100">Profile</h1>
       </div>
 
-      {/* Profile summary */}
       <div className="rounded-2xl border border-[#1a1a1a] bg-[#111] p-4 lg:col-span-4 lg:p-5">
         <div className="flex items-start gap-3">
           <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-[rgba(0,255,65,0.25)] bg-[rgba(0,255,65,0.1)]">
@@ -112,7 +111,6 @@ function ProfilePage() {
         </div>
       </div>
 
-      {/* Menu items */}
       <div className="lg:col-span-8">
         <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
           Account
@@ -135,7 +133,6 @@ function ProfilePage() {
         </ListPanel>
       </div>
 
-      {/* Sign out */}
       <button
         onClick={handleSignOut}
         className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#1a1a1a] bg-[#111] py-3 text-sm font-medium text-red-400 card-press lg:col-span-12"
