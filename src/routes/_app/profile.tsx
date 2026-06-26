@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
 import {
@@ -21,21 +21,25 @@ function ProfilePage() {
   const walletBalance = useWalletStore((s) => s.balance);
   const fetchWallet = useWalletStore((s) => s.fetchWallet);
   const navigate = useNavigate();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isProfileIndex = pathname === "/profile";
   const displayUsername = getDisplayUsername(profile, user);
   const displayPhone = getDisplayPhone(profile, user);
 
   const refreshWallet = useCallback(() => {
-    if (!user?.id) return;
+    if (!isProfileIndex || !user?.id) return;
     void fetchWallet(user.id);
-  }, [fetchWallet, user?.id]);
+  }, [fetchWallet, isProfileIndex, user?.id]);
 
   useEffect(() => {
-    if (user?.id && walletBalance === null) {
+    if (isProfileIndex && user?.id && walletBalance === null) {
       refreshWallet();
     }
-  }, [refreshWallet, user?.id, walletBalance]);
+  }, [isProfileIndex, refreshWallet, user?.id, walletBalance]);
 
   useEffect(() => {
+    if (!isProfileIndex) return;
+
     const handleVisible = () => {
       if (document.visibilityState === "visible") {
         refreshWallet();
@@ -53,18 +57,22 @@ function ProfilePage() {
       document.removeEventListener("visibilitychange", handleVisible);
       window.removeEventListener("online", handleOnline);
     };
-  }, [refreshWallet]);
+  }, [isProfileIndex, refreshWallet]);
 
   const handleSignOut = async () => {
     await signOut();
     navigate({ to: "/login", replace: true });
   };
 
+  if (!isProfileIndex) {
+    return <Outlet />;
+  }
+
   const menuItems = [
     { to: "/transactions", label: "Transactions", icon: Receipt },
     { to: "/notifications", label: "Notifications", icon: Bell },
     { to: "/withdraw", label: "Withdraw", icon: Wallet },
-    { to: "/security", label: "Security", icon: ShieldCheck },
+    { to: "/profile/security", label: "Security", icon: ShieldCheck },
     { to: "/support", label: "Support", icon: HeadphonesIcon },
     ...(profile?.is_admin
       ? [{ to: "/admin", label: "Admin Panel", icon: ShieldCheck }]
@@ -80,7 +88,6 @@ function ProfilePage() {
         <h1 className="mt-1 text-lg font-bold leading-tight text-gray-100">Profile</h1>
       </div>
 
-      {/* Profile summary */}
       <div className="rounded-2xl border border-[#1a1a1a] bg-[#111] p-4 lg:col-span-4 lg:p-5">
         <div className="flex items-start gap-3">
           <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-[rgba(0,255,65,0.25)] bg-[rgba(0,255,65,0.1)]">
@@ -112,7 +119,6 @@ function ProfilePage() {
         </div>
       </div>
 
-      {/* Menu items */}
       <div className="lg:col-span-8">
         <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
           Account
@@ -135,7 +141,6 @@ function ProfilePage() {
         </ListPanel>
       </div>
 
-      {/* Sign out */}
       <button
         onClick={handleSignOut}
         className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#1a1a1a] bg-[#111] py-3 text-sm font-medium text-red-400 card-press lg:col-span-12"
