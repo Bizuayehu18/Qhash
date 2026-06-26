@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, KeyRound, ShieldCheck, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/Badge.js";
@@ -29,10 +29,14 @@ function AccountSecurityPage() {
   const { user } = useAuthStore();
   const accessToken = useAuthStore((state) => state.session?.access_token ?? null);
   const navigate = useNavigate();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isSecurityIndex = pathname === "/profile/security";
   const [status, setStatus] = useState<SecurityStatus>(EMPTY_SECURITY_STATUS);
   const [loadingStatus, setLoadingStatus] = useState(true);
 
   const loadSecurityStatus = useCallback(async () => {
+    if (!isSecurityIndex) return;
+
     if (!user?.id || !accessToken) {
       setStatus(EMPTY_SECURITY_STATUS);
       setLoadingStatus(false);
@@ -54,13 +58,15 @@ function AccountSecurityPage() {
     } finally {
       setLoadingStatus(false);
     }
-  }, [accessToken, user?.id]);
+  }, [accessToken, isSecurityIndex, user?.id]);
 
   useEffect(() => {
     void loadSecurityStatus();
   }, [loadSecurityStatus]);
 
   useEffect(() => {
+    if (!isSecurityIndex) return;
+
     const refreshWhenVisible = () => {
       if (document.visibilityState === "visible") {
         void loadSecurityStatus();
@@ -78,7 +84,7 @@ function AccountSecurityPage() {
       document.removeEventListener("visibilitychange", refreshWhenVisible);
       window.removeEventListener("online", refreshWhenOnline);
     };
-  }, [loadSecurityStatus]);
+  }, [isSecurityIndex, loadSecurityStatus]);
 
   const fundStatus = useMemo(() => {
     if (status.isFundPasswordLocked) {
@@ -91,6 +97,10 @@ function AccountSecurityPage() {
 
     return { label: "Not set", variant: "default" as const };
   }, [status.hasFundPassword, status.isFundPasswordLocked]);
+
+  if (!isSecurityIndex) {
+    return <Outlet />;
+  }
 
   return (
     <div className="space-y-3 lg:mx-auto lg:max-w-3xl">
