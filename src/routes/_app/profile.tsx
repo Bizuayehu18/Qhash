@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
 import {
@@ -21,21 +21,25 @@ function ProfilePage() {
   const walletBalance = useWalletStore((s) => s.balance);
   const fetchWallet = useWalletStore((s) => s.fetchWallet);
   const navigate = useNavigate();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isProfileIndex = pathname === "/profile";
   const displayUsername = getDisplayUsername(profile, user);
   const displayPhone = getDisplayPhone(profile, user);
 
   const refreshWallet = useCallback(() => {
-    if (!user?.id) return;
+    if (!isProfileIndex || !user?.id) return;
     void fetchWallet(user.id);
-  }, [fetchWallet, user?.id]);
+  }, [fetchWallet, isProfileIndex, user?.id]);
 
   useEffect(() => {
-    if (user?.id && walletBalance === null) {
+    if (isProfileIndex && user?.id && walletBalance === null) {
       refreshWallet();
     }
-  }, [refreshWallet, user?.id, walletBalance]);
+  }, [isProfileIndex, refreshWallet, user?.id, walletBalance]);
 
   useEffect(() => {
+    if (!isProfileIndex) return;
+
     const handleVisible = () => {
       if (document.visibilityState === "visible") {
         refreshWallet();
@@ -53,12 +57,16 @@ function ProfilePage() {
       document.removeEventListener("visibilitychange", handleVisible);
       window.removeEventListener("online", handleOnline);
     };
-  }, [refreshWallet]);
+  }, [isProfileIndex, refreshWallet]);
 
   const handleSignOut = async () => {
     await signOut();
     navigate({ to: "/login", replace: true });
   };
+
+  if (!isProfileIndex) {
+    return <Outlet />;
+  }
 
   const menuItems = [
     { to: "/transactions", label: "Transactions", icon: Receipt },
