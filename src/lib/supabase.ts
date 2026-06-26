@@ -17,10 +17,11 @@ type AuthStorage = {
   removeItem: (key: string) => void
 }
 
-const memoryStorage = new Map<string, string>()
+const isBrowser = typeof window !== 'undefined'
+const memoryStorage = isBrowser ? new Map<string, string>() : null
 
 function getBrowserStorage(kind: 'localStorage' | 'sessionStorage'): Storage | null {
-  if (typeof window === 'undefined') return null
+  if (!isBrowser) return null
 
   try {
     return window[kind]
@@ -62,29 +63,35 @@ function safeRemove(storage: Storage | null, key: string): void {
 
 const resilientAuthStorage: AuthStorage = {
   getItem: (key) => {
+    if (!isBrowser) return null
+
     const localValue = safeGet(getBrowserStorage('localStorage'), key)
     if (localValue !== null) return localValue
 
     const sessionValue = safeGet(getBrowserStorage('sessionStorage'), key)
     if (sessionValue !== null) return sessionValue
 
-    return memoryStorage.get(key) ?? null
+    return memoryStorage?.get(key) ?? null
   },
   setItem: (key, value) => {
+    if (!isBrowser) return
+
     const wroteLocal = safeSet(getBrowserStorage('localStorage'), key, value)
     const wroteSession = safeSet(getBrowserStorage('sessionStorage'), key, value)
 
     if (!wroteLocal && !wroteSession) {
-      memoryStorage.set(key, value)
+      memoryStorage?.set(key, value)
     } else {
       // Keep an in-memory copy for the current page lifetime in constrained mobile WebViews.
-      memoryStorage.set(key, value)
+      memoryStorage?.set(key, value)
     }
   },
   removeItem: (key) => {
+    if (!isBrowser) return
+
     safeRemove(getBrowserStorage('localStorage'), key)
     safeRemove(getBrowserStorage('sessionStorage'), key)
-    memoryStorage.delete(key)
+    memoryStorage?.delete(key)
   },
 }
 
@@ -97,6 +104,7 @@ export const supabase = createClient<Database>(
       persistSession: true,
       detectSessionInUrl: true,
       storage: resilientAuthStorage,
+      isServer: !isBrowser,
     },
   }
 )
