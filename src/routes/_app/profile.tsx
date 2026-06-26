@@ -70,6 +70,13 @@ function ProfilePage() {
 
   return (
     <div className="space-y-3 lg:mx-auto lg:grid lg:max-w-4xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
+      <div className="lg:col-span-12">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
+          Account Center
+        </p>
+        <h1 className="mt-1 text-lg font-bold leading-tight text-gray-100">Profile</h1>
+      </div>
+
       {/* Profile summary */}
       <div className="rounded-2xl border border-[#1a1a1a] bg-[#111] p-4 lg:col-span-4 lg:p-5">
         <div className="flex items-start gap-3">
@@ -78,9 +85,9 @@ function ProfilePage() {
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h1 className="truncate text-base font-bold leading-tight text-gray-100">
+              <h2 className="truncate text-base font-bold leading-tight text-gray-100">
                 @{profile?.username ?? "User"}
-              </h1>
+              </h2>
               {profile?.is_admin && <Badge variant="neon">Admin</Badge>}
             </div>
             <p className="mt-1 min-h-[16px] truncate text-xs text-gray-500">
