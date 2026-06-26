@@ -104,7 +104,6 @@ export const supabase = createClient<Database>(
       persistSession: true,
       detectSessionInUrl: true,
       storage: resilientAuthStorage,
-      isServer: !isBrowser,
     },
   }
 )
