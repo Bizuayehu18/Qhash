@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
@@ -9,7 +9,6 @@ import {
   ChevronRight,
   Clock,
   Info,
-  ShieldCheck,
   Smartphone,
   Wallet,
   XCircle,
@@ -30,7 +29,6 @@ type UserWithdrawal = Awaited<ReturnType<typeof getUserWithdrawalsFn>>[number];
 type MethodMeta = {
   label: string;
   title: string;
-  description: string;
   nameLabel: string;
   numberLabel: string;
   numberPlaceholder: string;
@@ -54,7 +52,6 @@ const METHOD_META: Record<WithdrawalMethod, MethodMeta> = {
   cbe: {
     label: "Bank transfer",
     title: "CBE Withdrawal",
-    description: "Send your withdrawal to a verified CBE account.",
     nameLabel: "CBE Account Name",
     numberLabel: "CBE Account Number",
     numberPlaceholder: "Enter CBE account number",
@@ -64,7 +61,6 @@ const METHOD_META: Record<WithdrawalMethod, MethodMeta> = {
   telebirr: {
     label: "Mobile wallet",
     title: "TeleBirr Withdrawal",
-    description: "Send your withdrawal to a TeleBirr wallet.",
     nameLabel: "TeleBirr Account Name",
     numberLabel: "TeleBirr Phone Number",
     numberPlaceholder: "Enter TeleBirr phone number",
@@ -330,7 +326,7 @@ function WithdrawPage() {
   };
 
   return (
-    <div className="space-y-4 pb-20 lg:mx-auto lg:grid lg:max-w-5xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
+    <div className="space-y-3 pb-20 lg:mx-auto lg:grid lg:max-w-5xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
       <div className="lg:col-span-12">
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
           Withdrawal Center
@@ -341,15 +337,14 @@ function WithdrawPage() {
         </p>
       </div>
 
-      <div className="space-y-3 lg:order-2 lg:col-span-4">
-        <BalanceCard walletBalance={walletBalance} />
-        <SecurityCard />
-        <NoticeCard />
-      </div>
+      <div className="space-y-3 lg:col-span-7 xl:col-span-8">
+        <BalanceStrip walletBalance={walletBalance} />
 
-      <div className="space-y-4 lg:order-1 lg:col-span-8">
         {!method ? (
-          <MethodPicker onSelect={setMethod} />
+          <>
+            <MethodPicker onSelect={setMethod} />
+            <NoticeLine />
+          </>
         ) : (
           <WithdrawalForm
             method={method}
@@ -371,110 +366,53 @@ function WithdrawPage() {
             onSubmit={handleSubmit}
           />
         )}
+      </div>
 
+      <div className="lg:col-span-5 xl:col-span-4">
         <WithdrawalHistory withdrawals={withdrawals} historyLoaded={historyLoaded} />
       </div>
     </div>
   );
 }
 
-function BalanceCard({ walletBalance }: { walletBalance: number | null }) {
+function BalanceStrip({ walletBalance }: { walletBalance: number | null }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-[rgba(0,255,65,0.18)] bg-[#111]">
-      <div className="border-b border-[#1a1a1a] bg-[rgba(0,255,65,0.035)] px-4 py-3">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#00ff41]/70">
-            Available Balance
-          </span>
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-[rgba(0,255,65,0.16)] bg-[#111] px-3.5 py-3">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.07)]">
           <Wallet size={15} className="text-[#00ff41]" />
         </div>
-      </div>
-
-      <div className="p-4">
-        {walletBalance === null ? (
-          <span className="skeleton inline-block h-7 w-36 rounded" aria-label="Loading available balance" />
-        ) : (
-          <div className="flex items-end gap-2">
-            <span className="text-2xl font-black leading-none text-[#00ff41]">
-              {formatMoney(walletBalance)}
-            </span>
-            <span className="pb-0.5 text-xs font-semibold text-gray-500">ETB</span>
-          </div>
-        )}
-
-        <p className="mt-2 text-[11px] leading-relaxed text-gray-500">
-          Your withdrawal amount cannot exceed your available wallet balance.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function SecurityCard() {
-  return (
-    <div className="rounded-2xl border border-[#1a1a1a] bg-[#111] p-4">
-      <div className="flex items-start gap-3">
-        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[rgba(0,255,65,0.22)] bg-[rgba(0,255,65,0.08)]">
-          <ShieldCheck size={18} className="text-[#00ff41]" />
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-sm font-bold leading-tight text-gray-100">Protected withdrawal</h2>
-            <Badge variant="neon" className="text-[9px]">Secure</Badge>
-          </div>
-          <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
-            Every withdrawal requires your 4-digit fund password.
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#00ff41]/70">
+            Available
           </p>
-
-          <Link
-            to="/profile/security/fund-password"
-            className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#00ff41] transition-opacity hover:opacity-80"
-          >
-            Manage fund password
-            <ChevronRight size={12} />
-          </Link>
+          <p className="text-[10px] text-gray-600">Wallet balance</p>
         </div>
       </div>
-    </div>
-  );
-}
 
-function NoticeCard() {
-  return (
-    <div className="rounded-2xl border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.035)] p-4">
-      <div className="flex gap-3">
-        <Info size={15} className="mt-0.5 shrink-0 text-[#00ff41]" />
-        <div>
-          <p className="text-xs font-semibold text-[#00ff41]">
-            Withdrawals are processed within 24 hours.
-          </p>
-          <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
-            Minimum {MIN_WITHDRAWAL_AMOUNT} ETB · {WITHDRAWAL_FEE_PERCENT}% fee · One request per day.
-          </p>
+      {walletBalance === null ? (
+        <span className="skeleton inline-block h-5 w-24 rounded" aria-label="Loading available balance" />
+      ) : (
+        <div className="shrink-0 text-right">
+          <span className="text-base font-black leading-none text-[#00ff41]">
+            {formatMoney(walletBalance)}
+          </span>
+          <span className="ml-1 text-[10px] font-semibold text-gray-500">ETB</span>
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
 function MethodPicker({ onSelect }: { onSelect: (method: WithdrawalMethod) => void }) {
   return (
-    <section className="space-y-3">
-      <div className="flex items-end justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#00ff41]/70">
-            Choose Method
-          </p>
-          <h2 className="mt-1 text-base font-bold text-gray-100">Where should we send it?</h2>
-          <p className="mt-1 text-xs text-gray-500">
-            Select the account type that will receive your withdrawal.
-          </p>
-        </div>
+    <section className="space-y-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-bold text-gray-100">Choose Method</h2>
         <Badge variant="neon" className="shrink-0 text-[9px]">2 options</Badge>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-[#1a1a1a] bg-[#111]">
+      <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#111]">
         {(["cbe", "telebirr"] as WithdrawalMethod[]).map((value, index) => (
           <MethodSelectorRow
             key={value}
@@ -485,6 +423,18 @@ function MethodPicker({ onSelect }: { onSelect: (method: WithdrawalMethod) => vo
         ))}
       </div>
     </section>
+  );
+}
+
+function NoticeLine() {
+  return (
+    <div className="flex items-start gap-2 rounded-xl border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.035)] px-3 py-2.5">
+      <Info size={13} className="mt-0.5 shrink-0 text-[#00ff41]" />
+      <p className="text-[10px] leading-relaxed text-gray-500">
+        <span className="font-semibold text-[#00ff41]">24h processing</span>
+        <span> · Min {MIN_WITHDRAWAL_AMOUNT} ETB · {WITHDRAWAL_FEE_PERCENT}% fee · One request/day</span>
+      </p>
+    </div>
   );
 }
 
@@ -534,29 +484,26 @@ function WithdrawalForm({
     fundPassword.length === 4;
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-[rgba(0,255,65,0.14)] bg-[#111]">
-      <div className="border-b border-[#1a1a1a] p-4">
+    <section className="overflow-hidden rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111]">
+      <div className="border-b border-[#1a1a1a] px-3.5 py-3">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={onChangeMethod}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[#1f1f1f] bg-[#0b0b0b] text-gray-400 transition-colors hover:border-[rgba(0,255,65,0.35)] hover:text-[#00ff41] card-press"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[#1f1f1f] bg-[#0b0b0b] text-gray-400 transition-colors hover:border-[rgba(0,255,65,0.35)] hover:text-[#00ff41] card-press"
             aria-label="Change withdrawal method"
           >
-            <ArrowLeft size={15} />
+            <ArrowLeft size={14} />
           </button>
 
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.07)] text-[#00ff41]">
+          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.06)] text-[#00ff41]">
             {selectedMeta?.icon}
           </div>
 
           <div className="min-w-0 flex-1">
-            <h2 className="text-base font-bold leading-tight text-gray-100">
+            <h2 className="truncate text-sm font-bold leading-tight text-gray-100">
               {selectedMeta?.title}
             </h2>
-            <p className="mt-0.5 text-[11px] leading-relaxed text-gray-500">
-              {selectedMeta?.description}
-            </p>
           </div>
 
           <Badge variant="neon" className="shrink-0 text-[9px]">
@@ -565,70 +512,63 @@ function WithdrawalForm({
         </div>
       </div>
 
-      <div className="space-y-4 p-4">
-        <div className="grid gap-3.5">
-          <SectionLabel title="Withdrawal Details" />
+      <div className="space-y-3.5 p-3.5">
+        <Input
+          label="Amount (ETB)"
+          type="text"
+          placeholder="0.00"
+          value={amount}
+          onChange={(e) => onAmountChange(e.target.value)}
+          inputMode="decimal"
+          hint={`Minimum withdrawal is ${MIN_WITHDRAWAL_AMOUNT} ETB.`}
+        />
 
-          <Input
-            label="Amount (ETB)"
-            type="text"
-            placeholder="0.00"
-            value={amount}
-            onChange={(e) => onAmountChange(e.target.value)}
-            inputMode="decimal"
-            hint={`Minimum withdrawal is ${MIN_WITHDRAWAL_AMOUNT} ETB.`}
-          />
+        <Input
+          label={selectedMeta?.nameLabel ?? "Account Name"}
+          type="text"
+          placeholder="Enter account holder name"
+          value={accountName}
+          onChange={(e) => onAccountNameChange(e.target.value)}
+        />
 
-          <Input
-            label={selectedMeta?.nameLabel ?? "Account Name"}
-            type="text"
-            placeholder="Enter account holder name"
-            value={accountName}
-            onChange={(e) => onAccountNameChange(e.target.value)}
-          />
+        <Input
+          label={selectedMeta?.numberLabel ?? "Account Number"}
+          type="text"
+          placeholder={selectedMeta?.numberPlaceholder ?? "Enter account number"}
+          value={accountNumber}
+          onChange={(e) => onAccountNumberChange(e.target.value)}
+        />
 
-          <Input
-            label={selectedMeta?.numberLabel ?? "Account Number"}
-            type="text"
-            placeholder={selectedMeta?.numberPlaceholder ?? "Enter account number"}
-            value={accountNumber}
-            onChange={(e) => onAccountNumberChange(e.target.value)}
-          />
+        <Input
+          label="Fund Password"
+          type="password"
+          placeholder="Enter 4-digit fund password"
+          value={fundPassword}
+          onChange={(e) => onFundPasswordChange(e.target.value)}
+          inputMode="numeric"
+          maxLength={4}
+          autoComplete="current-password"
+          hint="Required for every withdrawal."
+        />
 
-          <SectionLabel title="Security Verification" />
+        {parsedAmount > 0 && (
+          <SummaryCard amount={parsedAmount} fee={feeAmount} net={netAmount} />
+        )}
 
-          <Input
-            label="Fund Password"
-            type="password"
-            placeholder="Enter 4-digit fund password"
-            value={fundPassword}
-            onChange={(e) => onFundPasswordChange(e.target.value)}
-            inputMode="numeric"
-            maxLength={4}
-            autoComplete="current-password"
-            hint="Required for every withdrawal. Manage it from Profile → Security."
-          />
+        {!hasEnoughBalance && (
+          <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-[11px] leading-relaxed text-red-400">
+            Insufficient wallet balance for this withdrawal amount.
+          </div>
+        )}
 
-          {parsedAmount > 0 && (
-            <SummaryCard amount={parsedAmount} fee={feeAmount} net={netAmount} />
-          )}
-
-          {!hasEnoughBalance && (
-            <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-[11px] leading-relaxed text-red-400">
-              Insufficient wallet balance for this withdrawal amount.
-            </div>
-          )}
-
-          <Button
-            fullWidth
-            size="lg"
-            loading={submitting}
-            disabled={!canSubmit}
-            onClick={onSubmit}
-          >
-            {selectedMeta?.submitLabel ?? "Submit Withdrawal"}
-          </Button>
-        </div>
+        <Button
+          fullWidth
+          loading={submitting}
+          disabled={!canSubmit}
+          onClick={onSubmit}
+        >
+          {selectedMeta?.submitLabel ?? "Submit Withdrawal"}
+        </Button>
       </div>
     </section>
   );
@@ -650,12 +590,12 @@ function MethodSelectorRow({
       type="button"
       onClick={onClick}
       className={[
-        "group w-full px-4 py-4 text-left transition-colors hover:bg-[rgba(0,255,65,0.035)] card-press",
+        "group w-full px-3.5 py-3 text-left transition-colors hover:bg-[rgba(0,255,65,0.035)] card-press",
         isLast ? "" : "border-b border-[#1a1a1a]",
       ].join(" ")}
     >
       <div className="flex items-center gap-3">
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.045)] text-[#00ff41]">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.045)] text-[#00ff41]">
           {meta.icon}
         </span>
 
@@ -665,7 +605,7 @@ function MethodSelectorRow({
         </span>
 
         <ChevronRight
-          size={16}
+          size={15}
           className="shrink-0 text-gray-600 transition-colors group-hover:text-[#00ff41]"
         />
       </div>
@@ -673,24 +613,12 @@ function MethodSelectorRow({
   );
 }
 
-function SectionLabel({ title }: { title: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="h-px flex-1 bg-[#1a1a1a]" />
-      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-gray-600">
-        {title}
-      </span>
-      <span className="h-px flex-1 bg-[#1a1a1a]" />
-    </div>
-  );
-}
-
 function SummaryCard({ amount, fee, net }: { amount: number; fee: number; net: number }) {
   return (
     <div className="space-y-2 rounded-xl border border-[#1f1f1f] bg-[#0b0b0b] p-3">
-      <div className="flex items-center gap-2">
-        <ShieldCheck size={13} className="text-[#00ff41]" />
-        <span className="text-xs font-semibold text-gray-200">Withdrawal Summary</span>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-semibold text-gray-200">Summary</span>
+        <span className="text-[10px] text-gray-600">Fee {WITHDRAWAL_FEE_PERCENT}%</span>
       </div>
 
       <SummaryRow label="Amount" value={`${formatMoney(amount)} ETB`} />
@@ -710,14 +638,9 @@ function WithdrawalHistory({
   historyLoaded: boolean;
 }) {
   return (
-    <section className="space-y-3">
-      <div className="flex items-end justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#00ff41]/70">
-            Activity
-          </p>
-          <h2 className="mt-1 text-base font-bold text-gray-100">Withdrawal History</h2>
-        </div>
+    <section className="mt-1 space-y-2.5 lg:mt-0">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-bold text-gray-100">Withdrawal History</h2>
 
         {withdrawals.length > 0 && (
           <Badge variant="default" className="shrink-0 text-[9px]">
@@ -729,21 +652,21 @@ function WithdrawalHistory({
       {!historyLoaded && withdrawals.length === 0 ? (
         <div className="space-y-2">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="skeleton h-20 rounded-2xl" />
+            <div key={i} className="skeleton h-16 rounded-xl" />
           ))}
         </div>
       ) : historyLoaded && withdrawals.length === 0 ? (
-        <div className="rounded-2xl border border-[#1a1a1a] bg-[#111] p-8 text-center">
-          <div className="mx-auto grid h-11 w-11 place-items-center rounded-xl border border-[#1a1a1a] bg-[#0b0b0b]">
-            <Clock size={18} className="text-gray-600" />
+        <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-6 text-center">
+          <div className="mx-auto grid h-10 w-10 place-items-center rounded-xl border border-[#1a1a1a] bg-[#0b0b0b]">
+            <Clock size={17} className="text-gray-600" />
           </div>
           <p className="mt-3 text-sm font-semibold text-gray-300">No withdrawals yet</p>
           <p className="mt-1 text-xs text-gray-600">
-            Your submitted withdrawal requests will appear here.
+            Submitted requests will appear here.
           </p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-[#1a1a1a] bg-[#111] divide-y divide-[#1a1a1a]">
+        <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#111] divide-y divide-[#1a1a1a]">
           {withdrawals.map((withdrawal) => (
             <WithdrawalHistoryItem key={withdrawal.id} withdrawal={withdrawal} />
           ))}
@@ -758,7 +681,7 @@ function WithdrawalHistoryItem({ withdrawal }: { withdrawal: UserWithdrawal }) {
   const net = withdrawal.net_amount ?? Math.max(withdrawal.amount - fee, 0);
 
   return (
-    <div className="space-y-3 px-4 py-3.5">
+    <div className="space-y-2.5 px-3.5 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <span className="font-mono text-sm font-semibold text-red-400">
