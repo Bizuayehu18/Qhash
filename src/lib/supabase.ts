@@ -11,6 +11,83 @@ if (!supabaseUrl || !supabaseAnonKey) {
   )
 }
 
+type AuthStorage = {
+  getItem: (key: string) => string | null
+  setItem: (key: string, value: string) => void
+  removeItem: (key: string) => void
+}
+
+const memoryStorage = new Map<string, string>()
+
+function getBrowserStorage(kind: 'localStorage' | 'sessionStorage'): Storage | null {
+  if (typeof window === 'undefined') return null
+
+  try {
+    return window[kind]
+  } catch {
+    return null
+  }
+}
+
+function safeGet(storage: Storage | null, key: string): string | null {
+  if (!storage) return null
+
+  try {
+    return storage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function safeSet(storage: Storage | null, key: string, value: string): boolean {
+  if (!storage) return false
+
+  try {
+    storage.setItem(key, value)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function safeRemove(storage: Storage | null, key: string): void {
+  if (!storage) return
+
+  try {
+    storage.removeItem(key)
+  } catch {
+    // Ignore storage cleanup failures. The in-memory fallback is cleared below.
+  }
+}
+
+const resilientAuthStorage: AuthStorage = {
+  getItem: (key) => {
+    const localValue = safeGet(getBrowserStorage('localStorage'), key)
+    if (localValue !== null) return localValue
+
+    const sessionValue = safeGet(getBrowserStorage('sessionStorage'), key)
+    if (sessionValue !== null) return sessionValue
+
+    return memoryStorage.get(key) ?? null
+  },
+  setItem: (key, value) => {
+    const wroteLocal = safeSet(getBrowserStorage('localStorage'), key, value)
+    const wroteSession = safeSet(getBrowserStorage('sessionStorage'), key, value)
+
+    if (!wroteLocal && !wroteSession) {
+      memoryStorage.set(key, value)
+    } else {
+      // Keep an in-memory copy for the current page lifetime in constrained mobile WebViews.
+      memoryStorage.set(key, value)
+    }
+  },
+  removeItem: (key) => {
+    safeRemove(getBrowserStorage('localStorage'), key)
+    safeRemove(getBrowserStorage('sessionStorage'), key)
+    memoryStorage.delete(key)
+  },
+}
+
 export const supabase = createClient<Database>(
   supabaseUrl,
   supabaseAnonKey,
@@ -19,6 +96,7 @@ export const supabase = createClient<Database>(
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: true,
+      storage: resilientAuthStorage,
     },
   }
 )
