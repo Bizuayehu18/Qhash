@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
@@ -17,6 +17,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { getSafeErrorMessage } from "@/lib/errors.js";
 import { withTimeout } from "@/lib/async.js";
+import {
+  getSecurityStatusFn,
+  type SecurityStatus,
+} from "@/lib/server/security.js";
 import { submitWithdrawalFn, getUserWithdrawalsFn } from "@/lib/server/withdrawals.js";
 import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
@@ -39,6 +43,7 @@ type MethodMeta = {
 const MIN_WITHDRAWAL_AMOUNT = 200;
 const WITHDRAWAL_FEE_PERCENT = 5;
 const HISTORY_LOAD_TIMEOUT_MS = 10_000;
+const SECURITY_STATUS_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
 const MAX_AUTO_RETRIES = 2;
 const DAILY_WITHDRAWAL_LIMIT_MESSAGE = "You can only submit one withdrawal request per day. Please try again tomorrow.";
@@ -137,6 +142,7 @@ function WithdrawPage() {
   const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const walletBalance = useWalletStore((s) => s.balance);
   const fetchWallet = useWalletStore((s) => s.fetchWallet);
+  const navigate = useNavigate();
 
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<WithdrawalMethod | null>(null);
@@ -146,6 +152,8 @@ function WithdrawPage() {
   const [submitting, setSubmitting] = useState(false);
   const [withdrawals, setWithdrawals] = useState<UserWithdrawal[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [securityStatus, setSecurityStatus] = useState<SecurityStatus | null>(null);
+  const [loadingSecurityStatus, setLoadingSecurityStatus] = useState(true);
 
   const mountedRef = useRef(true);
   const historyLoadingRef = useRef(false);
@@ -221,6 +229,40 @@ function WithdrawPage() {
     [accessToken, clearRetryTimer, scheduleRetry, user?.id],
   );
 
+  const loadSecurityStatus = useCallback(async () => {
+    if (!user?.id || !accessToken) {
+      if (mountedRef.current) {
+        setSecurityStatus(null);
+        setLoadingSecurityStatus(false);
+      }
+      return;
+    }
+
+    setLoadingSecurityStatus(true);
+
+    try {
+      const result = await withTimeout(
+        getSecurityStatusFn({ data: { accessToken } }),
+        SECURITY_STATUS_TIMEOUT_MS,
+        "Security status request timed out.",
+      );
+
+      if (!mountedRef.current) return;
+
+      setSecurityStatus(result);
+    } catch (err) {
+      console.error("[QHash] Withdrawal security status load failed:", err);
+
+      if (mountedRef.current) {
+        setSecurityStatus(null);
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoadingSecurityStatus(false);
+      }
+    }
+  }, [accessToken, user?.id]);
+
   useEffect(() => {
     if (user?.id && walletBalance === null) {
       void fetchWallet(user.id);
@@ -230,15 +272,19 @@ function WithdrawPage() {
   useEffect(() => {
     mountedRef.current = true;
     void loadWithdrawals({ resetRetryCount: true });
+    void loadSecurityStatus();
 
     return () => {
       mountedRef.current = false;
       clearRetryTimer();
     };
-  }, [clearRetryTimer, loadWithdrawals]);
+  }, [clearRetryTimer, loadSecurityStatus, loadWithdrawals]);
 
   useEffect(() => {
-    const refresh = () => void loadWithdrawals({ resetRetryCount: true });
+    const refresh = () => {
+      void loadWithdrawals({ resetRetryCount: true });
+      void loadSecurityStatus();
+    };
 
     const onVisible = () => {
       if (document.visibilityState === "visible") refresh();
@@ -251,7 +297,7 @@ function WithdrawPage() {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("online", refresh);
     };
-  }, [loadWithdrawals]);
+  }, [loadSecurityStatus, loadWithdrawals]);
 
   const resetForm = () => {
     setAmount("");
@@ -267,6 +313,38 @@ function WithdrawPage() {
     setAccountNumber("");
     setFundPassword("");
   };
+
+  const goToFundPasswordSetup = useCallback(() => {
+    void navigate({ to: "/profile/security/fund-password" });
+  }, [navigate]);
+
+  const handleMethodSelect = useCallback(
+    (nextMethod: WithdrawalMethod) => {
+      if (loadingSecurityStatus) {
+        toast.info("Checking withdrawal security. Please try again in a moment.");
+        return;
+      }
+
+      if (securityStatus?.isFundPasswordLocked) {
+        toast.error("Withdrawal security is temporarily locked. Please try again later.");
+        return;
+      }
+
+      if (securityStatus?.hasFundPassword === false) {
+        toast.error("Please set your fund password first.");
+        goToFundPasswordSetup();
+        return;
+      }
+
+      setMethod(nextMethod);
+    },
+    [
+      goToFundPasswordSetup,
+      loadingSecurityStatus,
+      securityStatus?.hasFundPassword,
+      securityStatus?.isFundPasswordLocked,
+    ],
+  );
 
   const handleSubmit = async () => {
     if (submitting) return;
@@ -310,6 +388,7 @@ function WithdrawPage() {
       toast.success("Withdrawal request submitted.");
       resetForm();
       void loadWithdrawals({ resetRetryCount: true });
+      void loadSecurityStatus();
       void fetchWallet(user.id);
     } catch (err) {
       console.error("[QHash] Withdrawal submit failed:", err);
@@ -342,7 +421,12 @@ function WithdrawPage() {
 
         {!method ? (
           <>
-            <MethodPicker onSelect={setMethod} />
+            <MethodPicker onSelect={handleMethodSelect} />
+            <FundPasswordStatusLine
+              securityStatus={securityStatus}
+              loading={loadingSecurityStatus}
+              onSetNow={goToFundPasswordSetup}
+            />
             <NoticeLine />
           </>
         ) : (
@@ -424,6 +508,63 @@ function MethodPicker({ onSelect }: { onSelect: (method: WithdrawalMethod) => vo
       </div>
     </section>
   );
+}
+
+function FundPasswordStatusLine({
+  securityStatus,
+  loading,
+  onSetNow,
+}: {
+  securityStatus: SecurityStatus | null;
+  loading: boolean;
+  onSetNow: () => void;
+}) {
+  if (loading) {
+    return (
+      <div className="flex items-start gap-2 rounded-xl border border-[#1a1a1a] bg-[#111] px-3 py-2.5">
+        <Info size={13} className="mt-0.5 shrink-0 text-gray-500" />
+        <p className="text-[10px] leading-relaxed text-gray-500">
+          Checking fund password status…
+        </p>
+      </div>
+    );
+  }
+
+  if (!securityStatus) return null;
+
+  if (securityStatus.isFundPasswordLocked) {
+    return (
+      <div className="flex items-start gap-2 rounded-xl border border-yellow-500/20 bg-yellow-500/5 px-3 py-2.5">
+        <Info size={13} className="mt-0.5 shrink-0 text-yellow-400" />
+        <p className="text-[10px] leading-relaxed text-yellow-300">
+          Fund password is temporarily locked. Please try again later.
+        </p>
+      </div>
+    );
+  }
+
+  if (!securityStatus.hasFundPassword) {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-yellow-500/20 bg-yellow-500/5 px-3 py-2.5">
+        <div className="flex min-w-0 items-start gap-2">
+          <Info size={13} className="mt-0.5 shrink-0 text-yellow-400" />
+          <p className="text-[10px] leading-relaxed text-yellow-300">
+            Fund password required before withdrawing.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onSetNow}
+          className="inline-flex shrink-0 items-center gap-1 text-[10px] font-semibold text-[#00ff41] card-press"
+        >
+          Set now
+          <ChevronRight size={12} />
+        </button>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function NoticeLine() {
