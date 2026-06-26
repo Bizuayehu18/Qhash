@@ -64,7 +64,7 @@ function ProfilePage() {
     { to: "/transactions", label: "Transactions", icon: Receipt },
     { to: "/notifications", label: "Notifications", icon: Bell },
     { to: "/withdraw", label: "Withdraw", icon: Wallet },
-    { to: "/security", label: "Security", icon: ShieldCheck },
+    { to: "/profile/security", label: "Security", icon: ShieldCheck },
     { to: "/support", label: "Support", icon: HeadphonesIcon },
     ...(profile?.is_admin
       ? [{ to: "/admin", label: "Admin Panel", icon: ShieldCheck }]
