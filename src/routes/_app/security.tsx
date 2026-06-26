@@ -4,7 +4,11 @@ import { toast } from "sonner";
 import { Info, KeyRound, ShieldCheck, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
+import { InlineNotice } from "@/components/ui/InlineNotice.js";
 import { Input } from "@/components/ui/Input.js";
+import { PageHeader } from "@/components/ui/PageHeader.js";
+import { PillTabs } from "@/components/ui/PillTabs.js";
+import { SectionHeader } from "@/components/ui/SectionHeader.js";
 import { Spinner } from "@/components/ui/Spinner.js";
 import { getSafeErrorMessage } from "@/lib/errors.js";
 import { withTimeout } from "@/lib/async.js";
@@ -32,6 +36,11 @@ const EMPTY_SECURITY_STATUS: SecurityStatus = {
   fundPasswordFailedAttempts: 0,
   isFundPasswordLocked: false,
 };
+
+const SECURITY_TABS: { key: SecurityTab; label: string }[] = [
+  { key: "login", label: "Login Password" },
+  { key: "fund", label: "Fund Password" },
+];
 
 function onlyFourDigits(value: string): string {
   return value.replace(/\D/g, "").slice(0, 4);
@@ -281,42 +290,27 @@ function SecurityPage() {
   };
 
   return (
-    <div className="space-y-5 lg:max-w-3xl lg:mx-auto">
-      <div className="flex items-center gap-3">
-        <ShieldCheck size={18} className="text-[#00ff41]" />
-        <div>
-          <h1 className="text-lg font-bold">Security</h1>
-          <p className="text-xs text-gray-500 mt-1">Manage login and fund passwords</p>
-        </div>
-        <Badge variant="neon" className="ml-auto">Protected</Badge>
-      </div>
+    <div className="space-y-4 lg:mx-auto lg:max-w-3xl">
+      <PageHeader
+        title="Security"
+        description="Manage login and fund passwords"
+        icon={<ShieldCheck size={18} />}
+        badge={<Badge variant="neon">Protected</Badge>}
+      />
 
-      <div className="flex gap-2 overflow-x-auto hide-scrollbar -mx-4 px-4 pb-1 lg:mx-0 lg:px-0">
-        {([
-          { key: "login", label: "Login Password" },
-          { key: "fund", label: "Fund Password" },
-        ] as const).map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            onClick={() => setActiveTab(tab.key)}
-            className={`shrink-0 px-3 py-1.5 rounded-full text-[11px] border transition-colors card-press ${
-              activeTab === tab.key
-                ? "bg-[rgba(0,255,65,0.08)] text-[#00ff41] border-[rgba(0,255,65,0.3)]"
-                : "text-gray-500 border-[#1f1f1f]"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <PillTabs
+        tabs={SECURITY_TABS}
+        activeKey={activeTab}
+        onChange={(key) => setActiveTab(key as SecurityTab)}
+      />
 
       {activeTab === "login" ? (
-        <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4 space-y-4">
-          <div className="flex items-center gap-2">
-            <KeyRound size={14} className="text-[#00ff41]" />
-            <span className="text-xs font-semibold">Login Password</span>
-          </div>
+        <div className="space-y-4 rounded-xl border border-[rgba(0,255,65,0.15)] bg-[#111] p-4">
+          <SectionHeader
+            title="Login Password"
+            description="Update your account sign-in password"
+            action={<KeyRound size={14} className="text-[#00ff41]" />}
+          />
 
           <Input
             label="Current Login Password"
@@ -356,26 +350,25 @@ function SecurityPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4 space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <Wallet size={14} className="text-[#00ff41]" />
-                <span className="text-xs font-semibold">Fund Password</span>
-              </div>
-              {loadingStatus ? (
-                <Spinner size="sm" />
-              ) : (
-                <Badge variant={status.hasFundPassword ? "success" : "default"}>
-                  {status.hasFundPassword ? "Set" : "Not Set"}
-                </Badge>
-              )}
-            </div>
+          <div className="space-y-4 rounded-xl border border-[rgba(0,255,65,0.15)] bg-[#111] p-4">
+            <SectionHeader
+              title="Fund Password"
+              description="Required for withdrawal security"
+              action={
+                loadingStatus ? (
+                  <Spinner size="sm" />
+                ) : (
+                  <Badge variant={status.hasFundPassword ? "success" : "default"}>
+                    {status.hasFundPassword ? "Set" : "Not Set"}
+                  </Badge>
+                )
+              }
+            />
 
             {status.isFundPasswordLocked && (
-              <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
-                <Info size={13} className="text-amber-400 shrink-0 mt-0.5" />
+              <InlineNotice variant="warning" icon={<Info size={13} />}>
                 Fund password is temporarily locked due to failed attempts. Please try again later.
-              </div>
+              </InlineNotice>
             )}
 
             {!status.hasFundPassword ? (
