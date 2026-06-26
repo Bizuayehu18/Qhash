@@ -325,12 +325,18 @@ function WithdrawPage() {
         return;
       }
 
-      if (securityStatus?.isFundPasswordLocked) {
+      if (!securityStatus) {
+        toast.error("Unable to verify withdrawal security. Please try again.");
+        void loadSecurityStatus();
+        return;
+      }
+
+      if (securityStatus.isFundPasswordLocked) {
         toast.error("Withdrawal security is temporarily locked. Please try again later.");
         return;
       }
 
-      if (securityStatus?.hasFundPassword === false) {
+      if (!securityStatus.hasFundPassword) {
         toast.error("Please set your fund password first.");
         goToFundPasswordSetup();
         return;
@@ -338,12 +344,7 @@ function WithdrawPage() {
 
       setMethod(nextMethod);
     },
-    [
-      goToFundPasswordSetup,
-      loadingSecurityStatus,
-      securityStatus?.hasFundPassword,
-      securityStatus?.isFundPasswordLocked,
-    ],
+    [goToFundPasswordSetup, loadSecurityStatus, loadingSecurityStatus, securityStatus],
   );
 
   const handleSubmit = async () => {
@@ -530,7 +531,16 @@ function FundPasswordStatusLine({
     );
   }
 
-  if (!securityStatus) return null;
+  if (!securityStatus) {
+    return (
+      <div className="flex items-start gap-2 rounded-xl border border-yellow-500/20 bg-yellow-500/5 px-3 py-2.5">
+        <Info size={13} className="mt-0.5 shrink-0 text-yellow-400" />
+        <p className="text-[10px] leading-relaxed text-yellow-300">
+          Unable to verify withdrawal security. Please try again.
+        </p>
+      </div>
+    );
+  }
 
   if (securityStatus.isFundPasswordLocked) {
     return (
