@@ -7,6 +7,7 @@ import {
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase.js'
 import { getUnreadCountFn } from '@/lib/server/notifications.js'
+import { getDisplayInitial, getDisplayUsername } from '@/lib/profileDisplay.js'
 
 interface BottomTab {
   to: string
@@ -57,6 +58,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useRouterState({ select: (s) => s.location })
   const navigate = useNavigate()
   const [unreadCount, setUnreadCount] = useState(0)
+  const displayUsername = getDisplayUsername(profile, user)
+  const displayInitial = getDisplayInitial(profile, user)
 
   useEffect(() => {
     if (!user?.id) return
@@ -127,10 +130,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             className="w-full flex items-center justify-center xl:justify-start gap-3 rounded-xl border border-white/[0.05] bg-[#111] px-3 py-3 card-press"
           >
             <span className="h-8 w-8 rounded-full bg-[rgba(0,255,65,0.1)] border border-[rgba(0,255,65,0.2)] flex items-center justify-center text-xs font-bold text-[#00ff41] shrink-0">
-              {profile?.username?.[0]?.toUpperCase() ?? 'U'}
+              {displayInitial}
             </span>
             <span className="hidden xl:block text-left min-w-0">
-              <span className="block text-[11px] font-semibold text-gray-300 truncate">@{profile?.username ?? 'User'}</span>
+              <span className="block text-[11px] font-semibold text-gray-300 truncate">@{displayUsername}</span>
               <span className="block text-[10px] text-gray-600">Account</span>
             </span>
           </button>
@@ -187,7 +190,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               onClick={() => navigate({ to: '/profile' })}
               className="h-8 w-8 rounded-full bg-[rgba(0,255,65,0.1)] border border-[rgba(0,255,65,0.2)] flex items-center justify-center text-xs font-bold text-[#00ff41] card-press"
             >
-              {profile?.username?.[0]?.toUpperCase() ?? 'U'}
+              {displayInitial}
             </button>
           </div>
         </header>

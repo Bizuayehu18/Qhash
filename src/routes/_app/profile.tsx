@@ -10,6 +10,7 @@ import { AmountText } from "@/components/ui/AmountText.js";
 import { Badge } from "@/components/ui/Badge.js";
 import { ListPanel } from "@/components/ui/ListPanel.js";
 import { ListRow } from "@/components/ui/ListRow.js";
+import { getDisplayPhone, getDisplayUsername } from "@/lib/profileDisplay.js";
 
 export const Route = createFileRoute("/_app/profile")({
   component: ProfilePage,
@@ -20,6 +21,8 @@ function ProfilePage() {
   const walletBalance = useWalletStore((s) => s.balance);
   const fetchWallet = useWalletStore((s) => s.fetchWallet);
   const navigate = useNavigate();
+  const displayUsername = getDisplayUsername(profile, user);
+  const displayPhone = getDisplayPhone(profile, user);
 
   const refreshWallet = useCallback(() => {
     if (!user?.id) return;
@@ -86,12 +89,12 @@ function ProfilePage() {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h2 className="truncate text-base font-bold leading-tight text-gray-100">
-                @{profile?.username ?? "User"}
+                @{displayUsername}
               </h2>
               {profile?.is_admin && <Badge variant="neon">Admin</Badge>}
             </div>
             <p className="mt-1 min-h-[16px] truncate text-xs text-gray-500">
-              {profile?.phone ?? ""}
+              {displayPhone}
             </p>
           </div>
         </div>
