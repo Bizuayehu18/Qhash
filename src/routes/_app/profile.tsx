@@ -104,9 +104,9 @@ function ProfilePage() {
 
       {/* Menu items */}
       <div className="lg:col-span-8">
-        <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
+        <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
           Account
-        </p>
+        </h2>
         <ListPanel>
           {menuItems.map((item) => {
             const Icon = item.icon;
