@@ -147,6 +147,7 @@ function AccountSecurityPage() {
               }
             />
           </Link>
+
           <Link to="/profile/security/fund-password" className="block card-press">
             <ListRow
               className="py-3"
