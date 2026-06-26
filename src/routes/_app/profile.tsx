@@ -12,6 +12,7 @@ import { ListPanel } from "@/components/ui/ListPanel.js";
 import { ListRow } from "@/components/ui/ListRow.js";
 import { PageHeader } from "@/components/ui/PageHeader.js";
 import { SectionHeader } from "@/components/ui/SectionHeader.js";
+import { getDisplayPhone, getDisplayUsername } from "@/lib/profileDisplay.js";
 
 export const Route = createFileRoute("/_app/profile")({
   component: ProfilePage,
@@ -22,6 +23,8 @@ function ProfilePage() {
   const walletBalance = useWalletStore((s) => s.balance);
   const fetchWallet = useWalletStore((s) => s.fetchWallet);
   const navigate = useNavigate();
+  const displayUsername = getDisplayUsername(profile, user);
+  const displayPhone = getDisplayPhone(profile, user);
 
   const refreshWallet = useCallback(() => {
     if (!user?.id) return;
@@ -85,8 +88,8 @@ function ProfilePage() {
         <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full border-2 border-[rgba(0,255,65,0.25)] bg-[rgba(0,255,65,0.1)]">
           <User size={28} className="text-[#00ff41]" />
         </div>
-        <h2 className="text-base font-bold leading-tight">@{profile?.username ?? "User"}</h2>
-        <p className="mt-0.5 min-h-[16px] text-xs text-gray-500">{profile?.phone ?? ""}</p>
+        <h2 className="text-base font-bold leading-tight">@{displayUsername}</h2>
+        <p className="mt-0.5 min-h-[16px] text-xs text-gray-500">{displayPhone}</p>
 
         <div className="mt-4 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-3 text-left">
           <div className="mb-2 flex items-center justify-between gap-3">
