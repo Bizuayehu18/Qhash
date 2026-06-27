@@ -57,13 +57,8 @@ const METHOD_LABELS: Record<string, string> = {
 };
 
 const METHOD_SUBLABELS: Record<string, string> = {
-  cbe: "Bank deposit",
-  telebirr: "Mobile top-up",
-};
-
-const METHOD_REFERENCE_HINTS: Record<string, string> = {
-  cbe: "FT reference",
-  telebirr: "D reference",
+  cbe: "Bank channel",
+  telebirr: "Mobile channel",
 };
 
 const METHOD_ORDER: Record<string, number> = {
@@ -84,11 +79,7 @@ function getMethodLabel(type: string): string {
 }
 
 function getMethodSublabel(type: string): string {
-  return METHOD_SUBLABELS[type] ?? "Wallet funding";
-}
-
-function getMethodReferenceHint(type: string): string {
-  return METHOD_REFERENCE_HINTS[type] ?? "Reference ID";
+  return METHOD_SUBLABELS[type] ?? "Funding channel";
 }
 
 function getMethodIcon(type: string): React.ReactNode {
@@ -449,9 +440,9 @@ function MethodSelection({
       </div>
 
       {!methodsLoaded && methodsCount === 0 ? (
-        <div className="grid grid-cols-2 gap-2.5">
+        <div className="space-y-2">
           {[1, 2].map((i) => (
-            <div key={i} className="skeleton h-28 rounded-xl" />
+            <div key={i} className="skeleton h-16 rounded-xl" />
           ))}
         </div>
       ) : methodsLoaded && methodsCount === 0 ? (
@@ -463,13 +454,14 @@ function MethodSelection({
           <p className="mt-1 text-xs text-gray-600">Please try again later.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-2.5">
-          {methodOptions.map(({ method, index, total }) => (
-            <DepositChannelTile
+        <div className="overflow-hidden rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111] shadow-[0_0_0_1px_rgba(0,255,65,0.02)]">
+          {methodOptions.map(({ method, index, total }, rowIndex) => (
+            <DepositChannelRow
               key={method.id}
               method={method}
               accountIndex={index}
               accountCount={total}
+              isLast={rowIndex === methodOptions.length - 1}
               onSelect={() => onSelect(method)}
             />
           ))}
@@ -481,15 +473,17 @@ function MethodSelection({
   );
 }
 
-function DepositChannelTile({
+function DepositChannelRow({
   method,
   accountIndex,
   accountCount,
+  isLast,
   onSelect,
 }: {
   method: PaymentMethod;
   accountIndex: number;
   accountCount: number;
+  isLast: boolean;
   onSelect: () => void;
 }) {
   const accountSuffix = accountCount > 1 ? ` · Account ${accountIndex + 1}` : "";
@@ -498,30 +492,34 @@ function DepositChannelTile({
     <button
       type="button"
       onClick={onSelect}
-      className="group min-w-0 rounded-xl border border-[rgba(0,255,65,0.14)] bg-[linear-gradient(145deg,rgba(0,255,65,0.075),rgba(17,17,17,0.95)_42%)] p-3 text-left transition-colors hover:border-[rgba(0,255,65,0.34)] card-press"
+      className={[
+        "group w-full px-3.5 py-3 text-left transition-colors hover:bg-[rgba(0,255,65,0.035)] card-press",
+        isLast ? "" : "border-b border-[#1a1a1a]",
+      ].join(" ")}
     >
-      <div className="flex items-start justify-between gap-2">
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.08)] text-[#00ff41]">
+      <div className="flex items-center gap-3">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[rgba(0,255,65,0.18)] bg-[linear-gradient(145deg,rgba(0,255,65,0.12),rgba(0,255,65,0.04))] text-[#00ff41]">
           {getMethodIcon(method.type)}
         </span>
+
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-black leading-tight text-gray-100">
+            {getMethodLabel(method.type)}
+          </span>
+          <span className="mt-0.5 block truncate text-[11px] text-gray-500">
+            {getMethodSublabel(method.type)}{accountSuffix}
+          </span>
+        </span>
+
+        <span className="hidden shrink-0 rounded-full border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.045)] px-2.5 py-1 text-[9px] font-semibold text-[#00ff41]/85 sm:inline-flex">
+          Add funds
+        </span>
+
         <ChevronRight
           size={15}
-          className="mt-1 shrink-0 text-gray-600 transition-colors group-hover:text-[#00ff41]"
+          className="shrink-0 text-gray-600 transition-colors group-hover:text-[#00ff41]"
         />
       </div>
-
-      <div className="mt-3 min-w-0">
-        <p className="truncate text-sm font-black leading-tight text-gray-100">
-          {getMethodLabel(method.type)}
-        </p>
-        <p className="mt-1 truncate text-[11px] text-gray-500">
-          {getMethodSublabel(method.type)}{accountSuffix}
-        </p>
-      </div>
-
-      <span className="mt-2 inline-flex rounded-full border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.045)] px-2 py-1 text-[9px] font-semibold text-[#00ff41]/85">
-        {getMethodReferenceHint(method.type)}
-      </span>
     </button>
   );
 }
@@ -826,8 +824,8 @@ function DepositHistoryItem({ deposit }: { deposit: UserDeposit }) {
   const iconClass = isApproved
     ? "border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.08)] text-[#00ff41]"
     : isRejected
-      ? "border-red-400/15 bg-red-500/8 text-red-400"
-      : "border-amber-400/15 bg-amber-400/8 text-amber-300";
+      ? "border-red-400/15 bg-red-500/10 text-red-400"
+      : "border-amber-400/15 bg-amber-400/10 text-amber-300";
 
   return (
     <div className="flex items-center gap-3 px-3.5 py-3">
@@ -838,7 +836,7 @@ function DepositHistoryItem({ deposit }: { deposit: UserDeposit }) {
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
           <p className="truncate text-sm font-bold text-gray-100">
-            Deposit via {getMethodLabel(deposit.method_type)}
+            {getMethodLabel(deposit.method_type)} Deposit
           </p>
           <DepositStatusBadge status={deposit.status} />
         </div>
