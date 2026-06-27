@@ -57,8 +57,8 @@ const METHOD_LABELS: Record<string, string> = {
 };
 
 const METHOD_SUBLABELS: Record<string, string> = {
-  cbe: "Bank channel",
-  telebirr: "Mobile channel",
+  cbe: "Bank Transfer",
+  telebirr: "Wallet Transfer",
 };
 
 const METHOD_ORDER: Record<string, number> = {
@@ -431,7 +431,7 @@ function MethodSelection({
   return (
     <section className="space-y-2.5">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-bold text-gray-100">Choose Deposit Channel</h2>
+        <h2 className="text-sm font-bold text-gray-100">Choose Deposit Method</h2>
         {methodsCount > 0 && (
           <Badge variant="default" className="shrink-0 text-[9px]">
             {methodsCount} option{methodsCount === 1 ? "" : "s"}
@@ -511,8 +511,9 @@ function DepositChannelRow({
           </span>
         </span>
 
-        <span className="hidden shrink-0 rounded-full border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.045)] px-2.5 py-1 text-[9px] font-semibold text-[#00ff41]/85 sm:inline-flex">
-          Add funds
+        <span className="inline-flex shrink-0 rounded-full border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.045)] px-2.5 py-1 text-[9px] font-semibold text-[#00ff41]/85">
+          <span className="sm:hidden">Add</span>
+          <span className="hidden sm:inline">Add funds</span>
         </span>
 
         <ChevronRight
