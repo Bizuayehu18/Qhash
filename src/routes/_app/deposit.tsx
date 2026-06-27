@@ -57,8 +57,13 @@ const METHOD_LABELS: Record<string, string> = {
 };
 
 const METHOD_SUBLABELS: Record<string, string> = {
-  cbe: "Bank transfer",
-  telebirr: "Mobile wallet",
+  cbe: "Bank deposit",
+  telebirr: "Mobile top-up",
+};
+
+const METHOD_REFERENCE_HINTS: Record<string, string> = {
+  cbe: "FT reference",
+  telebirr: "D reference",
 };
 
 const METHOD_ORDER: Record<string, number> = {
@@ -79,7 +84,11 @@ function getMethodLabel(type: string): string {
 }
 
 function getMethodSublabel(type: string): string {
-  return METHOD_SUBLABELS[type] ?? "Payment method";
+  return METHOD_SUBLABELS[type] ?? "Wallet funding";
+}
+
+function getMethodReferenceHint(type: string): string {
+  return METHOD_REFERENCE_HINTS[type] ?? "Reference ID";
 }
 
 function getMethodIcon(type: string): React.ReactNode {
@@ -431,7 +440,7 @@ function MethodSelection({
   return (
     <section className="space-y-2.5">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-bold text-gray-100">Choose Payment Method</h2>
+        <h2 className="text-sm font-bold text-gray-100">Choose Deposit Channel</h2>
         {methodsCount > 0 && (
           <Badge variant="default" className="shrink-0 text-[9px]">
             {methodsCount} option{methodsCount === 1 ? "" : "s"}
@@ -440,9 +449,9 @@ function MethodSelection({
       </div>
 
       {!methodsLoaded && methodsCount === 0 ? (
-        <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2.5">
           {[1, 2].map((i) => (
-            <div key={i} className="skeleton h-16 rounded-xl" />
+            <div key={i} className="skeleton h-28 rounded-xl" />
           ))}
         </div>
       ) : methodsLoaded && methodsCount === 0 ? (
@@ -454,14 +463,13 @@ function MethodSelection({
           <p className="mt-1 text-xs text-gray-600">Please try again later.</p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#111]">
-          {methodOptions.map(({ method, index, total }, rowIndex) => (
-            <PaymentMethodRow
+        <div className="grid grid-cols-2 gap-2.5">
+          {methodOptions.map(({ method, index, total }) => (
+            <DepositChannelTile
               key={method.id}
               method={method}
               accountIndex={index}
               accountCount={total}
-              isLast={rowIndex === methodOptions.length - 1}
               onSelect={() => onSelect(method)}
             />
           ))}
@@ -473,46 +481,47 @@ function MethodSelection({
   );
 }
 
-function PaymentMethodRow({
+function DepositChannelTile({
   method,
   accountIndex,
   accountCount,
-  isLast,
   onSelect,
 }: {
   method: PaymentMethod;
   accountIndex: number;
   accountCount: number;
-  isLast: boolean;
   onSelect: () => void;
 }) {
-  const baseSublabel = getMethodSublabel(method.type);
-  const sublabel = accountCount > 1 ? `${baseSublabel} · Account ${accountIndex + 1}` : baseSublabel;
+  const accountSuffix = accountCount > 1 ? ` · Account ${accountIndex + 1}` : "";
 
   return (
     <button
       type="button"
       onClick={onSelect}
-      className={[
-        "group w-full px-3.5 py-3 text-left transition-colors hover:bg-[rgba(0,255,65,0.035)] card-press",
-        isLast ? "" : "border-b border-[#1a1a1a]",
-      ].join(" ")}
+      className="group min-w-0 rounded-xl border border-[rgba(0,255,65,0.14)] bg-[linear-gradient(145deg,rgba(0,255,65,0.075),rgba(17,17,17,0.95)_42%)] p-3 text-left transition-colors hover:border-[rgba(0,255,65,0.34)] card-press"
     >
-      <div className="flex items-center gap-3">
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.045)] text-[#00ff41]">
+      <div className="flex items-start justify-between gap-2">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.08)] text-[#00ff41]">
           {getMethodIcon(method.type)}
         </span>
-
-        <span className="min-w-0 flex-1">
-          <span className="block text-sm font-bold text-gray-100">{getMethodLabel(method.type)}</span>
-          <span className="mt-0.5 block truncate text-[11px] text-gray-500">{sublabel}</span>
-        </span>
-
         <ChevronRight
           size={15}
-          className="shrink-0 text-gray-600 transition-colors group-hover:text-[#00ff41]"
+          className="mt-1 shrink-0 text-gray-600 transition-colors group-hover:text-[#00ff41]"
         />
       </div>
+
+      <div className="mt-3 min-w-0">
+        <p className="truncate text-sm font-black leading-tight text-gray-100">
+          {getMethodLabel(method.type)}
+        </p>
+        <p className="mt-1 truncate text-[11px] text-gray-500">
+          {getMethodSublabel(method.type)}{accountSuffix}
+        </p>
+      </div>
+
+      <span className="mt-2 inline-flex rounded-full border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.045)] px-2 py-1 text-[9px] font-semibold text-[#00ff41]/85">
+        {getMethodReferenceHint(method.type)}
+      </span>
     </button>
   );
 }
@@ -522,8 +531,8 @@ function DepositNoticeLine() {
     <div className="flex items-start gap-2 rounded-xl border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.035)] px-3 py-2.5">
       <Info size={13} className="mt-0.5 shrink-0 text-[#00ff41]" />
       <p className="text-[10px] leading-relaxed text-gray-500">
-        <span className="font-semibold text-[#00ff41]">Transfer first</span>
-        <span> · Then submit your transaction ID for verification.</span>
+        <span className="font-semibold text-[#00ff41]">Fund wallet</span>
+        <span> · Transfer first, then submit your reference for verification.</span>
       </p>
     </div>
   );
@@ -635,7 +644,7 @@ function PaymentAccountCard({
 }) {
   return (
     <div className="space-y-2.5 rounded-xl border border-[#1f1f1f] bg-[#0b0b0b] p-3">
-      <AccountDetail label="Account Name" value={selectedMethod.account_name} />
+      <AccountDetail label="Receiving Account" value={selectedMethod.account_name} />
       <div className="flex items-center justify-between gap-3">
         <span className="shrink-0 text-[11px] text-gray-500">Account Number</span>
         <div className="flex min-w-0 items-center gap-2">
@@ -702,7 +711,7 @@ function ConfirmDeposit({
       <div className="space-y-3.5 p-3.5">
         <div className="space-y-2 rounded-xl border border-[#1f1f1f] bg-[#0b0b0b] p-3">
           <SummaryRow label="Method" value={getMethodLabel(selectedMethod.type)} />
-          <SummaryRow label="Account" value={selectedMethod.account_name} />
+          <SummaryRow label="Receiving account" value={selectedMethod.account_name} />
           {Number.isFinite(confirmAmount) && confirmAmount > 0 && (
             <SummaryRow
               label="Amount"
@@ -800,7 +809,13 @@ function DepositHistoryItem({ deposit }: { deposit: UserDeposit }) {
   const isApproved = deposit.status === "approved";
   const isRejected = deposit.status === "rejected";
   const isPending = deposit.status === "pending";
-  const amountText = hasAmount ? `+${formatAmount(deposit.amount)} ETB` : "Pending verification";
+  const amountText = hasAmount
+    ? `+${formatAmount(deposit.amount)} ETB`
+    : isRejected
+      ? "Rejected"
+      : isPending
+        ? "Pending"
+        : "Reviewing";
   const amountClass = isApproved
     ? "text-[#00ff41]"
     : isRejected
@@ -808,20 +823,33 @@ function DepositHistoryItem({ deposit }: { deposit: UserDeposit }) {
       : isPending
         ? "text-amber-300"
         : "text-gray-300";
+  const iconClass = isApproved
+    ? "border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.08)] text-[#00ff41]"
+    : isRejected
+      ? "border-red-400/15 bg-red-500/8 text-red-400"
+      : "border-amber-400/15 bg-amber-400/8 text-amber-300";
 
   return (
-    <div className="space-y-1.5 px-3.5 py-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className={`truncate font-mono text-sm font-semibold ${amountClass}`}>
-            {amountText}
-          </p>
-          <p className="mt-0.5 truncate text-[10px] text-gray-600">
-            {getMethodLabel(deposit.method_type)} · {formatDateTime(deposit.created_at)} · {shortReference(deposit.transaction_reference)}
-          </p>
-        </div>
-        <DepositStatusBadge status={deposit.status} />
+    <div className="flex items-center gap-3 px-3.5 py-3">
+      <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl border ${iconClass}`}>
+        <ArrowDownCircle size={15} />
       </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="truncate text-sm font-bold text-gray-100">
+            Deposit via {getMethodLabel(deposit.method_type)}
+          </p>
+          <DepositStatusBadge status={deposit.status} />
+        </div>
+        <p className="mt-0.5 truncate text-[10px] text-gray-600">
+          {shortReference(deposit.transaction_reference)} · {formatDateTime(deposit.created_at)}
+        </p>
+      </div>
+
+      <p className={`shrink-0 text-right font-mono text-xs font-semibold ${amountClass}`}>
+        {amountText}
+      </p>
     </div>
   );
 }
@@ -832,7 +860,7 @@ function DepositStatusBadge({ status }: { status: string }) {
     { label: string; variant: "success" | "warning" | "danger" | "default"; icon: React.ReactNode }
   > = {
     approved: {
-      label: "Approved",
+      label: "Done",
       variant: "success",
       icon: <CheckCircle size={10} />,
     },
@@ -842,7 +870,7 @@ function DepositStatusBadge({ status }: { status: string }) {
       icon: <Clock size={10} />,
     },
     rejected: {
-      label: "Rejected",
+      label: "Failed",
       variant: "danger",
       icon: <XCircle size={10} />,
     },
@@ -853,7 +881,7 @@ function DepositStatusBadge({ status }: { status: string }) {
     icon: null,
   };
   return (
-    <Badge variant={variant}>
+    <Badge variant={variant} className="shrink-0 text-[9px]">
       <span className="flex items-center gap-1">
         {icon}
         {label}
