@@ -56,10 +56,14 @@ const METHOD_LABELS: Record<string, string> = {
   telebirr: "TeleBirr",
 };
 
-const STEP_LABELS: Record<DepositStep, string> = {
-  select: "Select Method",
-  pay: "Transfer Details",
-  confirm: "Confirm Deposit",
+const METHOD_SUBLABELS: Record<string, string> = {
+  cbe: "Bank transfer",
+  telebirr: "Mobile wallet",
+};
+
+const METHOD_ORDER: Record<string, number> = {
+  cbe: 0,
+  telebirr: 1,
 };
 
 function parseOptionalAmount(input: string): number {
@@ -74,8 +78,30 @@ function getMethodLabel(type: string): string {
   return METHOD_LABELS[type] ?? type.toUpperCase();
 }
 
+function getMethodSublabel(type: string): string {
+  return METHOD_SUBLABELS[type] ?? "Payment method";
+}
+
 function getMethodIcon(type: string): React.ReactNode {
   return METHOD_ICONS[type] ?? <ArrowDownCircle size={16} />;
+}
+
+function getMethodOrder(type: string): number {
+  return METHOD_ORDER[type] ?? 99;
+}
+
+function shortReference(value: string | null | undefined): string {
+  const ref = value?.trim();
+  if (!ref) return "Ref unavailable";
+  if (ref.length <= 10) return `Ref ${ref}`;
+  return `Ref …${ref.slice(-6)}`;
+}
+
+function formatAmount(value: number): string {
+  return value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 function DepositPage() {
@@ -328,7 +354,6 @@ function DepositPage() {
     [methods],
   );
 
-  const stepNum = step === "select" ? 1 : step === "pay" ? 2 : 3;
   const confirmAmount = parseOptionalAmount(amount);
 
   return (
@@ -342,8 +367,6 @@ function DepositPage() {
       </div>
 
       <div className="space-y-3 lg:col-span-7 xl:col-span-8">
-        <StepStrip step={step} stepNum={stepNum} />
-
         {step === "select" && (
           <MethodSelection
             groupedMethods={groupedMethods}
@@ -388,32 +411,6 @@ function DepositPage() {
   );
 }
 
-function StepStrip({ step, stepNum }: { step: DepositStep; stepNum: number }) {
-  return (
-    <div className="rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111] px-3.5 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#00ff41]/70">
-            Step {stepNum} of 3
-          </p>
-          <p className="mt-0.5 text-sm font-bold text-gray-100">{STEP_LABELS[step]}</p>
-        </div>
-        <Badge variant="neon" className="shrink-0 text-[9px]">
-          {stepNum}/3
-        </Badge>
-      </div>
-      <div className="mt-3 grid grid-cols-3 gap-1.5">
-        {[1, 2, 3].map((value) => (
-          <div
-            key={value}
-            className={`h-1.5 rounded-full ${value <= stepNum ? "bg-[#00ff41]" : "bg-[#1a1a1a]"}`}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function MethodSelection({
   groupedMethods,
   methodsLoaded,
@@ -425,13 +422,19 @@ function MethodSelection({
   methodsCount: number;
   onSelect: (method: PaymentMethod) => void;
 }) {
+  const methodOptions = Object.entries(groupedMethods)
+    .sort(([a], [b]) => getMethodOrder(a) - getMethodOrder(b))
+    .flatMap(([, accounts]) =>
+      accounts.map((method, index) => ({ method, index, total: accounts.length })),
+    );
+
   return (
     <section className="space-y-2.5">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-bold text-gray-100">Choose Payment Method</h2>
         {methodsCount > 0 && (
           <Badge variant="default" className="shrink-0 text-[9px]">
-            {methodsCount} account{methodsCount === 1 ? "" : "s"}
+            {methodsCount} option{methodsCount === 1 ? "" : "s"}
           </Badge>
         )}
       </div>
@@ -451,9 +454,16 @@ function MethodSelection({
           <p className="mt-1 text-xs text-gray-600">Please try again later.</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {Object.entries(groupedMethods).map(([type, accounts]) => (
-            <MethodGroup key={type} type={type} accounts={accounts} onSelect={onSelect} />
+        <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#111]">
+          {methodOptions.map(({ method, index, total }, rowIndex) => (
+            <PaymentMethodRow
+              key={method.id}
+              method={method}
+              accountIndex={index}
+              accountCount={total}
+              isLast={rowIndex === methodOptions.length - 1}
+              onSelect={() => onSelect(method)}
+            />
           ))}
         </div>
       )}
@@ -463,49 +473,47 @@ function MethodSelection({
   );
 }
 
-function MethodGroup({
-  type,
-  accounts,
+function PaymentMethodRow({
+  method,
+  accountIndex,
+  accountCount,
+  isLast,
   onSelect,
 }: {
-  type: string;
-  accounts: PaymentMethod[];
-  onSelect: (method: PaymentMethod) => void;
+  method: PaymentMethod;
+  accountIndex: number;
+  accountCount: number;
+  isLast: boolean;
+  onSelect: () => void;
 }) {
-  return (
-    <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#111]">
-      <div className="flex items-center gap-2 border-b border-[#1a1a1a] px-3.5 py-2.5">
-        <span className="grid h-7 w-7 place-items-center rounded-lg border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.045)] text-[#00ff41]">
-          {getMethodIcon(type)}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-bold text-gray-100">{getMethodLabel(type)}</p>
-          <p className="text-[10px] text-gray-600">Choose one active receiving account</p>
-        </div>
-      </div>
+  const baseSublabel = getMethodSublabel(method.type);
+  const sublabel = accountCount > 1 ? `${baseSublabel} · Account ${accountIndex + 1}` : baseSublabel;
 
-      {accounts.map((method, index) => (
-        <button
-          key={method.id}
-          type="button"
-          onClick={() => onSelect(method)}
-          className={`group w-full px-3.5 py-3 text-left transition-colors hover:bg-[rgba(0,255,65,0.035)] card-press ${
-            index === accounts.length - 1 ? "" : "border-b border-[#1a1a1a]"
-          }`}
-        >
-          <div className="flex items-center gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-gray-100">{method.account_name}</p>
-              <p className="mt-0.5 truncate font-mono text-[11px] text-gray-500">{method.account_number}</p>
-            </div>
-            <Badge variant="neon" className="shrink-0 text-[9px]">
-              {getMethodLabel(method.type)}
-            </Badge>
-            <ChevronRight size={14} className="shrink-0 text-gray-600 group-hover:text-[#00ff41]" />
-          </div>
-        </button>
-      ))}
-    </div>
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={[
+        "group w-full px-3.5 py-3 text-left transition-colors hover:bg-[rgba(0,255,65,0.035)] card-press",
+        isLast ? "" : "border-b border-[#1a1a1a]",
+      ].join(" ")}
+    >
+      <div className="flex items-center gap-3">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.045)] text-[#00ff41]">
+          {getMethodIcon(method.type)}
+        </span>
+
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-bold text-gray-100">{getMethodLabel(method.type)}</span>
+          <span className="mt-0.5 block truncate text-[11px] text-gray-500">{sublabel}</span>
+        </span>
+
+        <ChevronRight
+          size={15}
+          className="shrink-0 text-gray-600 transition-colors group-hover:text-[#00ff41]"
+        />
+      </div>
+    </button>
   );
 }
 
@@ -540,6 +548,7 @@ function TransferDetails({
     <section className="overflow-hidden rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111]">
       <StepHeader
         title="Transfer Details"
+        stepLabel="Step 2 of 3"
         badge={getMethodLabel(selectedMethod.type)}
         icon={getMethodIcon(selectedMethod.type)}
         onBack={onBack}
@@ -575,11 +584,13 @@ function TransferDetails({
 
 function StepHeader({
   title,
+  stepLabel,
   badge,
   icon,
   onBack,
 }: {
   title: string;
+  stepLabel: string;
   badge: string;
   icon: React.ReactNode;
   onBack: () => void;
@@ -600,7 +611,12 @@ function StepHeader({
           {icon}
         </div>
 
-        <h2 className="min-w-0 flex-1 truncate text-sm font-bold text-gray-100">{title}</h2>
+        <div className="min-w-0 flex-1">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-gray-600">
+            {stepLabel}
+          </p>
+          <h2 className="truncate text-sm font-bold leading-tight text-gray-100">{title}</h2>
+        </div>
 
         <Badge variant="neon" className="shrink-0 text-[9px]">
           {badge}
@@ -677,6 +693,7 @@ function ConfirmDeposit({
     <section className="overflow-hidden rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111]">
       <StepHeader
         title="Confirm Deposit"
+        stepLabel="Step 3 of 3"
         badge={getMethodLabel(selectedMethod.type)}
         icon={<CheckCircle size={16} />}
         onBack={onBack}
@@ -689,7 +706,7 @@ function ConfirmDeposit({
           {Number.isFinite(confirmAmount) && confirmAmount > 0 && (
             <SummaryRow
               label="Amount"
-              value={`${confirmAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} ETB`}
+              value={`${formatAmount(confirmAmount)} ETB`}
               highlight
             />
           )}
@@ -779,27 +796,31 @@ function DepositHistory({
 }
 
 function DepositHistoryItem({ deposit }: { deposit: UserDeposit }) {
+  const hasAmount = deposit.amount > 0;
+  const isApproved = deposit.status === "approved";
+  const isRejected = deposit.status === "rejected";
+  const isPending = deposit.status === "pending";
+  const amountText = hasAmount ? `+${formatAmount(deposit.amount)} ETB` : "Pending verification";
+  const amountClass = isApproved
+    ? "text-[#00ff41]"
+    : isRejected
+      ? "text-red-400"
+      : isPending
+        ? "text-amber-300"
+        : "text-gray-300";
+
   return (
-    <div className="space-y-2.5 px-3.5 py-3">
+    <div className="space-y-1.5 px-3.5 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-mono text-sm font-semibold text-[#00ff41]">
-            {deposit.amount > 0
-              ? `+${deposit.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })} ETB`
-              : "Pending verification"}
+          <p className={`truncate font-mono text-sm font-semibold ${amountClass}`}>
+            {amountText}
           </p>
-          <p className="mt-0.5 text-[10px] text-gray-600">
-            {getMethodLabel(deposit.method_type)} · {formatDateTime(deposit.created_at)}
+          <p className="mt-0.5 truncate text-[10px] text-gray-600">
+            {getMethodLabel(deposit.method_type)} · {formatDateTime(deposit.created_at)} · {shortReference(deposit.transaction_reference)}
           </p>
         </div>
         <DepositStatusBadge status={deposit.status} />
-      </div>
-
-      <div className="rounded-lg border border-[#1a1a1a] bg-[#0b0b0b] px-2.5 py-2">
-        <span className="block text-[10px] text-gray-600">Transaction ID</span>
-        <p className="mt-0.5 truncate font-mono text-[10px] text-gray-400">
-          {deposit.transaction_reference}
-        </p>
       </div>
     </div>
   );
