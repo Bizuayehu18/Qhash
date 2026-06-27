@@ -12,8 +12,9 @@ import {
   Building2,
   Smartphone,
   ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { getSafeErrorMessage } from "@/lib/errors.js";
 import { formatDateTime } from "@/lib/format.js";
@@ -38,6 +39,7 @@ type PaymentMethod = {
 };
 
 type UserDeposit = Awaited<ReturnType<typeof getUserDepositsFn>>[number];
+type DepositStep = "select" | "pay" | "confirm";
 
 const METHOD_LOAD_TIMEOUT_MS = 10_000;
 const HISTORY_LOAD_TIMEOUT_MS = 10_000;
@@ -54,12 +56,26 @@ const METHOD_LABELS: Record<string, string> = {
   telebirr: "TeleBirr",
 };
 
+const STEP_LABELS: Record<DepositStep, string> = {
+  select: "Select Method",
+  pay: "Transfer Details",
+  confirm: "Confirm Deposit",
+};
+
 function parseOptionalAmount(input: string): number {
   const trimmed = input.trim();
   if (!trimmed) return 0;
 
   const value = Number(trimmed);
   return Number.isFinite(value) ? value : Number.NaN;
+}
+
+function getMethodLabel(type: string): string {
+  return METHOD_LABELS[type] ?? type.toUpperCase();
+}
+
+function getMethodIcon(type: string): React.ReactNode {
+  return METHOD_ICONS[type] ?? <ArrowDownCircle size={16} />;
 }
 
 function DepositPage() {
@@ -75,7 +91,7 @@ function DepositPage() {
   const [submitting, setSubmitting] = useState(false);
   const [deposits, setDeposits] = useState<UserDeposit[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
-  const [step, setStep] = useState<"select" | "pay" | "confirm">("select");
+  const [step, setStep] = useState<DepositStep>("select");
 
   const mountedRef = useRef(true);
 
@@ -300,259 +316,490 @@ function DepositPage() {
     navigator.clipboard.writeText(text).then(() => toast.success("Copied!"));
   };
 
-  const groupedMethods = methods.reduce(
-    (acc, m) => {
-      if (!acc[m.type]) acc[m.type] = [];
-      acc[m.type].push(m);
-      return acc;
-    },
-    {} as Record<string, PaymentMethod[]>
+  const groupedMethods = useMemo(
+    () => methods.reduce(
+      (acc, method) => {
+        if (!acc[method.type]) acc[method.type] = [];
+        acc[method.type].push(method);
+        return acc;
+      },
+      {} as Record<string, PaymentMethod[]>,
+    ),
+    [methods],
   );
 
   const stepNum = step === "select" ? 1 : step === "pay" ? 2 : 3;
   const confirmAmount = parseOptionalAmount(amount);
 
   return (
-    <div className="space-y-5 lg:grid lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
+    <div className="space-y-3 pb-20 lg:mx-auto lg:grid lg:max-w-5xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
       <div className="lg:col-span-12">
-        <h1 className="text-lg font-bold">Deposit</h1>
-        <p className="text-xs text-gray-500 mt-1">Add funds via CBE or TeleBirr</p>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
+          Deposit Center
+        </p>
+        <h1 className="mt-1 text-lg font-bold leading-tight text-gray-100">Deposit</h1>
+        <p className="mt-1 text-xs text-gray-500">Add funds via CBE or TeleBirr</p>
       </div>
 
-      {/* Progress steps */}
-      <div className="flex items-center gap-2 lg:col-span-12">
-        {["Select", "Pay", "Confirm"].map((label, i) => (
-          <div key={label} className="flex items-center gap-2 flex-1">
-            <div
-              className={`h-1.5 rounded-full flex-1 ${
-                i + 1 <= stepNum ? "bg-[#00ff41]" : "bg-[#1a1a1a]"
-              }`}
-            />
-          </div>
+      <div className="space-y-3 lg:col-span-7 xl:col-span-8">
+        <StepStrip step={step} stepNum={stepNum} />
+
+        {step === "select" && (
+          <MethodSelection
+            groupedMethods={groupedMethods}
+            methodsLoaded={methodsLoaded}
+            methodsCount={methods.length}
+            onSelect={(method) => {
+              setSelectedMethod(method);
+              setStep("pay");
+            }}
+          />
+        )}
+
+        {step === "pay" && selectedMethod && (
+          <TransferDetails
+            selectedMethod={selectedMethod}
+            amount={amount}
+            onAmountChange={setAmount}
+            onCopy={copyToClipboard}
+            onBack={resetForm}
+            onContinue={() => setStep("confirm")}
+          />
+        )}
+
+        {step === "confirm" && selectedMethod && (
+          <ConfirmDeposit
+            selectedMethod={selectedMethod}
+            confirmAmount={confirmAmount}
+            txReference={txReference}
+            txPlaceholder={getTxPlaceholder()}
+            submitting={submitting}
+            onTxReferenceChange={setTxReference}
+            onBack={() => setStep("pay")}
+            onSubmit={handleSubmit}
+          />
+        )}
+      </div>
+
+      <div className="lg:col-span-5 xl:col-span-4">
+        <DepositHistory deposits={deposits} historyLoaded={historyLoaded} />
+      </div>
+    </div>
+  );
+}
+
+function StepStrip({ step, stepNum }: { step: DepositStep; stepNum: number }) {
+  return (
+    <div className="rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111] px-3.5 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#00ff41]/70">
+            Step {stepNum} of 3
+          </p>
+          <p className="mt-0.5 text-sm font-bold text-gray-100">{STEP_LABELS[step]}</p>
+        </div>
+        <Badge variant="neon" className="shrink-0 text-[9px]">
+          {stepNum}/3
+        </Badge>
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-1.5">
+        {[1, 2, 3].map((value) => (
+          <div
+            key={value}
+            className={`h-1.5 rounded-full ${value <= stepNum ? "bg-[#00ff41]" : "bg-[#1a1a1a]"}`}
+          />
         ))}
       </div>
+    </div>
+  );
+}
 
-      <div className="lg:col-span-8 lg:max-w-xl">
-        {/* Step 1: Select */}
-        {step === "select" && (
-          <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4">
-            <div className="flex items-center gap-2 mb-4">
-              <ArrowDownCircle size={14} className="text-[#00ff41]" />
-              <span className="text-xs font-semibold">Select Payment Method</span>
-            </div>
-
-            {!methodsLoaded && methods.length === 0 ? (
-              <div className="space-y-3">
-                {[1, 2].map((i) => (
-                  <div key={i} className="skeleton h-16 rounded-xl" />
-                ))}
-              </div>
-            ) : methodsLoaded && methods.length === 0 ? (
-              <div className="text-center py-8 text-xs text-gray-500">
-                No payment methods available.
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {Object.entries(groupedMethods).map(([type, accounts]) => (
-                  <div key={type}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-gray-500">{METHOD_ICONS[type]}</span>
-                      <span className="text-xs font-medium text-gray-400">
-                        {METHOD_LABELS[type] ?? type.toUpperCase()}
-                      </span>
-                    </div>
-                    <div className="space-y-2">
-                      {accounts.map((m) => (
-                        <button
-                          key={m.id}
-                          onClick={() => {
-                            setSelectedMethod(m);
-                            setStep("pay");
-                          }}
-                          className="w-full text-left p-3 rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] hover:border-[rgba(0,255,65,0.3)] transition-all card-press"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-sm font-medium text-gray-200">{m.account_name}</p>
-                              <p className="text-[11px] text-gray-500 mt-0.5 font-mono">
-                                {m.account_number}
-                              </p>
-                            </div>
-                            <Badge variant="neon">{METHOD_LABELS[m.type] ?? m.type}</Badge>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Step 2: Transfer Details */}
-        {step === "pay" && selectedMethod && (
-          <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <button onClick={resetForm} className="text-gray-500">
-                  <ChevronLeft size={16} />
-                </button>
-                <span className="text-xs font-semibold">Transfer Details</span>
-              </div>
-              <Badge variant="neon">{METHOD_LABELS[selectedMethod.type]}</Badge>
-            </div>
-
-            <div className="space-y-4">
-              <div className="p-4 rounded-xl bg-[#0a0a0a] border border-[#1f1f1f] space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-gray-500">Account Name</span>
-                  <span className="text-xs text-gray-200">{selectedMethod.account_name}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-gray-500">Account Number</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-mono text-[#00ff41]">
-                      {selectedMethod.account_number}
-                    </span>
-                    <button
-                      onClick={() => copyToClipboard(selectedMethod.account_number)}
-                      className="text-gray-600 hover:text-gray-300 card-press"
-                    >
-                      <Copy size={12} />
-                    </button>
-                  </div>
-                </div>
-                {selectedMethod.instructions && (
-                  <p className="text-[11px] text-gray-500 pt-2.5 border-t border-[#1f1f1f]">
-                    {selectedMethod.instructions}
-                  </p>
-                )}
-              </div>
-
-              <div className="p-3 rounded-xl bg-[rgba(0,255,65,0.04)] border border-[rgba(0,255,65,0.1)] flex gap-2 text-[11px] text-gray-400">
-                <Info size={13} className="text-[#00ff41] shrink-0 mt-0.5" />
-                Transfer the amount to the account above, then tap "I've Made the Payment" to continue.
-              </div>
-
-              <Input
-                label="Amount (ETB) — optional"
-                type="number"
-                placeholder="Enter deposit amount"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                min="0.01"
-                step="0.01"
-                hint="The actual amount will be verified from the receipt"
-              />
-
-              <Button
-                fullWidth
-                onClick={() => setStep("confirm")}
-              >
-                I've Made the Payment
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 3: Confirm with Transaction ID */}
-        {step === "confirm" && selectedMethod && (
-          <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4">
-            <div className="flex items-center gap-2 mb-4">
-              <button onClick={() => setStep("pay")} className="text-gray-500">
-                <ChevronLeft size={16} />
-              </button>
-              <CheckCircle size={14} className="text-[#00ff41]" />
-              <span className="text-xs font-semibold">Confirm Deposit</span>
-            </div>
-
-            <div className="space-y-4">
-              <div className="p-3 rounded-xl bg-[#0a0a0a] border border-[#1f1f1f] space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-gray-500">Method</span>
-                  <span className="text-gray-300">{METHOD_LABELS[selectedMethod.type]}</span>
-                </div>
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-gray-500">Account</span>
-                  <span className="text-gray-300">{selectedMethod.account_name}</span>
-                </div>
-                {Number.isFinite(confirmAmount) && confirmAmount > 0 && (
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-500">Amount</span>
-                    <span className="text-[#00ff41] font-mono font-medium">
-                      {confirmAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} ETB
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              <Input
-                label="Transaction ID / Reference"
-                placeholder={getTxPlaceholder()}
-                value={txReference}
-                onChange={(e) => setTxReference(e.target.value)}
-                hint={`From your ${METHOD_LABELS[selectedMethod.type]} payment receipt`}
-              />
-
-              <Button
-                fullWidth
-                loading={submitting}
-                disabled={!txReference.trim() || submitting}
-                onClick={handleSubmit}
-              >
-                Submit Deposit
-              </Button>
-            </div>
-          </div>
+function MethodSelection({
+  groupedMethods,
+  methodsLoaded,
+  methodsCount,
+  onSelect,
+}: {
+  groupedMethods: Record<string, PaymentMethod[]>;
+  methodsLoaded: boolean;
+  methodsCount: number;
+  onSelect: (method: PaymentMethod) => void;
+}) {
+  return (
+    <section className="space-y-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-bold text-gray-100">Choose Payment Method</h2>
+        {methodsCount > 0 && (
+          <Badge variant="default" className="shrink-0 text-[9px]">
+            {methodsCount} account{methodsCount === 1 ? "" : "s"}
+          </Badge>
         )}
       </div>
 
-      {/* Deposit History */}
-      <div className="lg:col-span-4">
-        <h2 className="text-sm font-semibold mb-3">Deposit History</h2>
-        {!historyLoaded && deposits.length === 0 ? (
-          <div className="space-y-2">
-            {[1, 2].map((i) => (
-              <div key={i} className="skeleton h-14 rounded-xl" />
-            ))}
+      {!methodsLoaded && methodsCount === 0 ? (
+        <div className="space-y-2">
+          {[1, 2].map((i) => (
+            <div key={i} className="skeleton h-16 rounded-xl" />
+          ))}
+        </div>
+      ) : methodsLoaded && methodsCount === 0 ? (
+        <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-6 text-center">
+          <div className="mx-auto grid h-10 w-10 place-items-center rounded-xl border border-[#1a1a1a] bg-[#0b0b0b]">
+            <ArrowDownCircle size={17} className="text-gray-600" />
           </div>
-        ) : historyLoaded && deposits.length === 0 ? (
-          <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-8 text-center text-xs text-gray-600">
-            No deposits yet
+          <p className="mt-3 text-sm font-semibold text-gray-300">No payment methods</p>
+          <p className="mt-1 text-xs text-gray-600">Please try again later.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {Object.entries(groupedMethods).map(([type, accounts]) => (
+            <MethodGroup key={type} type={type} accounts={accounts} onSelect={onSelect} />
+          ))}
+        </div>
+      )}
+
+      <DepositNoticeLine />
+    </section>
+  );
+}
+
+function MethodGroup({
+  type,
+  accounts,
+  onSelect,
+}: {
+  type: string;
+  accounts: PaymentMethod[];
+  onSelect: (method: PaymentMethod) => void;
+}) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#111]">
+      <div className="flex items-center gap-2 border-b border-[#1a1a1a] px-3.5 py-2.5">
+        <span className="grid h-7 w-7 place-items-center rounded-lg border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.045)] text-[#00ff41]">
+          {getMethodIcon(type)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-bold text-gray-100">{getMethodLabel(type)}</p>
+          <p className="text-[10px] text-gray-600">Choose one active receiving account</p>
+        </div>
+      </div>
+
+      {accounts.map((method, index) => (
+        <button
+          key={method.id}
+          type="button"
+          onClick={() => onSelect(method)}
+          className={`group w-full px-3.5 py-3 text-left transition-colors hover:bg-[rgba(0,255,65,0.035)] card-press ${
+            index === accounts.length - 1 ? "" : "border-b border-[#1a1a1a]"
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-gray-100">{method.account_name}</p>
+              <p className="mt-0.5 truncate font-mono text-[11px] text-gray-500">{method.account_number}</p>
+            </div>
+            <Badge variant="neon" className="shrink-0 text-[9px]">
+              {getMethodLabel(method.type)}
+            </Badge>
+            <ChevronRight size={14} className="shrink-0 text-gray-600 group-hover:text-[#00ff41]" />
           </div>
-        ) : (
-          <div className="bg-[#111] rounded-xl border border-[#1a1a1a] divide-y divide-[#1a1a1a]">
-            {deposits.map((d) => (
-              <div key={d.id} className="px-4 py-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="h-8 w-8 rounded-full bg-emerald-500/10 flex items-center justify-center">
-                      <ArrowDownCircle size={14} className="text-emerald-400" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-mono text-[#00ff41]">
-                        {d.amount > 0
-                          ? `+${d.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })} ETB`
-                          : "Pending verification"}
-                      </p>
-                      <p className="text-[10px] text-gray-600">
-                        {METHOD_LABELS[d.method_type] ?? d.method_type} &middot;{" "}
-                        {formatDateTime(d.created_at)}
-                      </p>
-                    </div>
-                  </div>
-                  <DepositStatusBadge status={d.status} />
-                </div>
-                <div className="flex items-center gap-3 mt-1.5 ml-11">
-                  <span className="text-[10px] text-gray-500 font-mono truncate max-w-[140px]">
-                    {d.transaction_reference}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DepositNoticeLine() {
+  return (
+    <div className="flex items-start gap-2 rounded-xl border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.035)] px-3 py-2.5">
+      <Info size={13} className="mt-0.5 shrink-0 text-[#00ff41]" />
+      <p className="text-[10px] leading-relaxed text-gray-500">
+        <span className="font-semibold text-[#00ff41]">Transfer first</span>
+        <span> · Then submit your transaction ID for verification.</span>
+      </p>
+    </div>
+  );
+}
+
+function TransferDetails({
+  selectedMethod,
+  amount,
+  onAmountChange,
+  onCopy,
+  onBack,
+  onContinue,
+}: {
+  selectedMethod: PaymentMethod;
+  amount: string;
+  onAmountChange: (value: string) => void;
+  onCopy: (text: string) => void;
+  onBack: () => void;
+  onContinue: () => void;
+}) {
+  return (
+    <section className="overflow-hidden rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111]">
+      <StepHeader
+        title="Transfer Details"
+        badge={getMethodLabel(selectedMethod.type)}
+        icon={getMethodIcon(selectedMethod.type)}
+        onBack={onBack}
+      />
+
+      <div className="space-y-3.5 p-3.5">
+        <PaymentAccountCard selectedMethod={selectedMethod} onCopy={onCopy} />
+
+        <div className="flex items-start gap-2 rounded-xl border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.035)] px-3 py-2.5">
+          <Info size={13} className="mt-0.5 shrink-0 text-[#00ff41]" />
+          <p className="text-[10px] leading-relaxed text-gray-500">
+            Transfer to the account above, then continue and submit your transaction ID.
+          </p>
+        </div>
+
+        <Input
+          label="Amount (ETB) — optional"
+          type="text"
+          placeholder="Enter deposit amount"
+          value={amount}
+          onChange={(e) => onAmountChange(e.target.value)}
+          inputMode="decimal"
+          hint="The actual amount will be verified from the receipt"
+        />
+
+        <Button fullWidth onClick={onContinue}>
+          I've Made the Payment
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function StepHeader({
+  title,
+  badge,
+  icon,
+  onBack,
+}: {
+  title: string;
+  badge: string;
+  icon: React.ReactNode;
+  onBack: () => void;
+}) {
+  return (
+    <div className="border-b border-[#1a1a1a] px-3.5 py-3">
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onBack}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[#1f1f1f] bg-[#0b0b0b] text-gray-400 transition-colors hover:border-[rgba(0,255,65,0.35)] hover:text-[#00ff41] card-press"
+          aria-label="Go back"
+        >
+          <ChevronLeft size={15} />
+        </button>
+
+        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.06)] text-[#00ff41]">
+          {icon}
+        </div>
+
+        <h2 className="min-w-0 flex-1 truncate text-sm font-bold text-gray-100">{title}</h2>
+
+        <Badge variant="neon" className="shrink-0 text-[9px]">
+          {badge}
+        </Badge>
+      </div>
+    </div>
+  );
+}
+
+function PaymentAccountCard({
+  selectedMethod,
+  onCopy,
+}: {
+  selectedMethod: PaymentMethod;
+  onCopy: (text: string) => void;
+}) {
+  return (
+    <div className="space-y-2.5 rounded-xl border border-[#1f1f1f] bg-[#0b0b0b] p-3">
+      <AccountDetail label="Account Name" value={selectedMethod.account_name} />
+      <div className="flex items-center justify-between gap-3">
+        <span className="shrink-0 text-[11px] text-gray-500">Account Number</span>
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate font-mono text-sm font-semibold text-[#00ff41]">
+            {selectedMethod.account_number}
+          </span>
+          <button
+            type="button"
+            onClick={() => onCopy(selectedMethod.account_number)}
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-[#1f1f1f] bg-[#111] text-gray-500 hover:text-[#00ff41] card-press"
+            aria-label="Copy account number"
+          >
+            <Copy size={12} />
+          </button>
+        </div>
+      </div>
+      {selectedMethod.instructions && (
+        <p className="border-t border-[#1f1f1f] pt-2.5 text-[11px] leading-relaxed text-gray-500">
+          {selectedMethod.instructions}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function AccountDetail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="shrink-0 text-[11px] text-gray-500">{label}</span>
+      <span className="truncate text-xs font-semibold text-gray-200">{value}</span>
+    </div>
+  );
+}
+
+function ConfirmDeposit({
+  selectedMethod,
+  confirmAmount,
+  txReference,
+  txPlaceholder,
+  submitting,
+  onTxReferenceChange,
+  onBack,
+  onSubmit,
+}: {
+  selectedMethod: PaymentMethod;
+  confirmAmount: number;
+  txReference: string;
+  txPlaceholder: string;
+  submitting: boolean;
+  onTxReferenceChange: (value: string) => void;
+  onBack: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <section className="overflow-hidden rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111]">
+      <StepHeader
+        title="Confirm Deposit"
+        badge={getMethodLabel(selectedMethod.type)}
+        icon={<CheckCircle size={16} />}
+        onBack={onBack}
+      />
+
+      <div className="space-y-3.5 p-3.5">
+        <div className="space-y-2 rounded-xl border border-[#1f1f1f] bg-[#0b0b0b] p-3">
+          <SummaryRow label="Method" value={getMethodLabel(selectedMethod.type)} />
+          <SummaryRow label="Account" value={selectedMethod.account_name} />
+          {Number.isFinite(confirmAmount) && confirmAmount > 0 && (
+            <SummaryRow
+              label="Amount"
+              value={`${confirmAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} ETB`}
+              highlight
+            />
+          )}
+        </div>
+
+        <Input
+          label="Transaction ID / Reference"
+          placeholder={txPlaceholder}
+          value={txReference}
+          onChange={(e) => onTxReferenceChange(e.target.value)}
+          hint={`From your ${getMethodLabel(selectedMethod.type)} payment receipt`}
+        />
+
+        <Button
+          fullWidth
+          loading={submitting}
+          disabled={!txReference.trim() || submitting}
+          onClick={onSubmit}
+        >
+          Submit Deposit
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function SummaryRow({
+  label,
+  value,
+  highlight = false,
+}: {
+  label: string;
+  value: string;
+  highlight?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 text-xs">
+      <span className="text-gray-500">{label}</span>
+      <span className={highlight ? "font-mono font-semibold text-[#00ff41]" : "truncate text-gray-300"}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function DepositHistory({
+  deposits,
+  historyLoaded,
+}: {
+  deposits: UserDeposit[];
+  historyLoaded: boolean;
+}) {
+  return (
+    <section className="mt-1 space-y-2.5 lg:mt-0">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-bold text-gray-100">Deposit History</h2>
+        {deposits.length > 0 && (
+          <Badge variant="default" className="shrink-0 text-[9px]">
+            {deposits.length}
+          </Badge>
         )}
+      </div>
+
+      {!historyLoaded && deposits.length === 0 ? (
+        <div className="space-y-2">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="skeleton h-16 rounded-xl" />
+          ))}
+        </div>
+      ) : historyLoaded && deposits.length === 0 ? (
+        <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-6 text-center">
+          <div className="mx-auto grid h-10 w-10 place-items-center rounded-xl border border-[#1a1a1a] bg-[#0b0b0b]">
+            <Clock size={17} className="text-gray-600" />
+          </div>
+          <p className="mt-3 text-sm font-semibold text-gray-300">No deposits yet</p>
+          <p className="mt-1 text-xs text-gray-600">Submitted deposits will appear here.</p>
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#111] divide-y divide-[#1a1a1a]">
+          {deposits.map((deposit) => (
+            <DepositHistoryItem key={deposit.id} deposit={deposit} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function DepositHistoryItem({ deposit }: { deposit: UserDeposit }) {
+  return (
+    <div className="space-y-2.5 px-3.5 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-mono text-sm font-semibold text-[#00ff41]">
+            {deposit.amount > 0
+              ? `+${deposit.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })} ETB`
+              : "Pending verification"}
+          </p>
+          <p className="mt-0.5 text-[10px] text-gray-600">
+            {getMethodLabel(deposit.method_type)} · {formatDateTime(deposit.created_at)}
+          </p>
+        </div>
+        <DepositStatusBadge status={deposit.status} />
+      </div>
+
+      <div className="rounded-lg border border-[#1a1a1a] bg-[#0b0b0b] px-2.5 py-2">
+        <span className="block text-[10px] text-gray-600">Transaction ID</span>
+        <p className="mt-0.5 truncate font-mono text-[10px] text-gray-400">
+          {deposit.transaction_reference}
+        </p>
       </div>
     </div>
   );
