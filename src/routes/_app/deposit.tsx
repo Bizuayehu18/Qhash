@@ -430,13 +430,19 @@ function MethodSelection({
 
   return (
     <section className="space-y-2.5">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-bold text-gray-100">Choose Deposit Method</h2>
-        {methodsCount > 0 && (
-          <Badge variant="default" className="shrink-0 text-[9px]">
-            {methodsCount} option{methodsCount === 1 ? "" : "s"}
-          </Badge>
-        )}
+      <div className="space-y-1">
+        <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-gray-600">
+          Step 1 of 3
+        </p>
+
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-bold text-gray-100">Choose Deposit Method</h2>
+          {methodsCount > 0 && (
+            <Badge variant="default" className="shrink-0 text-[9px]">
+              {methodsCount} option{methodsCount === 1 ? "" : "s"}
+            </Badge>
+          )}
+        </div>
       </div>
 
       {!methodsLoaded && methodsCount === 0 ? (
