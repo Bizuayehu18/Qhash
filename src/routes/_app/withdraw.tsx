@@ -56,7 +56,7 @@ const METHOD_LABELS: Record<WithdrawalMethod, string> = {
 
 const METHOD_META: Record<WithdrawalMethod, MethodMeta> = {
   cbe: {
-    label: "Bank account",
+    label: "Bank Transfer",
     title: "CBE Withdrawal",
     nameLabel: "CBE Account Name",
     numberLabel: "CBE Account Number",
@@ -65,7 +65,7 @@ const METHOD_META: Record<WithdrawalMethod, MethodMeta> = {
     icon: <Building2 size={16} />,
   },
   telebirr: {
-    label: "Wallet transfer",
+    label: "Wallet Transfer",
     title: "TeleBirr Withdrawal",
     nameLabel: "TeleBirr Account Name",
     numberLabel: "TeleBirr Phone Number",
