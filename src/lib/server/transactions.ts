@@ -3,6 +3,11 @@ import { getAdminClient } from "./supabase-admin.js";
 import type { TransactionType } from "../database.types.js";
 import { throwSafe } from "../errors.js";
 
+const REFERRAL_TRANSACTION_TYPES = [
+  "referral_daily_bonus",
+  "referral_investment_bonus",
+] as TransactionType[];
+
 const VALID_TYPES = new Set<string>([
   "all",
   "deposit",
@@ -10,6 +15,8 @@ const VALID_TYPES = new Set<string>([
   "plan_purchase",
   "earning",
   "admin_adjustment",
+  "referral_bonus",
+  "referral_daily_bonus",
   "referral_investment_bonus",
 ]);
 
@@ -52,7 +59,9 @@ export const getTransactionsFn = createServerFn({ method: "POST" })
         .order("created_at", { ascending: false })
         .limit(50);
 
-      if (type && type !== "all") {
+      if (type === "referral_bonus") {
+        query = query.in("type", REFERRAL_TRANSACTION_TYPES);
+      } else if (type && type !== "all") {
         query = query.eq("type", type as TransactionType);
       }
 

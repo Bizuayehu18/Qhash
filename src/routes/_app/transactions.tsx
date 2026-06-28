@@ -16,6 +16,7 @@ const FILTER_TABS = [
   { key: "deposit", label: "Deposits" },
   { key: "withdrawal", label: "Withdrawals" },
   { key: "earning", label: "Earnings" },
+  { key: "referral_bonus", label: "Referrals" },
   { key: "plan_purchase", label: "Investments" },
 ];
 
