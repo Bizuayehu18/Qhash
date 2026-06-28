@@ -17,6 +17,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { getSafeErrorMessage } from "@/lib/errors.js";
+import { formatDateTime } from "@/lib/format.js";
 import { withTimeout } from "@/lib/async.js";
 import {
   getSecurityStatusFn,
@@ -835,8 +836,6 @@ function WithdrawalHistory({
 }
 
 function WithdrawalHistoryItem({ withdrawal }: { withdrawal: UserWithdrawal }) {
-  const fee = withdrawal.fee_amount ?? 0;
-  const net = withdrawal.net_amount ?? Math.max(withdrawal.amount - fee, 0);
   const methodLabel = METHOD_LABELS[withdrawal.method] ?? withdrawal.method;
   const accountLine = `${withdrawal.account_name}${withdrawal.account_last4 ? ` • ${withdrawal.account_last4}` : ""}`;
 
@@ -853,11 +852,7 @@ function WithdrawalHistoryItem({ withdrawal }: { withdrawal: UserWithdrawal }) {
         </div>
 
         <p className="mt-0.5 truncate text-[10px] text-gray-600">
-          {formatDate(withdrawal.created_at)} · {accountLine}
-        </p>
-
-        <p className="mt-0.5 truncate text-[10px] text-gray-600">
-          Fee {formatMoney(fee)} ETB · Net {formatMoney(net)} ETB
+          {formatDateTime(withdrawal.created_at)} · {accountLine}
         </p>
       </div>
 
@@ -931,15 +926,5 @@ function formatMoney(value: number): string {
   return Number(value || 0).toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  });
-}
-
-function formatDate(value: string | null): string {
-  if (!value) return "";
-
-  return new Date(value).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
   });
 }
