@@ -30,14 +30,14 @@ function StatusBadge({ status }: { status?: string }) {
     case "completed":
     case "approved":
       return (
-        <span className="inline-flex items-center gap-1 text-[9px] text-emerald-400 bg-emerald-400/[0.08] border border-emerald-400/[0.15] rounded-full px-1.5 py-0.5">
+        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/[0.15] bg-emerald-400/[0.08] px-1.5 py-0.5 text-[9px] text-emerald-400">
           <CheckCircle2 size={8} />
           Done
         </span>
       );
     case "pending":
       return (
-        <span className="inline-flex items-center gap-1 text-[9px] text-amber-400 bg-amber-400/[0.08] border border-amber-400/[0.15] rounded-full px-1.5 py-0.5">
+        <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/[0.15] bg-amber-400/[0.08] px-1.5 py-0.5 text-[9px] text-amber-400">
           <Clock size={8} />
           Pending
         </span>
@@ -45,7 +45,7 @@ function StatusBadge({ status }: { status?: string }) {
     case "failed":
     case "rejected":
       return (
-        <span className="inline-flex items-center gap-1 text-[9px] text-red-400 bg-red-400/[0.08] border border-red-400/[0.15] rounded-full px-1.5 py-0.5">
+        <span className="inline-flex items-center gap-1 rounded-full border border-red-400/[0.15] bg-red-400/[0.08] px-1.5 py-0.5 text-[9px] text-red-400">
           <XCircle size={8} />
           Failed
         </span>
@@ -53,6 +53,51 @@ function StatusBadge({ status }: { status?: string }) {
     default:
       return null;
   }
+}
+
+function getTransactionTitle(tx: Transaction): string {
+  switch (tx.type) {
+    case "referral_daily_bonus":
+    case "referral_investment_bonus":
+      return "Referral Bonus";
+    case "plan_purchase":
+      return "Investment";
+    default:
+      return txLabel(tx.type);
+  }
+}
+
+function getFallbackTransactionSubtitle(type: string): string {
+  switch (type) {
+    case "deposit":
+      return "Wallet deposit";
+    case "withdrawal":
+      return "Withdrawal request";
+    case "earning":
+      return "Daily mining earnings";
+    case "plan_purchase":
+      return "Investment purchase";
+    case "referral_daily_bonus":
+      return "Daily referral bonus";
+    case "referral_investment_bonus":
+      return "Investment referral bonus";
+    default:
+      return "Account activity";
+  }
+}
+
+function getTransactionSubtitle(tx: Transaction, formattedCreatedAt: string): string {
+  if (tx.type === "referral_daily_bonus" || tx.type === "referral_investment_bonus") {
+    return getFallbackTransactionSubtitle(tx.type);
+  }
+
+  const description = typeof tx.description === "string" ? tx.description.trim() : "";
+
+  if (description && description !== formattedCreatedAt) {
+    return description;
+  }
+
+  return getFallbackTransactionSubtitle(tx.type);
 }
 
 function TransactionsPage() {
@@ -162,23 +207,22 @@ function TransactionsPage() {
   }, [loadTransactions]);
 
   return (
-    <div className="space-y-4 lg:max-w-3xl lg:mx-auto">
+    <div className="space-y-4 lg:mx-auto lg:max-w-3xl">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold">Transactions</h1>
         {transactionsLoaded && transactions.length > 0 && (
-          <span className="text-[10px] text-gray-600 font-mono">
+          <span className="font-mono text-[10px] text-gray-600">
             {transactions.length} records
           </span>
         )}
       </div>
 
-      {/* Filter pills */}
-      <div className="flex gap-2 overflow-x-auto hide-scrollbar -mx-4 px-4 pb-1 lg:mx-0 lg:px-0">
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 hide-scrollbar lg:mx-0 lg:px-0">
         {FILTER_TABS.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveFilter(tab.key)}
-            className={`shrink-0 px-3 py-1.5 text-[11px] rounded-full border transition-colors card-press ${
+            className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] transition-colors card-press ${
               activeFilter === tab.key
                 ? "border-[rgba(0,255,65,0.3)] bg-[rgba(0,255,65,0.08)] text-[#00ff41]"
                 : "border-[#1f1f1f] text-gray-500"
@@ -196,43 +240,60 @@ function TransactionsPage() {
           ))}
         </div>
       ) : transactions.length === 0 ? (
-        <div className="text-center py-16">
+        <div className="py-16 text-center">
           <Receipt size={24} className="mx-auto mb-3 text-gray-700" />
           <p className="text-xs text-gray-600">No transactions found</p>
         </div>
       ) : (
-        <div className="bg-[#111] rounded-xl border border-[#1a1a1a] divide-y divide-[#1a1a1a] overflow-hidden">
-          {transactions.map((tx) => (
-            <div
-              key={tx.id}
-              className="flex items-center justify-between px-4 py-3 tx-row"
-            >
-              <div className="flex items-center gap-3">
-                <TxIcon type={tx.type} />
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs font-medium text-gray-200">{txLabel(tx.type)}</p>
-                    <StatusBadge status={(tx as Record<string, unknown>).status as string | undefined} />
+        <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#111] divide-y divide-[#1a1a1a]">
+          {transactions.map((tx) => {
+            const formattedCreatedAt = formatDateTime(tx.created_at);
+            const subtitle = getTransactionSubtitle(tx, formattedCreatedAt);
+
+            return (
+              <div
+                key={tx.id}
+                className="flex items-center justify-between px-4 py-3 tx-row"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <TxIcon type={tx.type} />
+
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-medium text-gray-200">
+                        {getTransactionTitle(tx)}
+                      </p>
+                      <StatusBadge
+                        status={(tx as Record<string, unknown>).status as string | undefined}
+                      />
+                    </div>
+
+                    <p className="mt-0.5 max-w-[160px] truncate text-[10px] text-gray-600">
+                      {subtitle}
+                    </p>
                   </div>
-                  <p className="text-[10px] text-gray-600 mt-0.5 truncate max-w-[160px]">
-                    {tx.description ?? formatDateTime(tx.created_at)}
+                </div>
+
+                <div className="shrink-0 text-right">
+                  <span
+                    className={`font-mono text-xs font-medium ${
+                      isOutgoingTx(tx.type) ? "text-red-400" : "text-[#00ff41]"
+                    }`}
+                  >
+                    {isOutgoingTx(tx.type) ? "-" : "+"}
+                    {Math.abs(tx.amount).toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+
+                  <p className="mt-0.5 text-[10px] text-gray-700">
+                    {formattedCreatedAt}
                   </p>
                 </div>
               </div>
-              <div className="text-right">
-                <span
-                  className={`text-xs font-mono font-medium ${isOutgoingTx(tx.type) ? "text-red-400" : "text-[#00ff41]"}`}
-                >
-                  {isOutgoingTx(tx.type) ? "-" : "+"}
-                  {Math.abs(tx.amount).toLocaleString("en-US", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </span>
-                <p className="text-[10px] text-gray-700 mt-0.5">{formatDateTime(tx.created_at)}</p>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
