@@ -55,6 +55,13 @@ function StatusBadge({ status }: { status?: string }) {
   }
 }
 
+function getTransactionDescription(tx: Transaction, formattedCreatedAt: string): string | null {
+  const description = typeof tx.description === "string" ? tx.description.trim() : "";
+  if (!description) return null;
+  if (description === formattedCreatedAt) return null;
+  return description;
+}
+
 function TransactionsPage() {
   const user = useAuthStore((s) => s.user);
   const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
@@ -202,37 +209,44 @@ function TransactionsPage() {
         </div>
       ) : (
         <div className="bg-[#111] rounded-xl border border-[#1a1a1a] divide-y divide-[#1a1a1a] overflow-hidden">
-          {transactions.map((tx) => (
-            <div
-              key={tx.id}
-              className="flex items-center justify-between px-4 py-3 tx-row"
-            >
-              <div className="flex items-center gap-3">
-                <TxIcon type={tx.type} />
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs font-medium text-gray-200">{txLabel(tx.type)}</p>
-                    <StatusBadge status={(tx as Record<string, unknown>).status as string | undefined} />
+          {transactions.map((tx) => {
+            const formattedCreatedAt = formatDateTime(tx.created_at);
+            const description = getTransactionDescription(tx, formattedCreatedAt);
+
+            return (
+              <div
+                key={tx.id}
+                className="flex items-center justify-between px-4 py-3 tx-row"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <TxIcon type={tx.type} />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-medium text-gray-200">{txLabel(tx.type)}</p>
+                      <StatusBadge status={(tx as Record<string, unknown>).status as string | undefined} />
+                    </div>
+                    {description && (
+                      <p className="text-[10px] text-gray-600 mt-0.5 truncate max-w-[160px]">
+                        {description}
+                      </p>
+                    )}
                   </div>
-                  <p className="text-[10px] text-gray-600 mt-0.5 truncate max-w-[160px]">
-                    {tx.description ?? formatDateTime(tx.created_at)}
-                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <span
+                    className={`text-xs font-mono font-medium ${isOutgoingTx(tx.type) ? "text-red-400" : "text-[#00ff41]"}`}
+                  >
+                    {isOutgoingTx(tx.type) ? "-" : "+"}
+                    {Math.abs(tx.amount).toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                  <p className="text-[10px] text-gray-700 mt-0.5">{formattedCreatedAt}</p>
                 </div>
               </div>
-              <div className="text-right">
-                <span
-                  className={`text-xs font-mono font-medium ${isOutgoingTx(tx.type) ? "text-red-400" : "text-[#00ff41]"}`}
-                >
-                  {isOutgoingTx(tx.type) ? "-" : "+"}
-                  {Math.abs(tx.amount).toLocaleString("en-US", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </span>
-                <p className="text-[10px] text-gray-700 mt-0.5">{formatDateTime(tx.created_at)}</p>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
