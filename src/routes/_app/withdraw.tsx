@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
 import {
   ArrowLeft,
+  ArrowUpCircle,
   Building2,
   CheckCircle,
   ChevronRight,
@@ -16,6 +17,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { getSafeErrorMessage } from "@/lib/errors.js";
+import { formatDateTime } from "@/lib/format.js";
 import { withTimeout } from "@/lib/async.js";
 import {
   getSecurityStatusFn,
@@ -55,7 +57,7 @@ const METHOD_LABELS: Record<WithdrawalMethod, string> = {
 
 const METHOD_META: Record<WithdrawalMethod, MethodMeta> = {
   cbe: {
-    label: "Bank transfer",
+    label: "Bank Transfer",
     title: "CBE Withdrawal",
     nameLabel: "CBE Account Name",
     numberLabel: "CBE Account Number",
@@ -64,7 +66,7 @@ const METHOD_META: Record<WithdrawalMethod, MethodMeta> = {
     icon: <Building2 size={16} />,
   },
   telebirr: {
-    label: "Mobile wallet",
+    label: "Wallet Transfer",
     title: "TeleBirr Withdrawal",
     nameLabel: "TeleBirr Account Name",
     numberLabel: "TeleBirr Phone Number",
@@ -392,8 +394,6 @@ function WithdrawPage() {
       void loadSecurityStatus();
       void fetchWallet(user.id);
     } catch (err) {
-      console.error("[QHash] Withdrawal submit failed:", err);
-
       if (isDailyWithdrawalLimitError(err)) {
         return toast.error(DAILY_WITHDRAWAL_LIMIT_MESSAGE);
       }
@@ -493,7 +493,7 @@ function MethodPicker({ onSelect }: { onSelect: (method: WithdrawalMethod) => vo
   return (
     <section className="space-y-2.5">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-bold text-gray-100">Choose Method</h2>
+        <h2 className="text-sm font-bold text-gray-100">Choose Withdrawal Method</h2>
         <Badge variant="neon" className="shrink-0 text-[9px]">2 options</Badge>
       </div>
 
@@ -741,23 +741,31 @@ function MethodSelectorRow({
       type="button"
       onClick={onClick}
       className={[
-        "group w-full px-3.5 py-3 text-left transition-colors hover:bg-[rgba(0,255,65,0.035)] card-press",
+        "group w-full px-3.5 py-2.5 text-left transition-colors hover:bg-[rgba(255,77,77,0.035)] card-press",
         isLast ? "" : "border-b border-[#1a1a1a]",
       ].join(" ")}
     >
       <div className="flex items-center gap-3">
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.045)] text-[#00ff41]">
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-red-400/15 bg-red-500/5 text-red-300">
           {meta.icon}
         </span>
 
         <span className="min-w-0 flex-1">
-          <span className="block text-sm font-bold text-gray-100">{METHOD_LABELS[method]}</span>
-          <span className="mt-0.5 block text-[11px] text-gray-500">{meta.label}</span>
+          <span className="block truncate text-sm font-bold leading-tight text-gray-100">
+            {METHOD_LABELS[method]}
+          </span>
+          <span className="mt-0.5 block truncate text-[11px] text-gray-500">
+            {meta.label}
+          </span>
+        </span>
+
+        <span className="inline-flex shrink-0 rounded-full border border-red-400/15 bg-red-500/5 px-2.5 py-1 text-[9px] font-semibold text-red-300">
+          Payout
         </span>
 
         <ChevronRight
           size={15}
-          className="shrink-0 text-gray-600 transition-colors group-hover:text-[#00ff41]"
+          className="shrink-0 text-gray-600 transition-colors group-hover:text-red-300"
         />
       </div>
     </button>
@@ -828,40 +836,46 @@ function WithdrawalHistory({
 }
 
 function WithdrawalHistoryItem({ withdrawal }: { withdrawal: UserWithdrawal }) {
-  const fee = withdrawal.fee_amount ?? 0;
-  const net = withdrawal.net_amount ?? Math.max(withdrawal.amount - fee, 0);
+  const methodLabel = METHOD_LABELS[withdrawal.method] ?? withdrawal.method;
+  const accountLine = `${withdrawal.account_name}${withdrawal.account_last4 ? ` • ${withdrawal.account_last4}` : ""}`;
 
   return (
-    <div className="space-y-2.5 px-3.5 py-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <span className="font-mono text-sm font-semibold text-red-400">
-            -{formatMoney(withdrawal.amount)} ETB
-          </span>
-          <p className="mt-0.5 text-[10px] text-gray-600">{formatDate(withdrawal.created_at)}</p>
+    <div className="flex items-center gap-3 px-3.5 py-3">
+      <WithdrawalStatusIcon status={withdrawal.status} />
+
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="truncate text-sm font-bold text-gray-100">
+            {methodLabel} Withdrawal
+          </p>
+          <WithdrawalStatusBadge status={withdrawal.status} />
         </div>
 
-        <WithdrawalStatusBadge status={withdrawal.status} />
+        <p className="mt-0.5 truncate text-[10px] text-gray-600">
+          {formatDateTime(withdrawal.created_at)} · {accountLine}
+        </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 text-[10px] text-gray-500">
-        <HistoryDetail label="Method" value={METHOD_LABELS[withdrawal.method] ?? withdrawal.method} />
-        <HistoryDetail
-          label="Account"
-          value={`${withdrawal.account_name}${withdrawal.account_last4 ? ` • ${withdrawal.account_last4}` : ""}`}
-        />
-        <HistoryDetail label="Fee" value={`${formatMoney(fee)} ETB`} />
-        <HistoryDetail label="Net" value={`${formatMoney(net)} ETB`} />
-      </div>
+      <p className="shrink-0 text-right font-mono text-xs font-semibold text-red-400">
+        -{formatMoney(withdrawal.amount)} ETB
+      </p>
     </div>
   );
 }
 
-function HistoryDetail({ label, value }: { label: string; value: string }) {
+function WithdrawalStatusIcon({ status }: { status: string }) {
+  const className =
+    status === "approved"
+      ? "border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.08)] text-[#00ff41]"
+      : status === "pending"
+        ? "border-amber-400/15 bg-amber-400/10 text-amber-300"
+        : status === "rejected"
+          ? "border-red-400/15 bg-red-500/10 text-red-400"
+          : "border-[#1a1a1a] bg-[#0b0b0b] text-gray-500";
+
   return (
-    <div className="min-w-0 rounded-lg border border-[#1a1a1a] bg-[#0b0b0b] px-2.5 py-2">
-      <span className="block text-gray-600">{label}</span>
-      <p className="mt-0.5 truncate text-gray-400">{value}</p>
+    <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl border ${className}`}>
+      <ArrowUpCircle size={15} />
     </div>
   );
 }
@@ -887,21 +901,23 @@ function SummaryRow({
 
 function WithdrawalStatusBadge({ status }: { status: string }) {
   const config: Record<string, { label: string; variant: "success" | "warning" | "danger" | "default"; icon: React.ReactNode }> = {
-    approved: { label: "Approved", variant: "success", icon: <CheckCircle size={12} /> },
-    pending: { label: "Pending", variant: "warning", icon: <Clock size={12} /> },
-    rejected: { label: "Rejected", variant: "danger", icon: <XCircle size={12} /> },
+    approved: { label: "Approved", variant: "success", icon: <CheckCircle size={10} /> },
+    pending: { label: "Pending", variant: "warning", icon: <Clock size={10} /> },
+    rejected: { label: "Rejected", variant: "danger", icon: <XCircle size={10} /> },
   };
 
   const item = config[status] ?? {
     label: status,
     variant: "default" as const,
-    icon: <Clock size={12} />,
+    icon: <Clock size={10} />,
   };
 
   return (
-    <Badge variant={item.variant} className="gap-1">
-      {item.icon}
-      {item.label}
+    <Badge variant={item.variant} className="shrink-0 text-[9px]">
+      <span className="flex items-center gap-1">
+        {item.icon}
+        {item.label}
+      </span>
     </Badge>
   );
 }
@@ -910,15 +926,5 @@ function formatMoney(value: number): string {
   return Number(value || 0).toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  });
-}
-
-function formatDate(value: string | null): string {
-  if (!value) return "";
-
-  return new Date(value).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
   });
 }
