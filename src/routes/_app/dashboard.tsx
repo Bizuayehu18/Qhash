@@ -17,7 +17,7 @@ import { ListPanel } from "@/components/ui/ListPanel.js";
 import { ListRow } from "@/components/ui/ListRow.js";
 import { EmptyState } from "@/components/ui/EmptyState.js";
 import { AmountText } from "@/components/ui/AmountText.js";
-import { TxIcon, txLabel, isOutgoingTx } from "@/components/ui/TransactionHelpers.js";
+import { TxIcon, txTitle, txSubtitle, isOutgoingTx } from "@/components/ui/TransactionHelpers.js";
 import { formatDateTime } from "@/lib/format.js";
 import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
@@ -31,7 +31,6 @@ export const Route = createFileRoute("/_app/dashboard")({
 });
 
 type DashboardData = Awaited<ReturnType<typeof loadDashboardFn>>;
-type DashboardTransaction = DashboardData["recentTransactions"][number];
 
 const DASHBOARD_LOAD_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
@@ -50,66 +49,6 @@ function ResponsiveStatLabel({
       <span className="hidden sm:inline">{full}</span>
     </>
   );
-}
-
-function getDashboardTransactionTitle(tx: DashboardTransaction): string {
-  switch (tx.type) {
-    case "referral_daily_bonus":
-    case "referral_investment_bonus":
-    case "referral_reward":
-      return "Referral Bonus";
-    case "plan_purchase":
-    case "investment":
-      return "Investment";
-    default:
-      return txLabel(tx.type);
-  }
-}
-
-function getFallbackTransactionSubtitle(type: string): string {
-  switch (type) {
-    case "deposit":
-      return "Wallet deposit";
-    case "withdrawal":
-      return "Withdrawal request";
-    case "earning":
-      return "Daily mining earnings";
-    case "plan_purchase":
-    case "investment":
-      return "Investment purchase";
-    case "referral_daily_bonus":
-      return "Daily referral bonus";
-    case "referral_investment_bonus":
-      return "Investment referral bonus";
-    case "referral_reward":
-      return "Referral reward";
-    case "admin_adjustment":
-      return "Account adjustment";
-    default:
-      return "Account activity";
-  }
-}
-
-function getDashboardTransactionSubtitle(
-  tx: DashboardTransaction,
-  formattedCreatedAt: string,
-): string {
-  if (
-    tx.type === "referral_daily_bonus" ||
-    tx.type === "referral_investment_bonus" ||
-    tx.type === "referral_reward"
-  ) {
-    return getFallbackTransactionSubtitle(tx.type);
-  }
-
-  const description =
-    typeof tx.description === "string" ? tx.description.trim() : "";
-
-  if (description && description !== formattedCreatedAt) {
-    return description;
-  }
-
-  return getFallbackTransactionSubtitle(tx.type);
 }
 
 function DashboardPage() {
@@ -351,11 +290,11 @@ function DashboardPage() {
           icon={<Layers size={14} />}
           label={<ResponsiveStatLabel short="Plans" full="Active Plans" />}
           value={
-  <span className="font-mono text-xs font-medium text-[#00ff41]">
-    {activeInvestments.length}
-  </span>
-}
-caption="Active"
+            <span className="font-mono text-xs font-medium text-[#00ff41]">
+              {activeInvestments.length}
+            </span>
+          }
+          caption="Active"
           accent
           loading={!hasDashboardData}
         />
@@ -508,13 +447,13 @@ caption="Active"
             {recentTransactions.slice(0, 5).map((tx) => {
               const signedAmount = isOutgoingTx(tx.type) ? -Math.abs(tx.amount) : Math.abs(tx.amount);
               const formattedCreatedAt = formatDateTime(tx.created_at);
-              const subtitle = getDashboardTransactionSubtitle(tx, formattedCreatedAt);
+              const subtitle = txSubtitle(tx, formattedCreatedAt);
 
               return (
                 <ListRow
                   key={tx.id}
                   icon={<TxIcon type={tx.type} />}
-                  title={getDashboardTransactionTitle(tx)}
+                  title={txTitle(tx.type)}
                   description={subtitle}
                   meta={formattedCreatedAt}
                   right={<AmountText value={signedAmount} showSign currency="" size="sm" />}
