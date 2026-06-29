@@ -8,8 +8,6 @@ import {
   ArrowDownCircle,
   ArrowUpCircle,
   Server,
-  Users,
-  MessageCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
@@ -20,10 +18,6 @@ import { ListRow } from "@/components/ui/ListRow.js";
 import { EmptyState } from "@/components/ui/EmptyState.js";
 import { AmountText } from "@/components/ui/AmountText.js";
 import { TxIcon, txLabel, isOutgoingTx } from "@/components/ui/TransactionHelpers.js";
-import { MiningStatus } from "@/components/ui/MiningStatus.js";
-import { ActivityFeed } from "@/components/ui/ActivityFeed.js";
-import { OnlineUsers } from "@/components/ui/OnlineUsers.js";
-import { MiningAnimation } from "@/components/ui/MiningAnimation.js";
 import { formatDateTime } from "@/lib/format.js";
 import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
@@ -171,6 +165,13 @@ function DashboardPage() {
   const totalEarned = hasDashboardData ? data.totalEarned : null;
   const recentTransactions = data?.recentTransactions ?? [];
   const balance = walletBalance ?? wallet?.balance ?? null;
+  const dailyEarningText =
+    dailyEarningRate === null
+      ? "0.00"
+      : dailyEarningRate.toLocaleString("en-US", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
 
   const getPlanName = (planId: string) => {
     const plan = plans.find((p) => p.id === planId);
@@ -179,53 +180,74 @@ function DashboardPage() {
 
   return (
     <div className="space-y-4 stagger-children lg:grid lg:grid-cols-12 lg:gap-5 lg:space-y-0">
-      {/* Greeting + Online Users */}
-      <div className="flex items-end justify-between lg:col-span-12">
-        <div>
-          <p className="text-xs text-gray-500">Welcome back</p>
-          <h1 className="text-lg font-bold leading-tight">@{profile?.username ?? "User"}</h1>
+      {/* Header */}
+      <div className="flex items-end justify-between gap-3 lg:col-span-12">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#00ff41]">
+            Account Overview
+          </p>
+          <h1 className="mt-1 text-xl font-bold leading-tight text-gray-100">Dashboard</h1>
+          <p className="mt-1 truncate text-xs text-gray-500">
+            Welcome back, @{profile?.username ?? "User"}
+          </p>
         </div>
-        <OnlineUsers />
+
+        {hasDashboardData && (
+          <span className="shrink-0 rounded-full border border-[#1f1f1f] bg-[#111] px-2.5 py-1 text-[10px] text-gray-500">
+            {activeInvestments.length > 0 ? "Mining active" : "Ready"}
+          </span>
+        )}
       </div>
 
-      {/* Balance Card with Mining Animation */}
-      <div className="balance-card mining-active relative overflow-hidden rounded-2xl p-4 lg:col-span-8 lg:p-5">
-        {/* Mining animation background */}
-        <div className="absolute inset-0 opacity-30">
-          <MiningAnimation />
+      {/* Balance Card */}
+      <div className="rounded-2xl border border-[rgba(0,255,65,0.14)] bg-[#111] p-4 lg:col-span-8 lg:p-5">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <p className="text-xs text-gray-500">Total Balance</p>
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                activeInvestments.length > 0 ? "bg-[#00ff41] status-pulse" : "bg-gray-600"
+              }`}
+            />
+            <span className="text-[10px] text-gray-600">
+              {activeInvestments.length > 0 ? "Mining Active" : "Wallet Ready"}
+            </span>
+          </div>
         </div>
 
-        <div className="relative z-10">
-          <div className="mb-1 flex items-center justify-between">
-            <p className="text-xs text-gray-500">Total Balance</p>
-            <div className="flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#00ff41] status-pulse" />
-              <span className="text-[10px] text-gray-600">Mining Active</span>
-            </div>
-          </div>
-          <p className="flex min-h-[38px] items-baseline text-3xl font-black tracking-tight neon-text">
-            {balance === null ? (
-              <span className="skeleton inline-block h-8 w-28 rounded-md" aria-label="Loading balance" />
-            ) : (
-              balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-            )}
-            <span className="ml-1.5 text-sm font-normal text-gray-500">ETB</span>
-          </p>
+        <p className="flex min-h-[38px] items-baseline text-3xl font-black tracking-tight text-gray-100">
+          {balance === null ? (
+            <span className="skeleton inline-block h-8 w-28 rounded-md" aria-label="Loading balance" />
+          ) : (
+            balance.toLocaleString("en-US", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })
+          )}
+          <span className="ml-1.5 text-sm font-normal text-gray-500">ETB</span>
+        </p>
 
-          <div className="mt-3 flex gap-2.5">
-            <Link to="/deposit" className="flex-1">
-              <button className="flex w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-[#00ff41] py-2.5 text-xs font-bold text-black card-press">
-                <ArrowDownCircle size={14} />
-                Deposit
-              </button>
-            </Link>
-            <Link to="/plans" className="flex-1">
-              <button className="flex w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-[rgba(0,255,65,0.22)] bg-[rgba(0,255,65,0.08)] py-2.5 text-xs font-semibold text-[#00ff41] card-press">
-                <Layers size={14} />
-                Buy Contract
-              </button>
-            </Link>
-          </div>
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          <Link to="/deposit" className="min-w-0">
+            <button className="flex w-full items-center justify-center gap-1 rounded-xl bg-[#00ff41] px-2 py-2.5 text-[11px] font-bold text-black card-press">
+              <ArrowDownCircle size={13} />
+              Deposit
+            </button>
+          </Link>
+
+          <Link to="/withdraw" className="min-w-0">
+            <button className="flex w-full items-center justify-center gap-1 rounded-xl border border-[#1f1f1f] bg-[#0d0d0d] px-2 py-2.5 text-[11px] font-semibold text-gray-200 card-press">
+              <ArrowUpCircle size={13} />
+              Withdraw
+            </button>
+          </Link>
+
+          <Link to="/plans" className="min-w-0">
+            <button className="flex w-full items-center justify-center gap-1 rounded-xl border border-[rgba(0,255,65,0.22)] bg-[rgba(0,255,65,0.08)] px-2 py-2.5 text-[11px] font-semibold text-[#00ff41] card-press">
+              <Layers size={13} />
+              Buy Plan
+            </button>
+          </Link>
         </div>
       </div>
 
@@ -233,59 +255,66 @@ function DashboardPage() {
       <div className="grid grid-cols-3 gap-2.5 lg:col-span-4 lg:grid-cols-1 lg:gap-3">
         <StatTile
           icon={<Cpu size={14} />}
-          label="Daily"
-          value={dailyEarningRate === null ? "" : <AmountText value={dailyEarningRate} currency="" size="sm" className="stat-value-glow" />}
+          label="Daily Earning"
+          value={dailyEarningRate === null ? "" : <AmountText value={dailyEarningRate} currency="" size="sm" />}
           caption="ETB/day"
           accent
           loading={dailyEarningRate === null}
         />
+
         <StatTile
           icon={<TrendingUp size={14} />}
-          label="Earned"
-          value={totalEarned === null ? "" : <AmountText value={totalEarned} currency="" size="sm" className="stat-value-glow" />}
-          caption="Total"
+          label="Total Earned"
+          value={totalEarned === null ? "" : <AmountText value={totalEarned} currency="" size="sm" />}
+          caption="All time"
           accent
           loading={totalEarned === null}
         />
+
         <StatTile
           icon={<Layers size={14} />}
-          label="Plans"
+          label="Active Plans"
           value={activeInvestments.length}
-          caption="Active"
+          caption="Running"
           accent
           loading={!hasDashboardData}
         />
       </div>
 
-      {/* Mining Network Status */}
-      <div className="lg:col-span-8">
-        <MiningStatus />
-      </div>
+      {/* Real Mining Status */}
+      <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-3.5 lg:col-span-12">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[rgba(0,255,65,0.08)] text-[#00ff41]">
+              <Cpu size={14} />
+            </div>
 
-      {/* Quick Actions */}
-      <div className="flex gap-3 overflow-x-auto hide-scrollbar -mx-4 px-4 lg:col-span-4 lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0">
-        <Link to="/withdraw" className="shrink-0 lg:w-full">
-          <div className="flex items-center gap-2 rounded-xl border border-[#1a1a1a] bg-[#111] px-4 py-3 card-press lg:w-full">
-            <ArrowUpCircle size={14} className="text-[#00ff41]" />
-            <span className="whitespace-nowrap text-xs font-medium text-gray-300">Withdraw</span>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-gray-200">Mining Status</p>
+              <p className="mt-0.5 truncate text-[10px] text-gray-600">
+                {hasDashboardData ? (
+                  activeInvestments.length > 0 ? (
+                    `${activeInvestments.length} active ${
+                      activeInvestments.length === 1 ? "plan" : "plans"
+                    } · ${dailyEarningText} ETB/day`
+                  ) : (
+                    "No active mining plans yet"
+                  )
+                ) : (
+                  <span className="skeleton inline-block h-3 w-40 rounded" aria-label="Loading mining status" />
+                )}
+              </p>
+            </div>
           </div>
-        </Link>
-        <Link to="/referrals" className="shrink-0 lg:w-full">
-          <div className="flex items-center gap-2 rounded-xl border border-[#1a1a1a] bg-[#111] px-4 py-3 card-press lg:w-full">
-            <Users size={14} className="text-[#00ff41]" />
-            <span className="whitespace-nowrap text-xs font-medium text-gray-300">Invite & Earn</span>
-          </div>
-        </Link>
-        <Link to="/support" className="shrink-0 lg:w-full">
-          <div className="flex items-center gap-2 rounded-xl border border-[#1a1a1a] bg-[#111] px-4 py-3 card-press lg:w-full">
-            <MessageCircle size={14} className="text-[#00ff41]" />
-            <span className="whitespace-nowrap text-xs font-medium text-gray-300">Support</span>
-          </div>
-        </Link>
+
+          <Link to="/plans" className="flex shrink-0 items-center gap-0.5 text-[10px] text-gray-500">
+            View Plans <ChevronRight size={12} />
+          </Link>
+        </div>
       </div>
 
       {/* Active Investments */}
-      <div className="lg:col-span-8">
+      <div className="lg:col-span-12">
         <SectionHeader
           title="Active Plans"
           action={
@@ -318,7 +347,7 @@ function DashboardPage() {
             />
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="grid gap-3 lg:grid-cols-2">
             {activeInvestments.map((inv) => {
               const startMs = new Date(inv.start_date).getTime();
               const endMs = new Date(inv.end_date).getTime();
@@ -326,6 +355,7 @@ function DashboardPage() {
               const totalMs = endMs - startMs;
               const elapsedMs = Math.min(nowMs - startMs, totalMs);
               const progress = totalMs > 0 ? (elapsedMs / totalMs) * 100 : 0;
+              const clampedProgress = Math.max(0, Math.min(progress, 100));
               const daysRemaining = Math.max(0, Math.ceil((endMs - nowMs) / (24 * 60 * 60 * 1000)));
 
               return (
@@ -337,25 +367,34 @@ function DashboardPage() {
                     </div>
                     <span className="shrink-0 text-[10px] text-gray-600">{daysRemaining}d left</span>
                   </div>
-                  <div className="mb-3 grid grid-cols-3 gap-2 text-xs">
-                    <div className="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] p-2">
-                      <p className="mb-1 text-[10px] text-gray-600">Invested</p>
-                      <AmountText value={inv.invested_amount} tone="neutral" size="sm" className="block truncate" />
-                    </div>
-                    <div className="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] p-2 text-center">
-                      <p className="mb-1 text-[10px] text-gray-600">Daily</p>
-                      <AmountText value={inv.daily_earning} tone="neutral" size="sm" className="block truncate" />
-                    </div>
-                    <div className="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] p-2 text-right">
-                      <p className="mb-1 text-[10px] text-gray-600">Earned</p>
-                      <AmountText value={inv.total_earned} tone="positive" size="sm" className="block truncate" />
-                    </div>
+
+                  <div className="mb-2 flex items-center justify-between gap-3 text-[10px] text-gray-600">
+                    <span>Progress</span>
+                    <span>{Math.round(clampedProgress)}%</span>
                   </div>
+
                   <div className="h-1.5 overflow-hidden rounded-full bg-[#1a1a1a]">
                     <div
                       className="h-full rounded-full bg-gradient-to-r from-[#00ff41] to-[#00cc33] transition-all"
-                      style={{ width: `${Math.min(progress, 100)}%` }}
+                      style={{ width: `${clampedProgress}%` }}
                     />
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                    <div className="min-w-0">
+                      <p className="mb-1 truncate text-[10px] text-gray-600">Invested</p>
+                      <AmountText value={inv.invested_amount} tone="neutral" size="sm" className="block truncate" />
+                    </div>
+
+                    <div className="min-w-0 text-center">
+                      <p className="mb-1 truncate text-[10px] text-gray-600">Daily</p>
+                      <AmountText value={inv.daily_earning} tone="neutral" size="sm" className="block truncate" />
+                    </div>
+
+                    <div className="min-w-0 text-right">
+                      <p className="mb-1 truncate text-[10px] text-gray-600">Earned</p>
+                      <AmountText value={inv.total_earned} tone="positive" size="sm" className="block truncate" />
+                    </div>
                   </div>
                 </div>
               );
@@ -364,28 +403,8 @@ function DashboardPage() {
         )}
       </div>
 
-      {/* Completed Plans */}
-      {completedInvestments.length > 0 && (
-        <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-3.5 lg:col-span-4 lg:order-last">
-          <SectionHeader title="Completed Plans" className="mb-3" />
-          <div className="space-y-2">
-            {completedInvestments.slice(0, 3).map((inv) => (
-              <div key={inv.id} className="flex items-center justify-between gap-3 py-1.5 text-xs">
-                <span className="min-w-0 truncate text-gray-400">{getPlanName(inv.plan_id)}</span>
-                <AmountText value={inv.total_earned} showSign tone="positive" size="sm" className="shrink-0" />
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Live Activity Feed */}
-      <div className="lg:col-span-4">
-        <ActivityFeed />
-      </div>
-
       {/* Recent Transactions */}
-      <div className="lg:col-span-8">
+      <div className={completedInvestments.length > 0 ? "lg:col-span-8" : "lg:col-span-12"}>
         <SectionHeader
           title="Recent Transactions"
           action={
@@ -422,6 +441,21 @@ function DashboardPage() {
           </ListPanel>
         )}
       </div>
+
+      {/* Completed Plans */}
+      {completedInvestments.length > 0 && (
+        <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-3.5 lg:col-span-4">
+          <SectionHeader title="Completed Plans" className="mb-3" />
+          <div className="space-y-2">
+            {completedInvestments.slice(0, 3).map((inv) => (
+              <div key={inv.id} className="flex items-center justify-between gap-3 py-1.5 text-xs">
+                <span className="min-w-0 truncate text-gray-400">{getPlanName(inv.plan_id)}</span>
+                <AmountText value={inv.total_earned} showSign tone="positive" size="sm" className="shrink-0" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
