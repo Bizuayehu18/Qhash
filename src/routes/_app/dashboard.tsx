@@ -31,10 +31,86 @@ export const Route = createFileRoute("/_app/dashboard")({
 });
 
 type DashboardData = Awaited<ReturnType<typeof loadDashboardFn>>;
+type DashboardTransaction = DashboardData["recentTransactions"][number];
 
 const DASHBOARD_LOAD_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
 const MAX_AUTO_RETRIES = 2;
+
+function ResponsiveStatLabel({
+  short,
+  full,
+}: {
+  short: string;
+  full: string;
+}) {
+  return (
+    <>
+      <span className="sm:hidden">{short}</span>
+      <span className="hidden sm:inline">{full}</span>
+    </>
+  );
+}
+
+function getDashboardTransactionTitle(tx: DashboardTransaction): string {
+  switch (tx.type) {
+    case "referral_daily_bonus":
+    case "referral_investment_bonus":
+    case "referral_reward":
+      return "Referral Bonus";
+    case "plan_purchase":
+    case "investment":
+      return "Investment";
+    default:
+      return txLabel(tx.type);
+  }
+}
+
+function getFallbackTransactionSubtitle(type: string): string {
+  switch (type) {
+    case "deposit":
+      return "Wallet deposit";
+    case "withdrawal":
+      return "Withdrawal request";
+    case "earning":
+      return "Daily mining earnings";
+    case "plan_purchase":
+    case "investment":
+      return "Investment purchase";
+    case "referral_daily_bonus":
+      return "Daily referral bonus";
+    case "referral_investment_bonus":
+      return "Investment referral bonus";
+    case "referral_reward":
+      return "Referral reward";
+    case "admin_adjustment":
+      return "Account adjustment";
+    default:
+      return "Account activity";
+  }
+}
+
+function getDashboardTransactionSubtitle(
+  tx: DashboardTransaction,
+  formattedCreatedAt: string,
+): string {
+  if (
+    tx.type === "referral_daily_bonus" ||
+    tx.type === "referral_investment_bonus" ||
+    tx.type === "referral_reward"
+  ) {
+    return getFallbackTransactionSubtitle(tx.type);
+  }
+
+  const description =
+    typeof tx.description === "string" ? tx.description.trim() : "";
+
+  if (description && description !== formattedCreatedAt) {
+    return description;
+  }
+
+  return getFallbackTransactionSubtitle(tx.type);
+}
 
 function DashboardPage() {
   const { user, profile } = useAuthStore();
@@ -175,7 +251,7 @@ function DashboardPage() {
 
   const getPlanName = (planId: string) => {
     const plan = plans.find((p) => p.id === planId);
-    return plan?.name ?? planId;
+    return plan?.name ?? "Mining Plan";
   };
 
   return (
@@ -200,7 +276,7 @@ function DashboardPage() {
       </div>
 
       {/* Balance Card */}
-      <div className="rounded-2xl border border-[rgba(0,255,65,0.14)] bg-[#111] p-4 lg:col-span-8 lg:p-5">
+      <div className="rounded-2xl border border-[rgba(0,255,65,0.14)] bg-[#111] p-4 lg:col-span-8 lg:self-start lg:p-5">
         <div className="mb-2 flex items-center justify-between gap-3">
           <p className="text-xs text-gray-500">Total Balance</p>
           <div className="flex items-center gap-1.5">
@@ -255,7 +331,7 @@ function DashboardPage() {
       <div className="grid grid-cols-3 gap-2.5 lg:col-span-4 lg:grid-cols-1 lg:gap-3">
         <StatTile
           icon={<Cpu size={14} />}
-          label="Daily Earning"
+          label={<ResponsiveStatLabel short="Daily" full="Daily Earning" />}
           value={dailyEarningRate === null ? "" : <AmountText value={dailyEarningRate} currency="" size="sm" />}
           caption="ETB/day"
           accent
@@ -264,7 +340,7 @@ function DashboardPage() {
 
         <StatTile
           icon={<TrendingUp size={14} />}
-          label="Total Earned"
+          label={<ResponsiveStatLabel short="Earned" full="Total Earned" />}
           value={totalEarned === null ? "" : <AmountText value={totalEarned} currency="" size="sm" />}
           caption="All time"
           accent
@@ -273,7 +349,7 @@ function DashboardPage() {
 
         <StatTile
           icon={<Layers size={14} />}
-          label="Active Plans"
+          label={<ResponsiveStatLabel short="Plans" full="Active Plans" />}
           value={activeInvestments.length}
           caption="Running"
           accent
@@ -427,13 +503,16 @@ function DashboardPage() {
           <ListPanel>
             {recentTransactions.slice(0, 5).map((tx) => {
               const signedAmount = isOutgoingTx(tx.type) ? -Math.abs(tx.amount) : Math.abs(tx.amount);
+              const formattedCreatedAt = formatDateTime(tx.created_at);
+              const subtitle = getDashboardTransactionSubtitle(tx, formattedCreatedAt);
 
               return (
                 <ListRow
                   key={tx.id}
                   icon={<TxIcon type={tx.type} />}
-                  title={txLabel(tx.type)}
-                  meta={formatDateTime(tx.created_at)}
+                  title={getDashboardTransactionTitle(tx)}
+                  description={subtitle}
+                  meta={formattedCreatedAt}
                   right={<AmountText value={signedAmount} showSign currency="" size="sm" />}
                 />
               );
