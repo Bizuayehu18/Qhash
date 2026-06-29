@@ -6,26 +6,18 @@ import { throwSafe } from "../errors.js";
 const REFERRAL_TRANSACTION_TYPES = [
   "referral_daily_bonus",
   "referral_investment_bonus",
-  "referral_reward",
-] as TransactionType[];
-
-const INVESTMENT_TRANSACTION_TYPES = [
-  "investment",
-  "plan_purchase",
 ] as TransactionType[];
 
 const VALID_TYPES = new Set<string>([
   "all",
   "deposit",
   "withdrawal",
-  "investment",
   "plan_purchase",
   "earning",
   "admin_adjustment",
   "referral_bonus",
   "referral_daily_bonus",
   "referral_investment_bonus",
-  "referral_reward",
 ]);
 
 function validateInput(data: unknown): { accessToken: string; type?: string } {
@@ -69,8 +61,6 @@ export const getTransactionsFn = createServerFn({ method: "POST" })
 
       if (type === "referral_bonus") {
         query = query.in("type", REFERRAL_TRANSACTION_TYPES);
-      } else if (type === "plan_purchase") {
-        query = query.in("type", INVESTMENT_TRANSACTION_TYPES);
       } else if (type && type !== "all") {
         query = query.eq("type", type as TransactionType);
       }
