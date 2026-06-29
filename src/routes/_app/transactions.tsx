@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Receipt, Clock, CheckCircle2, XCircle } from "lucide-react";
-import { TxIcon, txLabel, isOutgoingTx } from "@/components/ui/TransactionHelpers.js";
+import { TxIcon, txTitle, txSubtitle, isOutgoingTx } from "@/components/ui/TransactionHelpers.js";
 import { formatDateTime } from "@/lib/format.js";
 import { useAuthStore } from "@/store/authStore.js";
 import { getTransactionsFn } from "@/lib/server/transactions.js";
@@ -54,51 +54,6 @@ function StatusBadge({ status }: { status?: string }) {
     default:
       return null;
   }
-}
-
-function getTransactionTitle(tx: Transaction): string {
-  switch (tx.type) {
-    case "referral_daily_bonus":
-    case "referral_investment_bonus":
-      return "Referral Bonus";
-    case "plan_purchase":
-      return "Investment";
-    default:
-      return txLabel(tx.type);
-  }
-}
-
-function getFallbackTransactionSubtitle(type: string): string {
-  switch (type) {
-    case "deposit":
-      return "Wallet deposit";
-    case "withdrawal":
-      return "Withdrawal request";
-    case "earning":
-      return "Daily mining earnings";
-    case "plan_purchase":
-      return "Investment purchase";
-    case "referral_daily_bonus":
-      return "Daily referral bonus";
-    case "referral_investment_bonus":
-      return "Investment referral bonus";
-    default:
-      return "Account activity";
-  }
-}
-
-function getTransactionSubtitle(tx: Transaction, formattedCreatedAt: string): string {
-  if (tx.type === "referral_daily_bonus" || tx.type === "referral_investment_bonus") {
-    return getFallbackTransactionSubtitle(tx.type);
-  }
-
-  const description = typeof tx.description === "string" ? tx.description.trim() : "";
-
-  if (description && description !== formattedCreatedAt) {
-    return description;
-  }
-
-  return getFallbackTransactionSubtitle(tx.type);
 }
 
 function TransactionsPage() {
@@ -249,7 +204,7 @@ function TransactionsPage() {
         <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#111] divide-y divide-[#1a1a1a]">
           {transactions.map((tx) => {
             const formattedCreatedAt = formatDateTime(tx.created_at);
-            const subtitle = getTransactionSubtitle(tx, formattedCreatedAt);
+            const subtitle = txSubtitle(tx, formattedCreatedAt);
 
             return (
               <div
@@ -262,7 +217,7 @@ function TransactionsPage() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="text-xs font-medium text-gray-200">
-                        {getTransactionTitle(tx)}
+                        {txTitle(tx.type)}
                       </p>
                       <StatusBadge
                         status={(tx as Record<string, unknown>).status as string | undefined}
