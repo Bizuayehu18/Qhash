@@ -350,8 +350,12 @@ function DashboardPage() {
         <StatTile
           icon={<Layers size={14} />}
           label={<ResponsiveStatLabel short="Plans" full="Active Plans" />}
-          value={activeInvestments.length}
-          caption="Running"
+          value={
+  <span className="font-mono text-xs font-medium text-[#00ff41]">
+    {activeInvestments.length}
+  </span>
+}
+caption="Active"
           accent
           loading={!hasDashboardData}
         />
