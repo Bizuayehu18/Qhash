@@ -2,6 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
+import { EmptyState } from "@/components/ui/EmptyState.js";
+import { ListPanel } from "@/components/ui/ListPanel.js";
+import { ListRow } from "@/components/ui/ListRow.js";
+import { SectionHeader } from "@/components/ui/SectionHeader.js";
 import {
   ArrowDownCircle,
   Info,
@@ -650,10 +654,10 @@ function PaymentAccountCard({
   return (
     <div className="space-y-2.5 rounded-xl border border-[#1f1f1f] bg-[#0b0b0b] p-3">
       <AccountDetail label="Receiving Account" value={selectedMethod.account_name} />
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
         <span className="shrink-0 text-[11px] text-gray-500">Account Number</span>
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate font-mono text-sm font-semibold text-[#00ff41]">
+        <div className="flex min-w-0 items-start justify-end gap-2">
+          <span className="min-w-0 break-all text-right font-mono text-sm font-semibold leading-relaxed text-[#00ff41]">
             {selectedMethod.account_number}
           </span>
           <button
@@ -775,14 +779,16 @@ function DepositHistory({
 }) {
   return (
     <section className="mt-1 space-y-2.5 lg:mt-0">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-bold text-gray-100">Deposit History</h2>
-        {deposits.length > 0 && (
-          <Badge variant="default" className="shrink-0 text-[9px]">
-            {deposits.length}
-          </Badge>
-        )}
-      </div>
+      <SectionHeader
+        title="Deposit History"
+        action={
+          deposits.length > 0 ? (
+            <Badge variant="default" className="shrink-0 text-[9px]">
+              {deposits.length}
+            </Badge>
+          ) : null
+        }
+      />
 
       {!historyLoaded && deposits.length === 0 ? (
         <div className="space-y-2">
@@ -791,19 +797,20 @@ function DepositHistory({
           ))}
         </div>
       ) : historyLoaded && deposits.length === 0 ? (
-        <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-6 text-center">
-          <div className="mx-auto grid h-10 w-10 place-items-center rounded-xl border border-[#1a1a1a] bg-[#0b0b0b]">
-            <Clock size={17} className="text-gray-600" />
-          </div>
-          <p className="mt-3 text-sm font-semibold text-gray-300">No deposits yet</p>
-          <p className="mt-1 text-xs text-gray-600">Submitted deposits will appear here.</p>
-        </div>
+        <ListPanel divided={false}>
+          <EmptyState
+            icon={<Clock size={22} />}
+            title="No deposits yet"
+            description="Submitted deposits will appear here."
+            className="py-10"
+          />
+        </ListPanel>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#111] divide-y divide-[#1a1a1a]">
+        <ListPanel>
           {deposits.map((deposit) => (
             <DepositHistoryItem key={deposit.id} deposit={deposit} />
           ))}
-        </div>
+        </ListPanel>
       )}
     </section>
   );
@@ -829,33 +836,29 @@ function DepositHistoryItem({ deposit }: { deposit: UserDeposit }) {
         ? "text-amber-300"
         : "text-gray-300";
   const iconClass = isApproved
-    ? "border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.08)] text-[#00ff41]"
+    ? "text-[#00ff41]"
     : isRejected
-      ? "border-red-400/15 bg-red-500/10 text-red-400"
-      : "border-amber-400/15 bg-amber-400/10 text-amber-300";
+      ? "text-red-400"
+      : "text-amber-300";
 
   return (
-    <div className="flex items-center gap-3 px-3.5 py-3">
-      <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl border ${iconClass}`}>
-        <ArrowDownCircle size={15} />
-      </div>
-
-      <div className="min-w-0 flex-1">
+    <ListRow
+      icon={<ArrowDownCircle size={15} className={iconClass} />}
+      title={
         <div className="flex min-w-0 items-center gap-2">
           <p className="truncate text-sm font-bold text-gray-100">
             {getMethodLabel(deposit.method_type)} Deposit
           </p>
           <DepositStatusBadge status={deposit.status} />
         </div>
-        <p className="mt-0.5 truncate text-[10px] text-gray-600">
-          {shortReference(deposit.transaction_reference)} · {formatDateTime(deposit.created_at)}
+      }
+      description={`${shortReference(deposit.transaction_reference)} · ${formatDateTime(deposit.created_at)}`}
+      right={
+        <p className={`font-mono text-xs font-semibold ${amountClass}`}>
+          {amountText}
         </p>
-      </div>
-
-      <p className={`shrink-0 text-right font-mono text-xs font-semibold ${amountClass}`}>
-        {amountText}
-      </p>
-    </div>
+      }
+    />
   );
 }
 
