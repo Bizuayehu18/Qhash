@@ -93,26 +93,39 @@ function RequirementProgress({ plan }: { plan: PlanWithEligibility }) {
   const rows = getEligibilityRows(plan);
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-gray-600">
         <span>Eligibility</span>
-        <span>{plan.eligibility.isEligible ? "Cleared" : "Required"}</span>
+        <span className={plan.eligibility.isEligible ? "text-[#00ff41]" : "text-amber-300"}>
+          {plan.eligibility.isEligible ? "Cleared" : "Required"}
+        </span>
       </div>
+
       {rows.length === 0 ? (
-        <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
-          <CheckCircle2 size={13} className="text-[#00ff41]" /> No referral requirement
+        <div className="flex items-center gap-2 rounded-lg border border-[rgba(0,255,65,0.12)] bg-[rgba(0,255,65,0.04)] px-2.5 py-2 text-[11px] text-gray-300">
+          <CheckCircle2 size={13} className="text-[#00ff41]" />
+          <span>No referral requirement</span>
         </div>
       ) : (
         <div className="space-y-1.5">
           {rows.map((row) => {
             const ok = row.current >= row.required;
             return (
-              <div key={row.label} className="flex items-center justify-between text-[11px]">
-                <span className="flex items-center gap-1.5 text-gray-400">
-                  {ok ? <CheckCircle2 size={13} className="text-[#00ff41]" /> : <XCircle size={13} className="text-amber-400" />}
-                  {row.label}
+              <div
+                key={row.label}
+                className="flex items-center justify-between gap-3 rounded-lg border border-[#171717] bg-[#080808] px-2.5 py-2 text-[11px]"
+              >
+                <span className="flex min-w-0 items-center gap-1.5 text-gray-400">
+                  {ok ? (
+                    <CheckCircle2 size={13} className="shrink-0 text-[#00ff41]" />
+                  ) : (
+                    <XCircle size={13} className="shrink-0 text-amber-400" />
+                  )}
+                  <span className="truncate">{row.label}</span>
                 </span>
-                <span className={ok ? "text-[#00ff41]" : "text-amber-300"}>{row.current} / {row.required}</span>
+                <span className={`shrink-0 font-semibold ${ok ? "text-[#00ff41]" : "text-amber-300"}`}>
+                  {row.current} / {row.required}
+                </span>
               </div>
             );
           })}
@@ -253,10 +266,35 @@ function PlansPage() {
   if (!plansLoaded) {
     return (
       <div className="space-y-4">
-        <div className="skeleton h-8 w-44 rounded-lg" />
-        <div className="skeleton h-4 w-72 rounded-lg" />
+        <div className="rounded-2xl border border-[#1b1b1b] bg-[#101010] p-4">
+          <div className="skeleton h-3 w-32 rounded-lg" />
+          <div className="skeleton mt-3 h-6 w-48 rounded-lg" />
+          <div className="skeleton mt-2 h-4 w-72 max-w-full rounded-lg" />
+        </div>
+
+        <div className="skeleton h-16 rounded-2xl" />
+
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {[1, 2, 3, 4, 5, 6].map((i) => <div key={i} className="skeleton h-48 rounded-xl" />)}
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div key={i} className="rounded-2xl border border-[#1b1b1b] bg-[#101010] p-3">
+              <div className="flex items-center gap-3">
+                <div className="skeleton h-10 w-10 rounded-xl" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="skeleton h-4 w-32 rounded" />
+                  <div className="skeleton h-3 w-24 rounded" />
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <div className="skeleton h-16 rounded-xl" />
+                <div className="skeleton h-16 rounded-xl" />
+              </div>
+              <div className="mt-3 space-y-2">
+                <div className="skeleton h-4 rounded" />
+                <div className="skeleton h-4 rounded" />
+              </div>
+              <div className="skeleton mt-4 h-9 rounded-xl" />
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -264,31 +302,56 @@ function PlansPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-[10px] uppercase tracking-[0.22em] text-[#00ff41]/70">Mining Contracts</p>
-          <h1 className="text-lg font-bold mt-1">QHash Contract Plans</h1>
-          <p className="text-xs text-gray-500 mt-1">Fixed-duration mining contracts with purchase-time eligibility.</p>
+      <div className="rounded-2xl border border-[#1b1b1b] bg-[#101010] p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-[0.22em] text-[#00ff41]/70">Mining Contracts</p>
+            <h1 className="mt-1 text-lg font-bold">QHash Contract Plans</h1>
+            <p className="mt-1 max-w-2xl text-xs leading-5 text-gray-500">
+              Choose a fixed-duration mining contract. Eligibility is checked before purchase.
+            </p>
+          </div>
+          <div className="hidden rounded-xl border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.04)] px-3 py-2 text-right sm:block">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-gray-500">Status</p>
+            <p className="mt-0.5 text-xs font-semibold text-[#00ff41]">Live plans</p>
+          </div>
         </div>
       </div>
 
-      <div className="flex items-center gap-2 bg-[#101010] border border-[#1b1b1b] rounded-xl px-4 py-3">
-        <Wallet size={15} className="text-[#00ff41]" />
-        <span className="text-xs text-gray-500">Wallet</span>
-        {!walletBalanceKnown ? (
-          <span className="skeleton inline-block h-5 w-24 rounded" aria-label="Loading wallet balance" />
-        ) : (
-          <span className="text-sm font-bold text-[#00ff41]">
-            {walletBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ETB
-          </span>
-        )}
-        <Link to="/deposit" className="ml-auto text-[10px] text-gray-400 border border-[#2a2a2a] rounded-lg px-2.5 py-1 card-press hover:text-white">
-          + Add Funds
-        </Link>
+      <div className="rounded-2xl border border-[#1b1b1b] bg-[#101010] p-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.06)] text-[#00ff41]">
+            <Wallet size={17} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-gray-600">Wallet balance</p>
+            {!walletBalanceKnown ? (
+              <span className="skeleton mt-1 inline-block h-5 w-24 rounded" aria-label="Loading wallet balance" />
+            ) : (
+              <p className="mt-0.5 text-sm font-black text-[#00ff41]">
+                {walletBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ETB
+              </p>
+            )}
+          </div>
+          <Link
+            to="/deposit"
+            className="ml-auto shrink-0 rounded-xl border border-[#2a2a2a] px-3 py-2 text-[11px] font-semibold text-gray-300 card-press hover:border-[rgba(0,255,65,0.35)] hover:text-white"
+          >
+            + Add Funds
+          </Link>
+        </div>
       </div>
 
       {plans.length === 0 ? (
-        <div className="text-center py-16 text-xs text-gray-600">No contracts available at the moment.</div>
+        <div className="rounded-2xl border border-dashed border-[#252525] bg-[#101010] px-4 py-14 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-[#1f1f1f] bg-[#0a0a0a] text-gray-500">
+            <ShieldCheck size={20} />
+          </div>
+          <h2 className="mt-4 text-sm font-semibold text-gray-200">No contracts available</h2>
+          <p className="mx-auto mt-1 max-w-sm text-xs leading-5 text-gray-600">
+            Mining contracts are not available at the moment. Please check again later.
+          </p>
+        </div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {plans.map((plan) => {
@@ -297,55 +360,67 @@ function PlansPage() {
             return (
               <div
                 key={plan.id}
-                className={`rounded-xl border bg-[#101010] p-3 transition card-press ${
+                className={`rounded-2xl border bg-[#101010] p-3 transition card-press ${
                   plan.is_popular
                     ? "border-[rgba(0,255,65,0.35)] shadow-[0_0_0_1px_rgba(0,255,65,0.08)]"
-                    : "border-[#1b1b1b]"
+                    : isAvailable
+                      ? "border-[#1f1f1f] hover:border-[rgba(0,255,65,0.22)]"
+                      : "border-[#1b1b1b] opacity-95"
                 }`}
               >
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className={`h-9 w-9 shrink-0 rounded-lg flex items-center justify-center ${isAvailable ? "bg-[rgba(0,255,65,0.08)] text-[#00ff41]" : "bg-[#171717] text-gray-500"}`}>
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${isAvailable ? "border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.07)] text-[#00ff41]" : "border-[#242424] bg-[#171717] text-gray-500"}`}>
                       {isAvailable ? (PLAN_ICONS[iconKey] ?? <Zap size={17} />) : <Lock size={16} />}
                     </div>
                     <div className="min-w-0">
-                      <h3 className="font-bold text-sm truncate">{plan.name}</h3>
-                      <p className="text-[10px] text-gray-600">{plan.duration_days}-Day Mining Contract</p>
+                      <h3 className="truncate text-sm font-bold">{plan.name}</h3>
+                      <p className="mt-0.5 text-[10px] text-gray-600">{plan.duration_days}-day mining contract</p>
                     </div>
                   </div>
-                  <div className="flex flex-col items-end gap-1">
+                  <div className="flex shrink-0 flex-col items-end gap-1">
                     {plan.is_popular && <Badge variant="neon">Popular</Badge>}
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${isAvailable ? "text-[#00ff41] border-[rgba(0,255,65,0.22)] bg-[rgba(0,255,65,0.05)]" : "text-amber-300 border-amber-400/20 bg-amber-400/5"}`}>
+                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${isAvailable ? "border-[rgba(0,255,65,0.22)] bg-[rgba(0,255,65,0.05)] text-[#00ff41]" : "border-amber-400/20 bg-amber-400/5 text-amber-300"}`}>
                       {isAvailable ? "Available" : "Locked"}
                     </span>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 mb-3">
-                  <div className="rounded-lg bg-[#0a0a0a] border border-[#171717] p-2.5">
-                    <p className="text-[10px] text-gray-600">Investment</p>
-                    <p className="text-sm font-black mt-0.5">{formatEtb(plan.investment_amount)} <span className="text-[10px] font-normal text-gray-500">ETB</span></p>
+                <div className="mb-3 grid grid-cols-2 gap-2">
+                  <div className="rounded-xl border border-[#171717] bg-[#080808] p-3">
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-gray-600">Investment</p>
+                    <p className="mt-1 text-base font-black">
+                      {formatEtb(plan.investment_amount)}
+                      <span className="ml-1 text-[10px] font-normal text-gray-500">ETB</span>
+                    </p>
                   </div>
-                  <div className="rounded-lg bg-[#0a0a0a] border border-[#171717] p-2.5 text-right">
-                    <p className="text-[10px] text-gray-600">Daily Yield</p>
-                    <p className="text-sm font-black text-[#00ff41] mt-0.5">{formatEtb(plan.daily_earning)} <span className="text-[10px] font-normal text-gray-500">ETB</span></p>
+                  <div className="rounded-xl border border-[rgba(0,255,65,0.12)] bg-[rgba(0,255,65,0.03)] p-3 text-right">
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-gray-600">Daily Yield</p>
+                    <p className="mt-1 text-base font-black text-[#00ff41]">
+                      {formatEtb(plan.daily_earning)}
+                      <span className="ml-1 text-[10px] font-normal text-gray-500">ETB</span>
+                    </p>
                   </div>
                 </div>
 
-                <div className="space-y-2 mb-3">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-500">Total Earnings</span>
+                <div className="mb-3 rounded-xl border border-[#171717] bg-[#080808] p-3">
+                  <div className="flex items-center justify-between gap-3 text-xs">
+                    <span className="text-gray-500">Projected total</span>
                     <span className="font-bold text-[#00ff41]">{formatEtb(plan.daily_earning * plan.duration_days)} ETB</span>
                   </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-500">Active Limit</span>
-                    <span className="font-medium">{plan.eligibility.activePlanCount} / {plan.eligibility.maxActivePerUser}</span>
+                  <div className="mt-2 flex items-center justify-between gap-3 text-xs">
+                    <span className="text-gray-500">Active limit</span>
+                    <span className="font-medium text-gray-200">{plan.eligibility.activePlanCount} / {plan.eligibility.maxActivePerUser}</span>
                   </div>
                 </div>
 
-                <div className="rounded-lg bg-[#0a0a0a] border border-[#171717] p-2.5 mb-3">
+                <div className="mb-3 rounded-xl border border-[#171717] bg-[#0a0a0a] p-3">
                   <RequirementProgress plan={plan} />
-                  {!isAvailable && <p className="text-[11px] text-amber-300 mt-2">{getLockReason(plan)}</p>}
+                  {!isAvailable && (
+                    <p className="mt-2 rounded-lg border border-amber-400/15 bg-amber-400/5 px-2.5 py-2 text-[11px] leading-4 text-amber-300">
+                      {getLockReason(plan)}
+                    </p>
+                  )}
                 </div>
 
                 <Button
