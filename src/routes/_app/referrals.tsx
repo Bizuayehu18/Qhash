@@ -26,8 +26,6 @@ interface ReferralMember {
   level: number;
   joinedAt: string;
   isActive: boolean;
-  investmentRewards: number;
-  miningRewards: number;
   totalRewards: number;
 }
 
@@ -71,14 +69,17 @@ function useReferralData() {
     }
   }, []);
 
-  const scheduleRetry = useCallback((loadFn: () => void) => {
-    clearRetryTimer();
+  const scheduleRetry = useCallback(
+    (loadFn: () => void) => {
+      clearRetryTimer();
 
-    if (retryCountRef.current >= MAX_AUTO_RETRIES) return;
+      if (retryCountRef.current >= MAX_AUTO_RETRIES) return;
 
-    retryCountRef.current += 1;
-    retryTimerRef.current = setTimeout(loadFn, AUTO_RETRY_DELAY_MS);
-  }, [clearRetryTimer]);
+      retryCountRef.current += 1;
+      retryTimerRef.current = setTimeout(loadFn, AUTO_RETRY_DELAY_MS);
+    },
+    [clearRetryTimer],
+  );
 
   const load = useCallback(
     async (options?: { resetRetryCount?: boolean }) => {
@@ -193,7 +194,9 @@ function ReferralsPage() {
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
           Affiliate Program
         </p>
-        <h1 className="mt-1 text-lg font-bold leading-tight text-gray-100">Team</h1>
+        <h1 className="mt-1 text-lg font-bold leading-tight text-gray-100">
+          Team
+        </h1>
         <p className="mt-1 text-xs text-gray-500">
           Invite friends, grow your mining team, and earn rewards automatically.
         </p>
@@ -239,7 +242,11 @@ function ReferralsPage() {
               <span className="rounded-md border border-[#1f1f1f] bg-[#0a0a0a] px-2 py-1 font-mono text-xs text-gray-400">
                 {username}
               </span>
-              {copied && <span className="text-[10px] font-semibold text-[#00ff41]">Copied</span>}
+              {copied && (
+                <span className="text-[10px] font-semibold text-[#00ff41]">
+                  Copied
+                </span>
+              )}
             </div>
           </>
         ) : (
@@ -330,31 +337,32 @@ function ReferralsPage() {
 
 function HowItWorksCard() {
   return (
-    <Card className="lg:col-span-12">
-      <SectionHeader
-        title="How It Works"
-        description="A simple path from invite to reward."
-        className="mb-4"
-      />
+    <Card padding="sm" className="lg:col-span-12">
+      <div className="mb-3">
+        <p className="text-sm font-semibold text-gray-100">How It Works</p>
+        <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+          Invite, build your team, and earn rewards.
+        </p>
+      </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <StepCard
-          icon={<Copy size={15} />}
-          step="01"
+      <div className="grid gap-2 sm:grid-cols-3">
+        <CompactStepRow
+          icon={<Copy size={14} />}
+          step="1"
           title="Share your link"
-          description="Copy your referral link and send it to friends who want to join QHash."
+          description="Invite friends with your referral link."
         />
-        <StepCard
-          icon={<UserCheck size={15} />}
-          step="02"
-          title="Friends join"
-          description="New users register through your link and become part of your team."
+        <CompactStepRow
+          icon={<UserCheck size={14} />}
+          step="2"
+          title="Build your team"
+          description="New users who register through your link join your team."
         />
-        <StepCard
-          icon={<TrendingUp size={15} />}
-          step="03"
+        <CompactStepRow
+          icon={<TrendingUp size={14} />}
+          step="3"
           title="Earn rewards"
-          description="Earn from team plan purchases and eligible daily mining income."
+          description="Receive rewards from team purchases and daily mining."
         />
       </div>
     </Card>
@@ -415,8 +423,16 @@ function RewardBreakdownCard({ stats, loading }: { stats: ReferralStats; loading
         Reward Breakdown
       </p>
       <div className="space-y-2">
-        <BreakdownRow label="Plan rewards" value={formatEtb(stats.investmentRewards)} loading={loading} />
-        <BreakdownRow label="Daily rewards" value={formatEtb(stats.miningRewards)} loading={loading} />
+        <BreakdownRow
+          label="Plan purchase rewards"
+          value={formatEtb(stats.investmentRewards)}
+          loading={loading}
+        />
+        <BreakdownRow
+          label="Daily mining rewards"
+          value={formatEtb(stats.miningRewards)}
+          loading={loading}
+        />
       </div>
     </Card>
   );
@@ -429,7 +445,7 @@ function BreakdownRow({ label, value, loading }: { label: string; value: string;
       {loading ? (
         <span className="skeleton h-4 w-16 rounded" aria-label={`Loading ${label}`} />
       ) : (
-        <span className="text-xs font-semibold text-gray-200">{value}</span>
+        <span className="shrink-0 text-xs font-semibold text-gray-200">{value}</span>
       )}
     </div>
   );
@@ -440,7 +456,7 @@ function MyTeamCard({ members, loading }: { members: ReferralMember[]; loading: 
     <Card>
       <SectionHeader
         title="My Team"
-        description="See your team members, activity status, and rewards from each member."
+        description="See your team members, activity status, and total rewards."
         className="mb-4"
       />
 
@@ -455,11 +471,7 @@ function MyTeamCard({ members, loading }: { members: ReferralMember[]; loading: 
                 </div>
                 <div className="skeleton h-6 w-16 rounded-full" />
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                <div className="skeleton h-12 rounded-lg" />
-                <div className="skeleton h-12 rounded-lg" />
-                <div className="skeleton h-12 rounded-lg" />
-              </div>
+              <div className="skeleton h-4 w-40 rounded" />
             </div>
           ))}
         </div>
@@ -486,7 +498,7 @@ function TeamMemberRow({ member }: { member: ReferralMember }) {
 
   return (
     <div className="rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] p-3">
-      <div className="mb-3 flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-gray-100">{displayName}</p>
           <p className="mt-1 text-[10px] text-gray-600">
@@ -505,27 +517,17 @@ function TeamMemberRow({ member }: { member: ReferralMember }) {
         </span>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
-        <RewardMiniStat label="Plan" value={formatEtb(member.investmentRewards)} />
-        <RewardMiniStat label="Daily" value={formatEtb(member.miningRewards)} />
-        <RewardMiniStat label="Total" value={formatEtb(member.totalRewards)} accent />
-      </div>
-    </div>
-  );
-}
-
-function RewardMiniStat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className="rounded-lg border border-[#1f1f1f] bg-[#111] px-2 py-2">
-      <p className="text-[9px] uppercase tracking-wider text-gray-600">{label}</p>
-      <p className={`mt-1 break-words text-[11px] font-semibold ${accent ? "text-[#00ff41]" : "text-gray-300"}`}>
-        {value}
+      <p className="mt-2 text-xs text-gray-500">
+        Total rewards:{" "}
+        <span className="font-semibold text-[#00ff41]">
+          {formatEtb(member.totalRewards)}
+        </span>
       </p>
     </div>
   );
 }
 
-function StepCard({
+function CompactStepRow({
   icon,
   step,
   title,
@@ -537,15 +539,19 @@ function StepCard({
   description: string;
 }) {
   return (
-    <div className="rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] p-3">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.06)] text-[#00ff41]">
-          {icon}
-        </div>
-        <span className="font-mono text-[10px] text-gray-700">{step}</span>
+    <div className="flex items-start gap-3 rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5">
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.06)] text-[#00ff41]">
+        {icon}
       </div>
-      <p className="text-xs font-semibold text-gray-100">{title}</p>
-      <p className="mt-1 text-[11px] leading-relaxed text-gray-500">{description}</p>
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[10px] text-gray-600">0{step}</span>
+          <p className="text-xs font-semibold text-gray-100">{title}</p>
+        </div>
+        <p className="mt-0.5 text-[10px] leading-relaxed text-gray-500">
+          {description}
+        </p>
+      </div>
     </div>
   );
 }
