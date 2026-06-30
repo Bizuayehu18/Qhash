@@ -302,11 +302,12 @@ function ReferralsPage() {
         <div className="order-1 lg:order-none">
           <HowRewardsCard />
         </div>
+
         <div className="order-0 lg:order-none">
           <MyTeamCard members={stats.members} loading={!statsLoaded} />
-        <Card className="order-2 lg:order-none">
+        </div>
 
-        <Card>
+        <Card className="order-2 lg:order-none">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-semibold text-gray-100">Reward History</p>
