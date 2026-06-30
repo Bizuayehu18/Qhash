@@ -20,32 +20,50 @@ export const Route = createFileRoute("/_app/referrals")({
   component: ReferralsPage,
 });
 
+type ReferralLevel = 1 | 2 | 3;
+type ReferralLevelFilter = "all" | ReferralLevel;
+
 interface ReferralMember {
   id: string;
   name: string | null;
   level: number;
   joinedAt: string;
   isActive: boolean;
-  totalRewards: number;
 }
 
 interface ReferralStats {
   total: number;
   active: number;
   earned: number;
+  todayRewards: number;
   investmentRewards: number;
   miningRewards: number;
   members: ReferralMember[];
+}
+
+interface LevelCounts {
+  all: number;
+  1: number;
+  2: number;
+  3: number;
 }
 
 const EMPTY_REFERRAL_STATS: ReferralStats = {
   total: 0,
   active: 0,
   earned: 0,
+  todayRewards: 0,
   investmentRewards: 0,
   miningRewards: 0,
   members: [],
 };
+
+const TEAM_FILTERS: Array<{ label: string; value: ReferralLevelFilter }> = [
+  { label: "All", value: "all" },
+  { label: "L1", value: 1 },
+  { label: "L2", value: 2 },
+  { label: "L3", value: 3 },
+];
 
 const REFERRAL_LOAD_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
@@ -111,6 +129,7 @@ function useReferralData() {
           total: result.total,
           active: result.active,
           earned: result.earned,
+          todayRewards: result.todayRewards ?? 0,
           investmentRewards: result.investmentRewards ?? 0,
           miningRewards: result.miningRewards ?? 0,
           members: Array.isArray(result.members) ? result.members : [],
@@ -172,6 +191,7 @@ function useReferralData() {
 function ReferralsPage() {
   const { stats, statsLoaded, username } = useReferralData();
   const [copied, setCopied] = useState(false);
+  const [teamLevelFilter, setTeamLevelFilter] = useState<ReferralLevelFilter>("all");
 
   const referralLink =
     username && typeof window !== "undefined"
@@ -187,6 +207,8 @@ function ReferralsPage() {
   }
 
   const hasNoReferrals = statsLoaded && stats.total === 0;
+  const levelCounts = getLevelCounts(stats.members);
+  const filteredMembers = filterMembersByLevel(stats.members, teamLevelFilter);
 
   return (
     <div className="space-y-5 lg:mx-auto lg:grid lg:max-w-4xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
@@ -259,7 +281,7 @@ function ReferralsPage() {
       <HowItWorksCard />
 
       <div className="space-y-3 lg:col-span-4">
-        <div className="grid grid-cols-3 gap-3 lg:grid-cols-1">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
           <StatCard
             icon={<Users size={18} />}
             label="Total"
@@ -277,9 +299,17 @@ function ReferralsPage() {
           />
           <StatCard
             icon={<TrendingUp size={18} />}
-            label="Earned"
+            label="Today's Rewards"
+            value={formatEtb(stats.todayRewards)}
+            description="Team rewards since 21:00 UTC"
+            accent
+            loading={!statsLoaded}
+          />
+          <StatCard
+            icon={<TrendingUp size={18} />}
+            label="Total Earned"
             value={formatEtb(stats.earned)}
-            description="Total referral rewards"
+            description="All-time referral rewards"
             accent
             loading={!statsLoaded}
           />
@@ -311,7 +341,14 @@ function ReferralsPage() {
         </div>
 
         <div className="order-0 lg:order-none">
-          <MyTeamCard members={stats.members} loading={!statsLoaded} />
+          <MyTeamCard
+            members={filteredMembers}
+            totalMembers={stats.members.length}
+            levelCounts={levelCounts}
+            activeFilter={teamLevelFilter}
+            onFilterChange={setTeamLevelFilter}
+            loading={!statsLoaded}
+          />
         </div>
 
         <Card className="order-2 lg:order-none">
@@ -356,7 +393,7 @@ function HowItWorksCard() {
           icon={<UserCheck size={14} />}
           step="2"
           title="Build your team"
-          description="New users who register through your link join your team."
+          description="Users who register through your link join your team."
         />
         <CompactStepRow
           icon={<TrendingUp size={14} />}
@@ -451,39 +488,66 @@ function BreakdownRow({ label, value, loading }: { label: string; value: string;
   );
 }
 
-function MyTeamCard({ members, loading }: { members: ReferralMember[]; loading: boolean }) {
+function MyTeamCard({
+  members,
+  totalMembers,
+  levelCounts,
+  activeFilter,
+  onFilterChange,
+  loading,
+}: {
+  members: ReferralMember[];
+  totalMembers: number;
+  levelCounts: LevelCounts;
+  activeFilter: ReferralLevelFilter;
+  onFilterChange: (value: ReferralLevelFilter) => void;
+  loading: boolean;
+}) {
   return (
     <Card>
       <SectionHeader
         title="My Team"
-        description="See your team members, activity status, and total rewards."
-        className="mb-4"
+        description="See team members by level and activity status."
+        className="mb-3"
+      />
+
+      <TeamLevelFilters
+        counts={levelCounts}
+        activeFilter={activeFilter}
+        onFilterChange={onFilterChange}
+        disabled={loading}
       />
 
       {loading ? (
-        <div className="space-y-2.5">
-          {Array.from({ length: 3 }).map((_, index) => (
-            <div key={index} className="rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] p-3">
-              <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="space-y-2">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5">
+              <div className="flex items-center justify-between gap-3">
                 <div className="space-y-2">
                   <div className="skeleton h-4 w-24 rounded" />
                   <div className="skeleton h-3 w-32 rounded" />
                 </div>
                 <div className="skeleton h-6 w-16 rounded-full" />
               </div>
-              <div className="skeleton h-4 w-40 rounded" />
             </div>
           ))}
         </div>
-      ) : members.length === 0 ? (
+      ) : totalMembers === 0 ? (
         <EmptyState
           icon={<Users size={22} />}
           title="No team members yet"
           description="Share your referral link to start building your team."
           className="px-4 py-8"
         />
+      ) : members.length === 0 ? (
+        <EmptyState
+          icon={<Users size={22} />}
+          title="No members in this level"
+          description="Choose another level filter to view more team members."
+          className="px-4 py-8"
+        />
       ) : (
-        <div className="space-y-2.5">
+        <div className="space-y-2">
           {members.map((member) => (
             <TeamMemberRow key={member.id} member={member} />
           ))}
@@ -493,11 +557,52 @@ function MyTeamCard({ members, loading }: { members: ReferralMember[]; loading: 
   );
 }
 
+function TeamLevelFilters({
+  counts,
+  activeFilter,
+  onFilterChange,
+  disabled,
+}: {
+  counts: LevelCounts;
+  activeFilter: ReferralLevelFilter;
+  onFilterChange: (value: ReferralLevelFilter) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="mb-3 grid grid-cols-4 gap-1.5 rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] p-1">
+      {TEAM_FILTERS.map((filter) => {
+        const active = activeFilter === filter.value;
+        const count = getFilterCount(counts, filter.value);
+
+        return (
+          <button
+            key={filter.label}
+            type="button"
+            disabled={disabled}
+            onClick={() => onFilterChange(filter.value)}
+            className={[
+              "flex items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[10px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
+              active
+                ? "bg-[#00ff41] text-black"
+                : "bg-[#111] text-gray-500 hover:text-gray-200",
+            ].join(" ")}
+          >
+            <span>{filter.label}</span>
+            <span className={active ? "text-black/70" : "text-gray-700"}>
+              {count}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function TeamMemberRow({ member }: { member: ReferralMember }) {
   const displayName = member.name ? `@${member.name}` : "Team member";
 
   return (
-    <div className="rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] p-3">
+    <div className="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-gray-100">{displayName}</p>
@@ -516,13 +621,6 @@ function TeamMemberRow({ member }: { member: ReferralMember }) {
           {member.isActive ? "Active" : "Not active"}
         </span>
       </div>
-
-      <p className="mt-2 text-xs text-gray-500">
-        Total rewards:{" "}
-        <span className="font-semibold text-[#00ff41]">
-          {formatEtb(member.totalRewards)}
-        </span>
-      </p>
     </div>
   );
 }
@@ -618,6 +716,36 @@ function TierRow({
       </div>
     </div>
   );
+}
+
+function getLevelCounts(members: ReferralMember[]): LevelCounts {
+  return members.reduce<LevelCounts>(
+    (counts, member) => {
+      if (member.level === 1 || member.level === 2 || member.level === 3) {
+        counts[member.level] += 1;
+      }
+
+      return counts;
+    },
+    {
+      all: members.length,
+      1: 0,
+      2: 0,
+      3: 0,
+    },
+  );
+}
+
+function getFilterCount(counts: LevelCounts, filter: ReferralLevelFilter): number {
+  return filter === "all" ? counts.all : counts[filter];
+}
+
+function filterMembersByLevel(
+  members: ReferralMember[],
+  filter: ReferralLevelFilter,
+): ReferralMember[] {
+  if (filter === "all") return members;
+  return members.filter((member) => member.level === filter);
 }
 
 function formatEtb(value: number): string {
