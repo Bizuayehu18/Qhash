@@ -304,7 +304,7 @@ function ReferralsPage() {
         </div>
         <div className="order-0 lg:order-none">
           <MyTeamCard members={stats.members} loading={!statsLoaded} />
-        </div>
+        <Card className="order-2 lg:order-none">
 
         <Card>
           <div className="flex items-center justify-between gap-3">
