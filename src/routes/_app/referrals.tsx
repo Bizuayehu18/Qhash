@@ -20,16 +20,33 @@ export const Route = createFileRoute("/_app/referrals")({
   component: ReferralsPage,
 });
 
+interface ReferralMember {
+  id: string;
+  name: string | null;
+  level: number;
+  joinedAt: string;
+  isActive: boolean;
+  investmentRewards: number;
+  miningRewards: number;
+  totalRewards: number;
+}
+
 interface ReferralStats {
   total: number;
   active: number;
   earned: number;
+  investmentRewards: number;
+  miningRewards: number;
+  members: ReferralMember[];
 }
 
 const EMPTY_REFERRAL_STATS: ReferralStats = {
   total: 0,
   active: 0,
   earned: 0,
+  investmentRewards: 0,
+  miningRewards: 0,
+  members: [],
 };
 
 const REFERRAL_LOAD_TIMEOUT_MS = 10_000;
@@ -93,6 +110,9 @@ function useReferralData() {
           total: result.total,
           active: result.active,
           earned: result.earned,
+          investmentRewards: result.investmentRewards ?? 0,
+          miningRewards: result.miningRewards ?? 0,
+          members: Array.isArray(result.members) ? result.members : [],
         });
         setStatsLoaded(true);
         retryCountRef.current = 0;
@@ -251,12 +271,14 @@ function ReferralsPage() {
           <StatCard
             icon={<TrendingUp size={18} />}
             label="Earned"
-            value={`${stats.earned.toFixed(2)} ETB`}
+            value={formatEtb(stats.earned)}
             description="Total referral rewards"
             accent
             loading={!statsLoaded}
           />
         </div>
+
+        <RewardBreakdownCard stats={stats} loading={!statsLoaded} />
 
         <Card padding="sm">
           <p className="text-[10px] leading-relaxed text-gray-500">
@@ -277,32 +299,15 @@ function ReferralsPage() {
       </div>
 
       <div className="space-y-3 lg:col-span-8">
-        <Card>
-          <SectionHeader
-            title="Commission Tiers"
-            description="Rewards can come from direct and indirect referral activity."
-            className="mb-4"
-          />
-
-          <div className="space-y-2.5">
-            <TierRow level={1} label="Direct Referral" rate="5%" />
-            <TierRow level={2} label="Level 2" rate="3%" />
-            <TierRow level={3} label="Level 3" rate="2%" />
-          </div>
-
-          <div className="mt-4 border-t border-[#1f1f1f] pt-3">
-            <p className="text-[10px] leading-relaxed text-gray-600">
-              Earn commissions when your referrals invest. Rewards are calculated automatically based on each tier and your eligible team activity.
-            </p>
-          </div>
-        </Card>
+        <HowRewardsCard />
+        <MyTeamCard members={stats.members} loading={!statsLoaded} />
 
         <Card>
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-semibold text-gray-100">Reward History</p>
               <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
-                Referral bonuses appear in your transactions after they are created.
+                Referral bonuses also appear in your transaction history.
               </p>
             </div>
             <Link
@@ -344,10 +349,174 @@ function HowItWorksCard() {
           icon={<TrendingUp size={15} />}
           step="03"
           title="Earn rewards"
-          description="When eligible referrals invest, rewards are calculated and added automatically."
+          description="Earn from team plan purchases and eligible daily mining income."
         />
       </div>
     </Card>
+  );
+}
+
+function HowRewardsCard() {
+  return (
+    <Card>
+      <SectionHeader
+        title="How Team Rewards Work"
+        description="The same level rates apply to plan purchase rewards and daily mining rewards."
+        className="mb-4"
+      />
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <RewardSourceCard
+          title="Plan Purchase Reward"
+          description="Earn when someone in your team buys a mining plan."
+        />
+        <RewardSourceCard
+          title="Daily Mining Reward"
+          description="Earn when someone in your team receives daily mining income."
+        />
+      </div>
+
+      <div className="mt-4 space-y-2.5">
+        <TierRow level={1} label="Direct referrals" rate="5%" />
+        <TierRow level={2} label="Level 2 team" rate="3%" />
+        <TierRow level={3} label="Level 3 team" rate="2%" />
+      </div>
+
+      <div className="mt-4 rounded-lg border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.05)] px-3 py-2.5">
+        <p className="text-[10px] leading-relaxed text-gray-400">
+          Keep an active mining plan to receive eligible team rewards.
+        </p>
+      </div>
+    </Card>
+  );
+}
+
+function RewardSourceCard({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] p-3">
+      <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.06)] text-[#00ff41]">
+        <TrendingUp size={15} />
+      </div>
+      <p className="text-xs font-semibold text-gray-100">{title}</p>
+      <p className="mt-1 text-[11px] leading-relaxed text-gray-500">{description}</p>
+    </div>
+  );
+}
+
+function RewardBreakdownCard({ stats, loading }: { stats: ReferralStats; loading: boolean }) {
+  return (
+    <Card padding="sm">
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+        Reward Breakdown
+      </p>
+      <div className="space-y-2">
+        <BreakdownRow label="Plan rewards" value={formatEtb(stats.investmentRewards)} loading={loading} />
+        <BreakdownRow label="Daily rewards" value={formatEtb(stats.miningRewards)} loading={loading} />
+      </div>
+    </Card>
+  );
+}
+
+function BreakdownRow({ label, value, loading }: { label: string; value: string; loading: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg bg-[#0a0a0a] px-3 py-2">
+      <span className="text-[11px] text-gray-500">{label}</span>
+      {loading ? (
+        <span className="skeleton h-4 w-16 rounded" aria-label={`Loading ${label}`} />
+      ) : (
+        <span className="text-xs font-semibold text-gray-200">{value}</span>
+      )}
+    </div>
+  );
+}
+
+function MyTeamCard({ members, loading }: { members: ReferralMember[]; loading: boolean }) {
+  return (
+    <Card>
+      <SectionHeader
+        title="My Team"
+        description="See your team members, activity status, and rewards from each member."
+        className="mb-4"
+      />
+
+      {loading ? (
+        <div className="space-y-2.5">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] p-3">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="space-y-2">
+                  <div className="skeleton h-4 w-24 rounded" />
+                  <div className="skeleton h-3 w-32 rounded" />
+                </div>
+                <div className="skeleton h-6 w-16 rounded-full" />
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="skeleton h-12 rounded-lg" />
+                <div className="skeleton h-12 rounded-lg" />
+                <div className="skeleton h-12 rounded-lg" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : members.length === 0 ? (
+        <EmptyState
+          icon={<Users size={22} />}
+          title="No team members yet"
+          description="Share your referral link to start building your team."
+          className="px-4 py-8"
+        />
+      ) : (
+        <div className="space-y-2.5">
+          {members.map((member) => (
+            <TeamMemberRow key={member.id} member={member} />
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function TeamMemberRow({ member }: { member: ReferralMember }) {
+  const displayName = member.name ? `@${member.name}` : "Team member";
+
+  return (
+    <div className="rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] p-3">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-gray-100">{displayName}</p>
+          <p className="mt-1 text-[10px] text-gray-600">
+            Level {member.level} · Joined {formatJoinedDate(member.joinedAt)}
+          </p>
+        </div>
+        <span
+          className={[
+            "shrink-0 rounded-full border px-2 py-1 text-[10px] font-semibold",
+            member.isActive
+              ? "border-[rgba(0,255,65,0.25)] bg-[rgba(0,255,65,0.08)] text-[#00ff41]"
+              : "border-[#2a2a2a] bg-[#111] text-gray-500",
+          ].join(" ")}
+        >
+          {member.isActive ? "Active" : "Not active"}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2">
+        <RewardMiniStat label="Plan" value={formatEtb(member.investmentRewards)} />
+        <RewardMiniStat label="Daily" value={formatEtb(member.miningRewards)} />
+        <RewardMiniStat label="Total" value={formatEtb(member.totalRewards)} accent />
+      </div>
+    </div>
+  );
+}
+
+function RewardMiniStat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="rounded-lg border border-[#1f1f1f] bg-[#111] px-2 py-2">
+      <p className="text-[9px] uppercase tracking-wider text-gray-600">{label}</p>
+      <p className={`mt-1 break-words text-[11px] font-semibold ${accent ? "text-[#00ff41]" : "text-gray-300"}`}>
+        {value}
+      </p>
+    </div>
   );
 }
 
@@ -438,4 +607,20 @@ function TierRow({
       </div>
     </div>
   );
+}
+
+function formatEtb(value: number): string {
+  const amount = Number.isFinite(value) ? value : 0;
+  return `${amount.toFixed(2)} ETB`;
+}
+
+function formatJoinedDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "recently";
+
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
