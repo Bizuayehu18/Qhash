@@ -17,9 +17,6 @@ export const loadReferralStatsFn = createServerFn({ method: "POST" })
     const { accessToken } = data;
     const admin = getAdminClient();
 
-    // Derive the caller identity from the session access token (mirrors
-    // getAdminStatsFn / assertAdminToken). The client never supplies the
-    // referrer id used for the referral queries below.
     const {
       data: { user: authUser },
       error: authError,
@@ -32,19 +29,21 @@ export const loadReferralStatsFn = createServerFn({ method: "POST" })
     try {
       const { data: referralRows, error: refError } = await admin
         .from("referrals")
-        .select("referred_user_id, total_investment_rewards, total_mining_rewards")
-        .eq("referrer_id", userId);
+        .select("id, referred_user_id, level, total_investment_rewards, total_mining_rewards, created_at")
+        .eq("referrer_id", userId)
+        .order("level", { ascending: true })
+        .order("created_at", { ascending: false });
 
       if (refError) {
         throwSafe("REFERRAL", "Failed to load team stats.", "Referrals query: " + refError.message);
       }
 
       const rows = referralRows ?? [];
-      const total = new Set(rows.map((r) => r.referred_user_id)).size;
+      const referredIds = [...new Set(rows.map((r) => r.referred_user_id))];
+      const total = referredIds.length;
 
-      let active = 0;
-      if (total > 0) {
-        const referredIds = [...new Set(rows.map((r) => r.referred_user_id))];
+      let activeMembers = new Set<string>();
+      if (referredIds.length > 0) {
         const { data: activeInvestments, error: invError } = await admin
           .from("investments")
           .select("user_id")
@@ -55,15 +54,44 @@ export const loadReferralStatsFn = createServerFn({ method: "POST" })
           throwSafe("REFERRAL", "Failed to load team stats.", "Investments query: " + invError.message);
         }
 
-        active = new Set((activeInvestments ?? []).map((i) => i.user_id)).size;
+        activeMembers = new Set((activeInvestments ?? []).map((i) => i.user_id));
       }
 
-      const earned = rows.reduce(
-        (sum, r) => sum + (r.total_investment_rewards ?? 0) + (r.total_mining_rewards ?? 0),
-        0,
-      );
+      let nameByUserId = new Map<string, string>();
+      if (referredIds.length > 0) {
+        const { data: profileRows, error: profileError } = await admin
+          .from("profiles")
+          .select("id, username")
+          .in("id", referredIds);
 
-      return { total, active, earned };
+        if (profileError) {
+          throwSafe("REFERRAL", "Failed to load team stats.", "Profiles query: " + profileError.message);
+        }
+
+        nameByUserId = new Map((profileRows ?? []).map((profile) => [profile.id, profile.username]));
+      }
+
+      const investmentRewards = rows.reduce((sum, r) => sum + Number(r.total_investment_rewards ?? 0), 0);
+      const miningRewards = rows.reduce((sum, r) => sum + Number(r.total_mining_rewards ?? 0), 0);
+      const earned = investmentRewards + miningRewards;
+
+      const members = rows.map((row) => {
+        const memberInvestmentRewards = Number(row.total_investment_rewards ?? 0);
+        const memberMiningRewards = Number(row.total_mining_rewards ?? 0);
+
+        return {
+          id: row.id,
+          name: nameByUserId.get(row.referred_user_id) ?? null,
+          level: row.level,
+          joinedAt: row.created_at,
+          isActive: activeMembers.has(row.referred_user_id),
+          investmentRewards: memberInvestmentRewards,
+          miningRewards: memberMiningRewards,
+          totalRewards: memberInvestmentRewards + memberMiningRewards,
+        };
+      });
+
+      return { total, active: activeMembers.size, earned, investmentRewards, miningRewards, members };
     } catch (err) {
       if (err && typeof err === "object" && "domain" in err) throw err;
       console.error("[QHash] Referral stats error:", err);
