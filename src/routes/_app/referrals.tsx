@@ -168,7 +168,7 @@ function ReferralsPage() {
   const hasNoReferrals = statsLoaded && stats.total === 0;
 
   return (
-    <div className="space-y-5 pb-24 lg:mx-auto lg:grid lg:max-w-4xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0 lg:pb-0">
+    <div className="space-y-5 lg:mx-auto lg:grid lg:max-w-4xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
       <div className="lg:col-span-12">
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
           Affiliate Program
