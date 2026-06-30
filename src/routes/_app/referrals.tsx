@@ -298,9 +298,13 @@ function ReferralsPage() {
         )}
       </div>
 
-      <div className="space-y-3 lg:col-span-8">
-        <HowRewardsCard />
-        <MyTeamCard members={stats.members} loading={!statsLoaded} />
+      <div className="flex flex-col gap-3 lg:col-span-8">
+        <div className="order-1 lg:order-none">
+          <HowRewardsCard />
+        </div>
+        <div className="order-0 lg:order-none">
+          <MyTeamCard members={stats.members} loading={!statsLoaded} />
+        </div>
 
         <Card>
           <div className="flex items-center justify-between gap-3">
