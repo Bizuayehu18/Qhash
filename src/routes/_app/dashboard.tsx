@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   TrendingUp,
   Cpu,
@@ -8,6 +8,8 @@ import {
   ArrowDownCircle,
   ArrowUpCircle,
   Server,
+  UserPlus,
+  LifeBuoy,
 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
@@ -177,9 +179,10 @@ function DashboardPage() {
   const activeInvestments = data?.activeInvestments ?? [];
   const completedInvestments = data?.completedInvestments ?? [];
   const dailyEarningRate = hasDashboardData ? data.dailyEarningRate : null;
-  const totalEarned = hasDashboardData ? data.totalEarned : null;
+  const incomeSummary = data?.incomeSummary ?? null;
   const recentTransactions = data?.recentTransactions ?? [];
   const balance = walletBalance ?? wallet?.balance ?? null;
+
   const dailyEarningText =
     dailyEarningRate === null
       ? "0.00"
@@ -269,21 +272,37 @@ function DashboardPage() {
       {/* Stats Row */}
       <div className="grid grid-cols-3 gap-2.5 lg:col-span-4 lg:grid-cols-1 lg:gap-3">
         <StatTile
-          icon={<Cpu size={14} />}
-          label={<ResponsiveStatLabel short="Daily" full="Daily Earning" />}
-          value={dailyEarningRate === null ? "" : <AmountText value={dailyEarningRate} currency="" size="sm" />}
-          caption="ETB/day"
+          icon={<TrendingUp size={14} />}
+          label={<ResponsiveStatLabel short="Today" full="Today's Income" />}
+          value={
+            !hasDashboardData ? "" : (
+              <AmountText
+                value={incomeSummary?.todayTotalIncome ?? 0}
+                currency=""
+                size="sm"
+              />
+            )
+          }
+          caption="Daily total"
           accent
-          loading={dailyEarningRate === null}
+          loading={!hasDashboardData}
         />
 
         <StatTile
           icon={<TrendingUp size={14} />}
-          label={<ResponsiveStatLabel short="Earned" full="Total Earned" />}
-          value={totalEarned === null ? "" : <AmountText value={totalEarned} currency="" size="sm" />}
+          label={<ResponsiveStatLabel short="Total" full="Total Income" />}
+          value={
+            !hasDashboardData ? "" : (
+              <AmountText
+                value={incomeSummary?.totalIncome ?? 0}
+                currency=""
+                size="sm"
+              />
+            )
+          }
           caption="All time"
           accent
-          loading={totalEarned === null}
+          loading={!hasDashboardData}
         />
 
         <StatTile
@@ -297,6 +316,23 @@ function DashboardPage() {
           caption="Active"
           accent
           loading={!hasDashboardData}
+        />
+      </div>
+
+      {/* Quick Actions */}
+      <div className="grid grid-cols-2 gap-2.5 lg:col-span-12">
+        <QuickActionCard
+          to="/referrals"
+          icon={<UserPlus size={15} />}
+          title="Refer & Earn"
+          description="Grow your team"
+        />
+
+        <QuickActionCard
+          to="/support"
+          icon={<LifeBuoy size={15} />}
+          title="Support"
+          description="Get help fast"
         />
       </div>
 
@@ -479,5 +515,36 @@ function DashboardPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function QuickActionCard({
+  to,
+  icon,
+  title,
+  description,
+}: {
+  to: "/referrals" | "/support";
+  icon: ReactNode;
+  title: string;
+  description: string;
+}) {
+  return (
+    <Link to={to} className="block min-w-0">
+      <div className="flex h-full items-center justify-between gap-3 rounded-xl border border-[#1a1a1a] bg-[#111] p-3 card-press">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[rgba(0,255,65,0.08)] text-[#00ff41]">
+            {icon}
+          </div>
+
+          <div className="min-w-0">
+            <p className="truncate text-xs font-semibold text-gray-100">{title}</p>
+            <p className="mt-0.5 truncate text-[10px] text-gray-600">{description}</p>
+          </div>
+        </div>
+
+        <ChevronRight size={13} className="shrink-0 text-gray-600" />
+      </div>
+    </Link>
   );
 }
