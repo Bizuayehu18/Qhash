@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   TrendingUp,
   Cpu,
@@ -8,6 +8,8 @@ import {
   ArrowDownCircle,
   ArrowUpCircle,
   Server,
+  UserPlus,
+  LifeBuoy,
 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
@@ -317,6 +319,23 @@ function DashboardPage() {
         />
       </div>
 
+      {/* Quick Actions */}
+      <div className="grid grid-cols-2 gap-2.5 lg:col-span-12">
+        <QuickActionCard
+          to="/referrals"
+          icon={<UserPlus size={15} />}
+          title="Refer & Earn"
+          description="Grow your team"
+        />
+
+        <QuickActionCard
+          to="/support"
+          icon={<LifeBuoy size={15} />}
+          title="Support"
+          description="Get help fast"
+        />
+      </div>
+
       {/* Real Mining Status */}
       <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-3.5 lg:col-span-12">
         <div className="flex items-center justify-between gap-3">
@@ -496,5 +515,36 @@ function DashboardPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function QuickActionCard({
+  to,
+  icon,
+  title,
+  description,
+}: {
+  to: "/referrals" | "/support";
+  icon: ReactNode;
+  title: string;
+  description: string;
+}) {
+  return (
+    <Link to={to} className="block min-w-0">
+      <div className="flex h-full items-center justify-between gap-3 rounded-xl border border-[#1a1a1a] bg-[#111] p-3 card-press">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[rgba(0,255,65,0.08)] text-[#00ff41]">
+            {icon}
+          </div>
+
+          <div className="min-w-0">
+            <p className="truncate text-xs font-semibold text-gray-100">{title}</p>
+            <p className="mt-0.5 truncate text-[10px] text-gray-600">{description}</p>
+          </div>
+        </div>
+
+        <ChevronRight size={13} className="shrink-0 text-gray-600" />
+      </div>
+    </Link>
   );
 }
