@@ -36,8 +36,6 @@ interface ReferralStats {
   active: number;
   earned: number;
   todayRewards: number;
-  investmentRewards: number;
-  miningRewards: number;
   members: ReferralMember[];
 }
 
@@ -53,8 +51,6 @@ const EMPTY_REFERRAL_STATS: ReferralStats = {
   active: 0,
   earned: 0,
   todayRewards: 0,
-  investmentRewards: 0,
-  miningRewards: 0,
   members: [],
 };
 
@@ -130,8 +126,6 @@ function useReferralData() {
           active: result.active,
           earned: result.earned,
           todayRewards: result.todayRewards ?? 0,
-          investmentRewards: result.investmentRewards ?? 0,
-          miningRewards: result.miningRewards ?? 0,
           members: Array.isArray(result.members) ? result.members : [],
         });
         setStatsLoaded(true);
@@ -281,29 +275,6 @@ function ReferralsPage() {
       <div className="space-y-3 lg:col-span-4">
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
           <StatCard
-            icon={<Users size={18} />}
-            label="Total"
-            value={stats.total}
-            description="People who joined from your link"
-            loading={!statsLoaded}
-          />
-          <StatCard
-            icon={<UserCheck size={18} />}
-            label="Active"
-            value={stats.active}
-            description="Invited users with active mining"
-            accent
-            loading={!statsLoaded}
-          />
-          <StatCard
-            icon={<TrendingUp size={18} />}
-            label="Today's Rewards"
-            value={formatEtb(stats.todayRewards)}
-            description="Team rewards since 21:00 UTC"
-            accent
-            loading={!statsLoaded}
-          />
-          <StatCard
             icon={<TrendingUp size={18} />}
             label="Total Earned"
             value={formatEtb(stats.earned)}
@@ -311,9 +282,30 @@ function ReferralsPage() {
             accent
             loading={!statsLoaded}
           />
+          <StatCard
+            icon={<TrendingUp size={18} />}
+            label="Today's Rewards"
+            value={formatEtb(stats.todayRewards)}
+            description="Rewards earned today"
+            accent
+            loading={!statsLoaded}
+          />
+          <StatCard
+            icon={<Users size={18} />}
+            label="Total Team"
+            value={stats.total}
+            description="People who joined from your link"
+            loading={!statsLoaded}
+          />
+          <StatCard
+            icon={<UserCheck size={18} />}
+            label="Active Team"
+            value={stats.active}
+            description="Invited users with active mining"
+            accent
+            loading={!statsLoaded}
+          />
         </div>
-
-        <RewardBreakdownCard stats={stats} loading={!statsLoaded} />
 
         {hasNoReferrals && (
           <Card padding="none">
@@ -340,14 +332,10 @@ function ReferralsPage() {
         </div>
 
         <div className="order-1 lg:order-none">
-          <HowItWorksCard />
-        </div>
-
-        <div className="order-2 lg:order-none">
           <HowRewardsCard />
         </div>
 
-        <Card className="order-3 lg:order-none">
+        <Card className="order-2 lg:order-none">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-semibold text-gray-100">Reward History</p>
@@ -365,40 +353,6 @@ function ReferralsPage() {
         </Card>
       </div>
     </div>
-  );
-}
-
-function HowItWorksCard() {
-  return (
-    <Card padding="sm">
-      <div className="mb-3">
-        <p className="text-sm font-semibold text-gray-100">How It Works</p>
-        <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
-          Invite, build your team, and earn rewards.
-        </p>
-      </div>
-
-      <div className="grid gap-2 sm:grid-cols-3">
-        <CompactStepRow
-          icon={<Copy size={14} />}
-          step="1"
-          title="Share your link"
-          description="Invite friends with your referral link."
-        />
-        <CompactStepRow
-          icon={<UserCheck size={14} />}
-          step="2"
-          title="Build your team"
-          description="Users who register through your link join your team."
-        />
-        <CompactStepRow
-          icon={<TrendingUp size={14} />}
-          step="3"
-          title="Earn rewards"
-          description="Receive rewards from team purchases and daily mining."
-        />
-      </div>
-    </Card>
   );
 }
 
@@ -449,44 +403,6 @@ function RewardSourceCard({ title, description }: { title: string; description: 
   );
 }
 
-function RewardBreakdownCard({ stats, loading }: { stats: ReferralStats; loading: boolean }) {
-  return (
-    <Card padding="sm">
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-        Reward Breakdown
-      </p>
-      <div className="space-y-2">
-        <BreakdownRow
-          label="Plan purchase rewards"
-          value={formatEtb(stats.investmentRewards)}
-          loading={loading}
-        />
-        <BreakdownRow
-          label="Daily mining rewards"
-          value={formatEtb(stats.miningRewards)}
-          loading={loading}
-        />
-      </div>
-      <p className="mt-2 text-[10px] leading-relaxed text-gray-600">
-        <span className="font-semibold text-gray-400">Today's Rewards</span> reset at 21:00 UTC.
-      </p>
-    </Card>
-  );
-}
-
-function BreakdownRow({ label, value, loading }: { label: string; value: string; loading: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-lg bg-[#0a0a0a] px-3 py-2">
-      <span className="text-[11px] text-gray-500">{label}</span>
-      {loading ? (
-        <span className="skeleton h-4 w-16 rounded" aria-label={`Loading ${label}`} />
-      ) : (
-        <span className="shrink-0 text-xs font-semibold text-gray-200">{value}</span>
-      )}
-    </div>
-  );
-}
-
 function MyTeamCard({
   members,
   totalMembers,
@@ -506,7 +422,7 @@ function MyTeamCard({
     <Card>
       <SectionHeader
         title="My Team"
-        description="Filter team members by level and activity status."
+        description="Filter team members by level."
         className="mb-3"
       />
 
@@ -623,35 +539,6 @@ function TeamMemberRow({ member }: { member: ReferralMember }) {
         >
           {member.isActive ? "Active" : "Not active"}
         </span>
-      </div>
-    </div>
-  );
-}
-
-function CompactStepRow({
-  icon,
-  step,
-  title,
-  description,
-}: {
-  icon: React.ReactNode;
-  step: string;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="flex items-start gap-3 rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5">
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.06)] text-[#00ff41]">
-        {icon}
-      </div>
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] text-gray-600">0{step}</span>
-          <p className="text-xs font-semibold text-gray-100">{title}</p>
-        </div>
-        <p className="mt-0.5 text-[10px] leading-relaxed text-gray-500">
-          {description}
-        </p>
       </div>
     </div>
   );
