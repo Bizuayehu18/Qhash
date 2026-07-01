@@ -2,12 +2,48 @@ import { createServerFn } from "@tanstack/react-start";
 import { getAdminClient } from "./supabase-admin.js";
 import { throwSafe } from "../errors.js";
 
+const INCOME_DAY_RESET_UTC_HOUR = 21;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const TEAM_REWARD_TRANSACTION_TYPES = [
+  "referral_daily_bonus",
+  "referral_investment_bonus",
+];
+
+const TODAY_INCOME_TRANSACTION_TYPES = [
+  "earning",
+  ...TEAM_REWARD_TRANSACTION_TYPES,
+];
+
 function validateAccessToken(data: unknown): { accessToken: string } {
   if (!data || typeof data !== "object") throwSafe("SERVER", "Failed to load dashboard.", "Invalid request data");
   const { accessToken } = data as Record<string, unknown>;
   if (typeof accessToken !== "string" || accessToken.length === 0)
     throwSafe("SERVER", "Failed to load dashboard.", "Missing access token");
   return { accessToken };
+}
+
+function getIncomeDayWindow(now = new Date()): { start: Date; end: Date } {
+  let start = new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      INCOME_DAY_RESET_UTC_HOUR,
+      0,
+      0,
+      0,
+    ),
+  );
+
+  if (now.getTime() < start.getTime()) {
+    start = new Date(start.getTime() - DAY_MS);
+  }
+
+  return {
+    start,
+    end: new Date(start.getTime() + DAY_MS),
+  };
 }
 
 async function getOrCreateWallet(userId: string) {
@@ -69,6 +105,57 @@ export const loadDashboardFn = createServerFn({ method: "POST" })
         0,
       );
 
+      const { data: teamRewardRows, error: teamRewardError } = await admin
+        .from("referrals")
+        .select("total_investment_rewards, total_mining_rewards")
+        .eq("referrer_id", userId);
+
+      if (teamRewardError) {
+        throwSafe(
+          "SERVER",
+          "Failed to load dashboard.",
+          "Team rewards query: " + teamRewardError.message,
+        );
+      }
+
+      const totalTeamRewards = (teamRewardRows ?? []).reduce(
+        (sum, row) =>
+          sum + Number(row.total_investment_rewards ?? 0) + Number(row.total_mining_rewards ?? 0),
+        0,
+      );
+
+      const { start, end } = getIncomeDayWindow();
+
+      const { data: todayIncomeRows, error: todayIncomeError } = await admin
+        .from("transactions")
+        .select("amount, type")
+        .eq("user_id", userId)
+        .in("type", TODAY_INCOME_TRANSACTION_TYPES)
+        .gte("created_at", start.toISOString())
+        .lt("created_at", end.toISOString());
+
+      if (todayIncomeError) {
+        throwSafe(
+          "SERVER",
+          "Failed to load dashboard.",
+          "Today income query: " + todayIncomeError.message,
+        );
+      }
+
+      const todayRows = todayIncomeRows ?? [];
+
+      const todayPlanIncome = todayRows.reduce(
+        (sum, row) => row.type === "earning" ? sum + Number(row.amount ?? 0) : sum,
+        0,
+      );
+
+      const todayTeamRewards = todayRows.reduce(
+        (sum, row) => TEAM_REWARD_TRANSACTION_TYPES.includes(row.type)
+          ? sum + Number(row.amount ?? 0)
+          : sum,
+        0,
+      );
+
       const { data: recentTxns } = await admin
         .from("transactions")
         .select("*")
@@ -82,6 +169,15 @@ export const loadDashboardFn = createServerFn({ method: "POST" })
         completedInvestments: completed,
         dailyEarningRate,
         totalEarned,
+        incomeSummary: {
+          todayPlanIncome,
+          todayTeamRewards,
+          todayTotalIncome: todayPlanIncome + todayTeamRewards,
+          totalPlanIncome: totalEarned,
+          totalTeamRewards,
+          totalIncome: totalEarned + totalTeamRewards,
+          resetHourUtc: INCOME_DAY_RESET_UTC_HOUR,
+        },
         recentTransactions: recentTxns ?? [],
       };
     } catch (err) {
