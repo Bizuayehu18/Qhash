@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   TrendingUp,
   Cpu,
@@ -318,7 +318,6 @@ function DashboardPage() {
         />
       </div>
 
-      <EarningsSplitCard summary={incomeSummary} loading={!hasDashboardData} />
 
       {/* Real Mining Status */}
       <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-3.5 lg:col-span-12">
@@ -502,44 +501,6 @@ function DashboardPage() {
   );
 }
 
-function EarningsSplitCard({
-  summary,
-  loading,
-}: {
-  summary: IncomeSummary | null;
-  loading: boolean;
-}) {
-  return (
-    <div className="rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111] p-3.5 lg:col-span-12">
-      <div className="mb-3">
-        <p className="text-sm font-semibold text-gray-100">Earnings Split</p>
-        <p className="mt-1 text-[10px] leading-relaxed text-gray-600">
-          Where your earnings come from.
-        </p>
-      </div>
-
-      <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#0a0a0a]">
-        <EarningsSplitRow
-          title="Plan Earnings"
-          icon={<Layers size={14} />}
-          today={summary?.todayPlanIncome ?? 0}
-          total={summary?.totalPlanIncome ?? 0}
-          loading={loading}
-        />
-
-        <EarningsSplitRow
-          title="Team Rewards"
-          icon={<TrendingUp size={14} />}
-          today={summary?.todayTeamRewards ?? 0}
-          total={summary?.totalTeamRewards ?? 0}
-          loading={loading}
-        />
-      </div>
-    </div>
-  );
-}
-
-function EarningsSplitRow({
   title,
   icon,
   today,
