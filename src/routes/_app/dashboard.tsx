@@ -181,7 +181,6 @@ function DashboardPage() {
   const incomeSummary = data?.incomeSummary ?? null;
   const recentTransactions = data?.recentTransactions ?? [];
   const balance = walletBalance ?? wallet?.balance ?? null;
-  const resetHour = incomeSummary?.resetHourUtc ?? 21;
 
   const dailyEarningText =
     dailyEarningRate === null
@@ -283,7 +282,7 @@ function DashboardPage() {
               />
             )
           }
-          caption="Since reset"
+          caption="Daily total"
           accent
           loading={!hasDashboardData}
         />
@@ -300,7 +299,7 @@ function DashboardPage() {
               />
             )
           }
-          caption="Plans + team"
+          caption="All time"
           accent
           loading={!hasDashboardData}
         />
@@ -319,7 +318,7 @@ function DashboardPage() {
         />
       </div>
 
-      <IncomeSourcesCard summary={incomeSummary} loading={!hasDashboardData} />
+      <EarningsSplitCard summary={incomeSummary} loading={!hasDashboardData} />
 
       {/* Real Mining Status */}
       <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-3.5 lg:col-span-12">
@@ -503,46 +502,34 @@ function DashboardPage() {
   );
 }
 
-function IncomeSourcesCard({
+function EarningsSplitCard({
   summary,
   loading,
 }: {
   summary: IncomeSummary | null;
   loading: boolean;
 }) {
-  const resetHour = summary?.resetHourUtc ?? 21;
-
   return (
     <div className="rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111] p-3.5 lg:col-span-12">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-100">Income Sources</p>
-          <p className="mt-1 text-[10px] leading-relaxed text-gray-600">
-            Plans and team rewards.
-          </p>
-        </div>
-
-        <span className="shrink-0 rounded-full border border-[#1f1f1f] bg-[#0a0a0a] px-2 py-1 text-[10px] text-gray-600">
-          {loading ? "Loading" : `Reset ${resetHour}:00 UTC`}
-        </span>
+      <div className="mb-3">
+        <p className="text-sm font-semibold text-gray-100">Earnings Split</p>
+        <p className="mt-1 text-[10px] leading-relaxed text-gray-600">
+          Plans and team rewards.
+        </p>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#0a0a0a]">
-        <div className="grid grid-cols-[minmax(0,1fr)_minmax(82px,auto)_minmax(92px,auto)] gap-3 border-b border-[#161616] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-700">
-          <span>Source</span>
-          <span className="text-right">Today</span>
-          <span className="text-right">All Time</span>
-        </div>
-
-        <IncomeSourceRow
-          label="Plans"
+      <div className="grid gap-3 sm:grid-cols-2">
+        <EarningsSourceCard
+          title="Plan Earnings"
+          icon={<Layers size={14} />}
           today={summary?.todayPlanIncome ?? 0}
           total={summary?.totalPlanIncome ?? 0}
           loading={loading}
         />
 
-        <IncomeSourceRow
-          label="Team"
+        <EarningsSourceCard
+          title="Team Rewards"
+          icon={<TrendingUp size={14} />}
           today={summary?.todayTeamRewards ?? 0}
           total={summary?.totalTeamRewards ?? 0}
           loading={loading}
@@ -552,43 +539,58 @@ function IncomeSourcesCard({
   );
 }
 
-function IncomeSourceRow({
-  label,
+function EarningsSourceCard({
+  title,
+  icon,
   today,
   total,
   loading,
 }: {
-  label: string;
+  title: string;
+  icon: React.ReactNode;
   today: number;
   total: number;
   loading: boolean;
 }) {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_minmax(82px,auto)_minmax(92px,auto)] items-center gap-3 border-b border-[#141414] px-3 py-2.5 last:border-b-0">
-      <span className="truncate text-xs font-medium text-gray-300">{label}</span>
+    <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-3">
+      <div className="mb-3 flex items-center gap-2">
+        <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[rgba(0,255,65,0.08)] text-[#00ff41]">
+          {icon}
+        </div>
+        <p className="min-w-0 truncate text-xs font-semibold text-gray-200">{title}</p>
+      </div>
 
+      <div className="space-y-2">
+        <EarningsValueRow label="Today" value={today} loading={loading} />
+        <EarningsValueRow label="All time" value={total} loading={loading} />
+      </div>
+    </div>
+  );
+}
+
+function EarningsValueRow({
+  label,
+  value,
+  loading,
+}: {
+  label: string;
+  value: number;
+  loading: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-[11px] text-gray-500">{label}</span>
       {loading ? (
-        <>
-          <span className="skeleton h-4 w-16 justify-self-end rounded" aria-label={`Loading ${label} today`} />
-          <span className="skeleton h-4 w-20 justify-self-end rounded" aria-label={`Loading ${label} all time`} />
-        </>
+        <span className="skeleton h-4 w-20 rounded" aria-label={`Loading ${label} earnings`} />
       ) : (
-        <>
-          <AmountText
-            value={today}
-            currency=""
-            tone={today > 0 ? "positive" : "neutral"}
-            size="sm"
-            className="justify-self-end"
-          />
-          <AmountText
-            value={total}
-            currency=""
-            tone={total > 0 ? "positive" : "neutral"}
-            size="sm"
-            className="justify-self-end"
-          />
-        </>
+        <AmountText
+          value={value}
+          currency=""
+          tone={value > 0 ? "positive" : "neutral"}
+          size="sm"
+          className="shrink-0"
+        />
       )}
     </div>
   );
