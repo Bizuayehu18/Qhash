@@ -178,10 +178,11 @@ function DashboardPage() {
   const activeInvestments = data?.activeInvestments ?? [];
   const completedInvestments = data?.completedInvestments ?? [];
   const dailyEarningRate = hasDashboardData ? data.dailyEarningRate : null;
-  const totalEarned = hasDashboardData ? data.totalEarned : null;
   const incomeSummary = data?.incomeSummary ?? null;
   const recentTransactions = data?.recentTransactions ?? [];
   const balance = walletBalance ?? wallet?.balance ?? null;
+  const resetHour = incomeSummary?.resetHourUtc ?? 21;
+
   const dailyEarningText =
     dailyEarningRate === null
       ? "0.00"
@@ -271,21 +272,37 @@ function DashboardPage() {
       {/* Stats Row */}
       <div className="grid grid-cols-3 gap-2.5 lg:col-span-4 lg:grid-cols-1 lg:gap-3">
         <StatTile
-          icon={<Cpu size={14} />}
-          label={<ResponsiveStatLabel short="Plan Daily" full="Plan Daily Rate" />}
-          value={dailyEarningRate === null ? "" : <AmountText value={dailyEarningRate} currency="" size="sm" />}
-          caption="ETB/day"
+          icon={<TrendingUp size={14} />}
+          label={<ResponsiveStatLabel short="Today" full="Today's Income" />}
+          value={
+            !hasDashboardData ? "" : (
+              <AmountText
+                value={incomeSummary?.todayTotalIncome ?? 0}
+                currency=""
+                size="sm"
+              />
+            )
+          }
+          caption={`Since ${resetHour}:00 UTC`}
           accent
-          loading={dailyEarningRate === null}
+          loading={!hasDashboardData}
         />
 
         <StatTile
           icon={<TrendingUp size={14} />}
-          label={<ResponsiveStatLabel short="Plan Earned" full="Plan Total Earned" />}
-          value={totalEarned === null ? "" : <AmountText value={totalEarned} currency="" size="sm" />}
-          caption="All time"
+          label={<ResponsiveStatLabel short="Total" full="Total Income" />}
+          value={
+            !hasDashboardData ? "" : (
+              <AmountText
+                value={incomeSummary?.totalIncome ?? 0}
+                currency=""
+                size="sm"
+              />
+            )
+          }
+          caption="Plans + team"
           accent
-          loading={totalEarned === null}
+          loading={!hasDashboardData}
         />
 
         <StatTile
@@ -302,7 +319,7 @@ function DashboardPage() {
         />
       </div>
 
-      <IncomeOverviewCard summary={incomeSummary} loading={!hasDashboardData} />
+      <IncomeBreakdownCard summary={incomeSummary} loading={!hasDashboardData} />
 
       {/* Real Mining Status */}
       <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-3.5 lg:col-span-12">
@@ -486,7 +503,7 @@ function DashboardPage() {
   );
 }
 
-function IncomeOverviewCard({
+function IncomeBreakdownCard({
   summary,
   loading,
 }: {
@@ -499,7 +516,7 @@ function IncomeOverviewCard({
     <div className="rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111] p-3.5 lg:col-span-12">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-100">Income Overview</p>
+          <p className="text-sm font-semibold text-gray-100">Income Breakdown</p>
           <p className="mt-1 text-[10px] leading-relaxed text-gray-600">
             Plan income + team rewards in one place.
           </p>
