@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   TrendingUp,
   Cpu,
@@ -514,12 +514,12 @@ function EarningsSplitCard({
       <div className="mb-3">
         <p className="text-sm font-semibold text-gray-100">Earnings Split</p>
         <p className="mt-1 text-[10px] leading-relaxed text-gray-600">
-          Plans and team rewards.
+          Where your earnings come from.
         </p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <EarningsSourceCard
+      <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#0a0a0a]">
+        <EarningsSplitRow
           title="Plan Earnings"
           icon={<Layers size={14} />}
           today={summary?.todayPlanIncome ?? 0}
@@ -527,7 +527,7 @@ function EarningsSplitCard({
           loading={loading}
         />
 
-        <EarningsSourceCard
+        <EarningsSplitRow
           title="Team Rewards"
           icon={<TrendingUp size={14} />}
           today={summary?.todayTeamRewards ?? 0}
@@ -539,7 +539,7 @@ function EarningsSplitCard({
   );
 }
 
-function EarningsSourceCard({
+function EarningsSplitRow({
   title,
   icon,
   today,
@@ -547,50 +547,48 @@ function EarningsSourceCard({
   loading,
 }: {
   title: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   today: number;
   total: number;
   loading: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-3">
-      <div className="mb-3 flex items-center gap-2">
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-[#141414] px-3 py-3 last:border-b-0">
+      <div className="flex min-w-0 items-center gap-2.5">
         <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[rgba(0,255,65,0.08)] text-[#00ff41]">
           {icon}
         </div>
-        <p className="min-w-0 truncate text-xs font-semibold text-gray-200">{title}</p>
+
+        <div className="min-w-0">
+          <p className="truncate text-xs font-semibold text-gray-200">{title}</p>
+          <p className="mt-0.5 text-[10px] text-gray-600">
+            Today / All time
+          </p>
+        </div>
       </div>
 
-      <div className="space-y-2">
-        <EarningsValueRow label="Today" value={today} loading={loading} />
-        <EarningsValueRow label="All time" value={total} loading={loading} />
-      </div>
-    </div>
-  );
-}
-
-function EarningsValueRow({
-  label,
-  value,
-  loading,
-}: {
-  label: string;
-  value: number;
-  loading: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-[11px] text-gray-500">{label}</span>
       {loading ? (
-        <span className="skeleton h-4 w-20 rounded" aria-label={`Loading ${label} earnings`} />
+        <div className="space-y-1.5">
+          <span className="skeleton block h-4 w-20 rounded" aria-label={`Loading ${title} today`} />
+          <span className="skeleton block h-4 w-20 rounded" aria-label={`Loading ${title} all time`} />
+        </div>
       ) : (
-        <AmountText
-          value={value}
-          currency=""
-          tone={value > 0 ? "positive" : "neutral"}
-          size="sm"
-          className="shrink-0"
-        />
+        <div className="space-y-1 text-right">
+          <AmountText
+            value={today}
+            currency=""
+            tone={today > 0 ? "positive" : "neutral"}
+            size="sm"
+            className="block"
+          />
+          <AmountText
+            value={total}
+            currency=""
+            tone={total > 0 ? "positive" : "neutral"}
+            size="sm"
+            className="block"
+          />
+        </div>
       )}
     </div>
   );
