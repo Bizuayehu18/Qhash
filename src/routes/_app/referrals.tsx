@@ -278,8 +278,6 @@ function ReferralsPage() {
         )}
       </Card>
 
-      <HowItWorksCard />
-
       <div className="space-y-3 lg:col-span-4">
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
           <StatCard
@@ -317,12 +315,6 @@ function ReferralsPage() {
 
         <RewardBreakdownCard stats={stats} loading={!statsLoaded} />
 
-        <Card padding="sm">
-          <p className="text-[10px] leading-relaxed text-gray-500">
-            <span className="font-semibold text-gray-300">Active</span> means an invited user currently has a running mining contract.
-          </p>
-        </Card>
-
         {hasNoReferrals && (
           <Card padding="none">
             <EmptyState
@@ -336,10 +328,6 @@ function ReferralsPage() {
       </div>
 
       <div className="flex flex-col gap-3 lg:col-span-8">
-        <div className="order-1 lg:order-none">
-          <HowRewardsCard />
-        </div>
-
         <div className="order-0 lg:order-none">
           <MyTeamCard
             members={filteredMembers}
@@ -351,7 +339,15 @@ function ReferralsPage() {
           />
         </div>
 
-        <Card className="order-2 lg:order-none">
+        <div className="order-1 lg:order-none">
+          <HowItWorksCard />
+        </div>
+
+        <div className="order-2 lg:order-none">
+          <HowRewardsCard />
+        </div>
+
+        <Card className="order-3 lg:order-none">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-semibold text-gray-100">Reward History</p>
@@ -374,7 +370,7 @@ function ReferralsPage() {
 
 function HowItWorksCard() {
   return (
-    <Card padding="sm" className="lg:col-span-12">
+    <Card padding="sm">
       <div className="mb-3">
         <p className="text-sm font-semibold text-gray-100">How It Works</p>
         <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
@@ -411,7 +407,7 @@ function HowRewardsCard() {
     <Card>
       <SectionHeader
         title="How Team Rewards Work"
-        description="The same level rates apply to plan purchase rewards and daily mining rewards."
+        description="Earn from both plan purchases and daily mining rewards in your team."
         className="mb-4"
       />
 
@@ -471,6 +467,9 @@ function RewardBreakdownCard({ stats, loading }: { stats: ReferralStats; loading
           loading={loading}
         />
       </div>
+      <p className="mt-2 text-[10px] leading-relaxed text-gray-600">
+        <span className="font-semibold text-gray-400">Today's Rewards</span> reset at 21:00 UTC.
+      </p>
     </Card>
   );
 }
@@ -507,7 +506,7 @@ function MyTeamCard({
     <Card>
       <SectionHeader
         title="My Team"
-        description="See team members by level and activity status."
+        description="Filter team members by level and activity status."
         className="mb-3"
       />
 
@@ -518,10 +517,14 @@ function MyTeamCard({
         disabled={loading}
       />
 
+      <p className="mb-3 text-[10px] leading-relaxed text-gray-600">
+        <span className="font-semibold text-gray-400">Active</span> = member has a running mining contract.
+      </p>
+
       {loading ? (
         <div className="space-y-2">
           {Array.from({ length: 4 }).map((_, index) => (
-            <div key={index} className="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5">
+            <div key={index} className="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2">
               <div className="flex items-center justify-between gap-3">
                 <div className="space-y-2">
                   <div className="skeleton h-4 w-24 rounded" />
@@ -569,7 +572,7 @@ function TeamLevelFilters({
   disabled: boolean;
 }) {
   return (
-    <div className="mb-3 grid grid-cols-4 gap-1.5 rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] p-1">
+    <div className="mb-2 grid grid-cols-4 gap-1.5 rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] p-1">
       {TEAM_FILTERS.map((filter) => {
         const active = activeFilter === filter.value;
         const count = getFilterCount(counts, filter.value);
@@ -602,7 +605,7 @@ function TeamMemberRow({ member }: { member: ReferralMember }) {
   const displayName = member.name ? `@${member.name}` : "Team member";
 
   return (
-    <div className="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5">
+    <div className="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-gray-100">{displayName}</p>
