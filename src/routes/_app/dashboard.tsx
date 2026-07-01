@@ -283,7 +283,7 @@ function DashboardPage() {
               />
             )
           }
-          caption={`Since ${resetHour}:00 UTC`}
+          caption="Since reset"
           accent
           loading={!hasDashboardData}
         />
@@ -319,7 +319,7 @@ function DashboardPage() {
         />
       </div>
 
-      <IncomeBreakdownCard summary={incomeSummary} loading={!hasDashboardData} />
+      <IncomeSourcesCard summary={incomeSummary} loading={!hasDashboardData} />
 
       {/* Real Mining Status */}
       <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-3.5 lg:col-span-12">
@@ -503,7 +503,7 @@ function DashboardPage() {
   );
 }
 
-function IncomeBreakdownCard({
+function IncomeSourcesCard({
   summary,
   loading,
 }: {
@@ -516,36 +516,35 @@ function IncomeBreakdownCard({
     <div className="rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111] p-3.5 lg:col-span-12">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-100">Income Breakdown</p>
+          <p className="text-sm font-semibold text-gray-100">Income Sources</p>
           <p className="mt-1 text-[10px] leading-relaxed text-gray-600">
-            Plan income + team rewards in one place.
+            Plans and team rewards.
           </p>
         </div>
+
         <span className="shrink-0 rounded-full border border-[#1f1f1f] bg-[#0a0a0a] px-2 py-1 text-[10px] text-gray-600">
           {loading ? "Loading" : `Reset ${resetHour}:00 UTC`}
         </span>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <IncomeGroup
-          title="Today"
-          caption={`Since ${resetHour}:00 UTC`}
-          rows={[
-            ["Plans", summary?.todayPlanIncome ?? 0],
-            ["Team", summary?.todayTeamRewards ?? 0],
-            ["Total", summary?.todayTotalIncome ?? 0, true],
-          ]}
+      <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#0a0a0a]">
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(82px,auto)_minmax(92px,auto)] gap-3 border-b border-[#161616] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-700">
+          <span>Source</span>
+          <span className="text-right">Today</span>
+          <span className="text-right">All Time</span>
+        </div>
+
+        <IncomeSourceRow
+          label="Plans"
+          today={summary?.todayPlanIncome ?? 0}
+          total={summary?.totalPlanIncome ?? 0}
           loading={loading}
         />
 
-        <IncomeGroup
-          title="All Time"
-          caption="Plan earnings + team rewards"
-          rows={[
-            ["Plans", summary?.totalPlanIncome ?? 0],
-            ["Team", summary?.totalTeamRewards ?? 0],
-            ["Total", summary?.totalIncome ?? 0, true],
-          ]}
+        <IncomeSourceRow
+          label="Team"
+          today={summary?.todayTeamRewards ?? 0}
+          total={summary?.totalTeamRewards ?? 0}
           loading={loading}
         />
       </div>
@@ -553,36 +552,44 @@ function IncomeBreakdownCard({
   );
 }
 
-function IncomeGroup({
-  title,
-  caption,
-  rows,
+function IncomeSourceRow({
+  label,
+  today,
+  total,
   loading,
 }: {
-  title: string;
-  caption: string;
-  rows: Array<[string, number, boolean?]>;
+  label: string;
+  today: number;
+  total: number;
   loading: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-3">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <p className="text-xs font-semibold text-gray-200">{title}</p>
-        <p className="text-[10px] text-gray-700">{caption}</p>
-      </div>
+    <div className="grid grid-cols-[minmax(0,1fr)_minmax(82px,auto)_minmax(92px,auto)] items-center gap-3 border-b border-[#141414] px-3 py-2.5 last:border-b-0">
+      <span className="truncate text-xs font-medium text-gray-300">{label}</span>
 
-      <div className="space-y-2">
-        {rows.map(([label, value, accent]) => (
-          <div key={label} className="flex items-center justify-between gap-3">
-            <span className="text-[11px] text-gray-500">{label}</span>
-            {loading ? (
-              <span className="skeleton h-4 w-20 rounded" aria-label={`Loading ${title} ${label}`} />
-            ) : (
-              <AmountText value={value} tone={accent ? "positive" : "neutral"} size="sm" className="shrink-0" />
-            )}
-          </div>
-        ))}
-      </div>
+      {loading ? (
+        <>
+          <span className="skeleton h-4 w-16 justify-self-end rounded" aria-label={`Loading ${label} today`} />
+          <span className="skeleton h-4 w-20 justify-self-end rounded" aria-label={`Loading ${label} all time`} />
+        </>
+      ) : (
+        <>
+          <AmountText
+            value={today}
+            currency=""
+            tone={today > 0 ? "positive" : "neutral"}
+            size="sm"
+            className="justify-self-end"
+          />
+          <AmountText
+            value={total}
+            currency=""
+            tone={total > 0 ? "positive" : "neutral"}
+            size="sm"
+            className="justify-self-end"
+          />
+        </>
+      )}
     </div>
   );
 }
