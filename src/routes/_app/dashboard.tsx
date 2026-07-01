@@ -31,7 +31,6 @@ export const Route = createFileRoute("/_app/dashboard")({
 });
 
 type DashboardData = Awaited<ReturnType<typeof loadDashboardFn>>;
-type IncomeSummary = NonNullable<DashboardData["incomeSummary"]>;
 
 const DASHBOARD_LOAD_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
@@ -318,7 +317,6 @@ function DashboardPage() {
         />
       </div>
 
-
       {/* Real Mining Status */}
       <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-3.5 lg:col-span-12">
         <div className="flex items-center justify-between gap-3">
@@ -495,60 +493,6 @@ function DashboardPage() {
               </div>
             ))}
           </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-  title,
-  icon,
-  today,
-  total,
-  loading,
-}: {
-  title: string;
-  icon: ReactNode;
-  today: number;
-  total: number;
-  loading: boolean;
-}) {
-  return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-[#141414] px-3 py-3 last:border-b-0">
-      <div className="flex min-w-0 items-center gap-2.5">
-        <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[rgba(0,255,65,0.08)] text-[#00ff41]">
-          {icon}
-        </div>
-
-        <div className="min-w-0">
-          <p className="truncate text-xs font-semibold text-gray-200">{title}</p>
-          <p className="mt-0.5 text-[10px] text-gray-600">
-            Today / All time
-          </p>
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="space-y-1.5">
-          <span className="skeleton block h-4 w-20 rounded" aria-label={`Loading ${title} today`} />
-          <span className="skeleton block h-4 w-20 rounded" aria-label={`Loading ${title} all time`} />
-        </div>
-      ) : (
-        <div className="space-y-1 text-right">
-          <AmountText
-            value={today}
-            currency=""
-            tone={today > 0 ? "positive" : "neutral"}
-            size="sm"
-            className="block"
-          />
-          <AmountText
-            value={total}
-            currency=""
-            tone={total > 0 ? "positive" : "neutral"}
-            size="sm"
-            className="block"
-          />
         </div>
       )}
     </div>
