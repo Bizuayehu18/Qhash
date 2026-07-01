@@ -31,6 +31,7 @@ export const Route = createFileRoute("/_app/dashboard")({
 });
 
 type DashboardData = Awaited<ReturnType<typeof loadDashboardFn>>;
+type IncomeSummary = NonNullable<DashboardData["incomeSummary"]>;
 
 const DASHBOARD_LOAD_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
@@ -178,6 +179,7 @@ function DashboardPage() {
   const completedInvestments = data?.completedInvestments ?? [];
   const dailyEarningRate = hasDashboardData ? data.dailyEarningRate : null;
   const totalEarned = hasDashboardData ? data.totalEarned : null;
+  const incomeSummary = data?.incomeSummary ?? null;
   const recentTransactions = data?.recentTransactions ?? [];
   const balance = walletBalance ?? wallet?.balance ?? null;
   const dailyEarningText =
@@ -270,7 +272,7 @@ function DashboardPage() {
       <div className="grid grid-cols-3 gap-2.5 lg:col-span-4 lg:grid-cols-1 lg:gap-3">
         <StatTile
           icon={<Cpu size={14} />}
-          label={<ResponsiveStatLabel short="Daily" full="Daily Earning" />}
+          label={<ResponsiveStatLabel short="Plan Daily" full="Plan Daily Rate" />}
           value={dailyEarningRate === null ? "" : <AmountText value={dailyEarningRate} currency="" size="sm" />}
           caption="ETB/day"
           accent
@@ -279,7 +281,7 @@ function DashboardPage() {
 
         <StatTile
           icon={<TrendingUp size={14} />}
-          label={<ResponsiveStatLabel short="Earned" full="Total Earned" />}
+          label={<ResponsiveStatLabel short="Plan Earned" full="Plan Total Earned" />}
           value={totalEarned === null ? "" : <AmountText value={totalEarned} currency="" size="sm" />}
           caption="All time"
           accent
@@ -299,6 +301,8 @@ function DashboardPage() {
           loading={!hasDashboardData}
         />
       </div>
+
+      <IncomeOverviewCard summary={incomeSummary} loading={!hasDashboardData} />
 
       {/* Real Mining Status */}
       <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-3.5 lg:col-span-12">
@@ -478,6 +482,90 @@ function DashboardPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function IncomeOverviewCard({
+  summary,
+  loading,
+}: {
+  summary: IncomeSummary | null;
+  loading: boolean;
+}) {
+  const resetHour = summary?.resetHourUtc ?? 21;
+
+  return (
+    <div className="rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111] p-3.5 lg:col-span-12">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-100">Income Overview</p>
+          <p className="mt-1 text-[10px] leading-relaxed text-gray-600">
+            Plan income + team rewards in one place.
+          </p>
+        </div>
+        <span className="shrink-0 rounded-full border border-[#1f1f1f] bg-[#0a0a0a] px-2 py-1 text-[10px] text-gray-600">
+          {loading ? "Loading" : `Reset ${resetHour}:00 UTC`}
+        </span>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <IncomeGroup
+          title="Today"
+          caption={`Since ${resetHour}:00 UTC`}
+          rows={[
+            ["Plans", summary?.todayPlanIncome ?? 0],
+            ["Team", summary?.todayTeamRewards ?? 0],
+            ["Total", summary?.todayTotalIncome ?? 0, true],
+          ]}
+          loading={loading}
+        />
+
+        <IncomeGroup
+          title="All Time"
+          caption="Plan earnings + team rewards"
+          rows={[
+            ["Plans", summary?.totalPlanIncome ?? 0],
+            ["Team", summary?.totalTeamRewards ?? 0],
+            ["Total", summary?.totalIncome ?? 0, true],
+          ]}
+          loading={loading}
+        />
+      </div>
+    </div>
+  );
+}
+
+function IncomeGroup({
+  title,
+  caption,
+  rows,
+  loading,
+}: {
+  title: string;
+  caption: string;
+  rows: Array<[string, number, boolean?]>;
+  loading: boolean;
+}) {
+  return (
+    <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold text-gray-200">{title}</p>
+        <p className="text-[10px] text-gray-700">{caption}</p>
+      </div>
+
+      <div className="space-y-2">
+        {rows.map(([label, value, accent]) => (
+          <div key={label} className="flex items-center justify-between gap-3">
+            <span className="text-[11px] text-gray-500">{label}</span>
+            {loading ? (
+              <span className="skeleton h-4 w-20 rounded" aria-label={`Loading ${title} ${label}`} />
+            ) : (
+              <AmountText value={value} tone={accent ? "positive" : "neutral"} size="sm" className="shrink-0" />
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
