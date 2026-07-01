@@ -181,6 +181,10 @@ export const loadDashboardFn = createServerFn({ method: "POST" })
         recentTransactions: recentTxns ?? [],
       };
     } catch (err) {
+      // Re-throw domain errors (from throwSafe calls above) so the specific
+      // error message reaches the client rather than being replaced by the
+      // generic fallback below.
+      if (err && typeof err === "object" && "domain" in err) throw err;
       console.error("[QHash] Dashboard load error:", err);
       throwSafe("SERVER", "Failed to load dashboard. Please try again.", `Dashboard error: ${err instanceof Error ? err.message : String(err)}`);
     }
