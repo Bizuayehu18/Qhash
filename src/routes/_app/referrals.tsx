@@ -20,17 +20,50 @@ export const Route = createFileRoute("/_app/referrals")({
   component: ReferralsPage,
 });
 
+type ReferralLevel = 1 | 2 | 3;
+type ReferralLevelFilter = "all" | ReferralLevel;
+
+interface ReferralMember {
+  id: string;
+  name: string | null;
+  level: number;
+  joinedAt: string;
+  isActive: boolean;
+}
+
 interface ReferralStats {
   total: number;
   active: number;
   earned: number;
+  todayRewards: number;
+  investmentRewards: number;
+  miningRewards: number;
+  members: ReferralMember[];
+}
+
+interface LevelCounts {
+  all: number;
+  1: number;
+  2: number;
+  3: number;
 }
 
 const EMPTY_REFERRAL_STATS: ReferralStats = {
   total: 0,
   active: 0,
   earned: 0,
+  todayRewards: 0,
+  investmentRewards: 0,
+  miningRewards: 0,
+  members: [],
 };
+
+const TEAM_FILTERS: Array<{ label: string; value: ReferralLevelFilter }> = [
+  { label: "All", value: "all" },
+  { label: "L1", value: 1 },
+  { label: "L2", value: 2 },
+  { label: "L3", value: 3 },
+];
 
 const REFERRAL_LOAD_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
@@ -54,14 +87,17 @@ function useReferralData() {
     }
   }, []);
 
-  const scheduleRetry = useCallback((loadFn: () => void) => {
-    clearRetryTimer();
+  const scheduleRetry = useCallback(
+    (loadFn: () => void) => {
+      clearRetryTimer();
 
-    if (retryCountRef.current >= MAX_AUTO_RETRIES) return;
+      if (retryCountRef.current >= MAX_AUTO_RETRIES) return;
 
-    retryCountRef.current += 1;
-    retryTimerRef.current = setTimeout(loadFn, AUTO_RETRY_DELAY_MS);
-  }, [clearRetryTimer]);
+      retryCountRef.current += 1;
+      retryTimerRef.current = setTimeout(loadFn, AUTO_RETRY_DELAY_MS);
+    },
+    [clearRetryTimer],
+  );
 
   const load = useCallback(
     async (options?: { resetRetryCount?: boolean }) => {
@@ -93,6 +129,10 @@ function useReferralData() {
           total: result.total,
           active: result.active,
           earned: result.earned,
+          todayRewards: result.todayRewards ?? 0,
+          investmentRewards: result.investmentRewards ?? 0,
+          miningRewards: result.miningRewards ?? 0,
+          members: Array.isArray(result.members) ? result.members : [],
         });
         setStatsLoaded(true);
         retryCountRef.current = 0;
@@ -151,6 +191,7 @@ function useReferralData() {
 function ReferralsPage() {
   const { stats, statsLoaded, username } = useReferralData();
   const [copied, setCopied] = useState(false);
+  const [teamLevelFilter, setTeamLevelFilter] = useState<ReferralLevelFilter>("all");
 
   const referralLink =
     username && typeof window !== "undefined"
@@ -166,6 +207,8 @@ function ReferralsPage() {
   }
 
   const hasNoReferrals = statsLoaded && stats.total === 0;
+  const levelCounts = getLevelCounts(stats.members);
+  const filteredMembers = filterMembersByLevel(stats.members, teamLevelFilter);
 
   return (
     <div className="space-y-5 lg:mx-auto lg:grid lg:max-w-4xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
@@ -173,7 +216,9 @@ function ReferralsPage() {
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
           Affiliate Program
         </p>
-        <h1 className="mt-1 text-lg font-bold leading-tight text-gray-100">Team</h1>
+        <h1 className="mt-1 text-lg font-bold leading-tight text-gray-100">
+          Team
+        </h1>
         <p className="mt-1 text-xs text-gray-500">
           Invite friends, grow your mining team, and earn rewards automatically.
         </p>
@@ -219,7 +264,11 @@ function ReferralsPage() {
               <span className="rounded-md border border-[#1f1f1f] bg-[#0a0a0a] px-2 py-1 font-mono text-xs text-gray-400">
                 {username}
               </span>
-              {copied && <span className="text-[10px] font-semibold text-[#00ff41]">Copied</span>}
+              {copied && (
+                <span className="text-[10px] font-semibold text-[#00ff41]">
+                  Copied
+                </span>
+              )}
             </div>
           </>
         ) : (
@@ -229,10 +278,8 @@ function ReferralsPage() {
         )}
       </Card>
 
-      <HowItWorksCard />
-
       <div className="space-y-3 lg:col-span-4">
-        <div className="grid grid-cols-3 gap-3 lg:grid-cols-1">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
           <StatCard
             icon={<Users size={18} />}
             label="Total"
@@ -250,19 +297,23 @@ function ReferralsPage() {
           />
           <StatCard
             icon={<TrendingUp size={18} />}
-            label="Earned"
-            value={`${stats.earned.toFixed(2)} ETB`}
-            description="Total referral rewards"
+            label="Today's Rewards"
+            value={formatEtb(stats.todayRewards)}
+            description="Team rewards since 21:00 UTC"
+            accent
+            loading={!statsLoaded}
+          />
+          <StatCard
+            icon={<TrendingUp size={18} />}
+            label="Total Earned"
+            value={formatEtb(stats.earned)}
+            description="All-time referral rewards"
             accent
             loading={!statsLoaded}
           />
         </div>
 
-        <Card padding="sm">
-          <p className="text-[10px] leading-relaxed text-gray-500">
-            <span className="font-semibold text-gray-300">Active</span> means an invited user currently has a running mining contract.
-          </p>
-        </Card>
+        <RewardBreakdownCard stats={stats} loading={!statsLoaded} />
 
         {hasNoReferrals && (
           <Card padding="none">
@@ -276,33 +327,32 @@ function ReferralsPage() {
         )}
       </div>
 
-      <div className="space-y-3 lg:col-span-8">
-        <Card>
-          <SectionHeader
-            title="Commission Tiers"
-            description="Rewards can come from direct and indirect referral activity."
-            className="mb-4"
+      <div className="flex flex-col gap-3 lg:col-span-8">
+        <div className="order-0 lg:order-none">
+          <MyTeamCard
+            members={filteredMembers}
+            totalMembers={stats.members.length}
+            levelCounts={levelCounts}
+            activeFilter={teamLevelFilter}
+            onFilterChange={setTeamLevelFilter}
+            loading={!statsLoaded}
           />
+        </div>
 
-          <div className="space-y-2.5">
-            <TierRow level={1} label="Direct Referral" rate="5%" />
-            <TierRow level={2} label="Level 2" rate="3%" />
-            <TierRow level={3} label="Level 3" rate="2%" />
-          </div>
+        <div className="order-1 lg:order-none">
+          <HowItWorksCard />
+        </div>
 
-          <div className="mt-4 border-t border-[#1f1f1f] pt-3">
-            <p className="text-[10px] leading-relaxed text-gray-600">
-              Earn commissions when your referrals invest. Rewards are calculated automatically based on each tier and your eligible team activity.
-            </p>
-          </div>
-        </Card>
+        <div className="order-2 lg:order-none">
+          <HowRewardsCard />
+        </div>
 
-        <Card>
+        <Card className="order-3 lg:order-none">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-semibold text-gray-100">Reward History</p>
               <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
-                Referral bonuses appear in your transactions after they are created.
+                Referral bonuses also appear in your transaction history.
               </p>
             </div>
             <Link
@@ -320,38 +370,265 @@ function ReferralsPage() {
 
 function HowItWorksCard() {
   return (
-    <Card className="lg:col-span-12">
-      <SectionHeader
-        title="How It Works"
-        description="A simple path from invite to reward."
-        className="mb-4"
-      />
+    <Card padding="sm">
+      <div className="mb-3">
+        <p className="text-sm font-semibold text-gray-100">How It Works</p>
+        <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+          Invite, build your team, and earn rewards.
+        </p>
+      </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <StepCard
-          icon={<Copy size={15} />}
-          step="01"
+      <div className="grid gap-2 sm:grid-cols-3">
+        <CompactStepRow
+          icon={<Copy size={14} />}
+          step="1"
           title="Share your link"
-          description="Copy your referral link and send it to friends who want to join QHash."
+          description="Invite friends with your referral link."
         />
-        <StepCard
-          icon={<UserCheck size={15} />}
-          step="02"
-          title="Friends join"
-          description="New users register through your link and become part of your team."
+        <CompactStepRow
+          icon={<UserCheck size={14} />}
+          step="2"
+          title="Build your team"
+          description="Users who register through your link join your team."
         />
-        <StepCard
-          icon={<TrendingUp size={15} />}
-          step="03"
+        <CompactStepRow
+          icon={<TrendingUp size={14} />}
+          step="3"
           title="Earn rewards"
-          description="When eligible referrals invest, rewards are calculated and added automatically."
+          description="Receive rewards from team purchases and daily mining."
         />
       </div>
     </Card>
   );
 }
 
-function StepCard({
+function HowRewardsCard() {
+  return (
+    <Card>
+      <SectionHeader
+        title="How Team Rewards Work"
+        description="Earn from both plan purchases and daily mining rewards in your team."
+        className="mb-4"
+      />
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <RewardSourceCard
+          title="Plan Purchase Reward"
+          description="Earn when someone in your team buys a mining plan."
+        />
+        <RewardSourceCard
+          title="Daily Mining Reward"
+          description="Earn when someone in your team receives daily mining income."
+        />
+      </div>
+
+      <div className="mt-4 space-y-2.5">
+        <TierRow level={1} label="Direct referrals" rate="5%" />
+        <TierRow level={2} label="Level 2 team" rate="3%" />
+        <TierRow level={3} label="Level 3 team" rate="2%" />
+      </div>
+
+      <div className="mt-4 rounded-lg border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.05)] px-3 py-2.5">
+        <p className="text-[10px] leading-relaxed text-gray-400">
+          Keep an active mining plan to receive eligible team rewards.
+        </p>
+      </div>
+    </Card>
+  );
+}
+
+function RewardSourceCard({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] p-3">
+      <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.06)] text-[#00ff41]">
+        <TrendingUp size={15} />
+      </div>
+      <p className="text-xs font-semibold text-gray-100">{title}</p>
+      <p className="mt-1 text-[11px] leading-relaxed text-gray-500">{description}</p>
+    </div>
+  );
+}
+
+function RewardBreakdownCard({ stats, loading }: { stats: ReferralStats; loading: boolean }) {
+  return (
+    <Card padding="sm">
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+        Reward Breakdown
+      </p>
+      <div className="space-y-2">
+        <BreakdownRow
+          label="Plan purchase rewards"
+          value={formatEtb(stats.investmentRewards)}
+          loading={loading}
+        />
+        <BreakdownRow
+          label="Daily mining rewards"
+          value={formatEtb(stats.miningRewards)}
+          loading={loading}
+        />
+      </div>
+      <p className="mt-2 text-[10px] leading-relaxed text-gray-600">
+        <span className="font-semibold text-gray-400">Today's Rewards</span> reset at 21:00 UTC.
+      </p>
+    </Card>
+  );
+}
+
+function BreakdownRow({ label, value, loading }: { label: string; value: string; loading: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg bg-[#0a0a0a] px-3 py-2">
+      <span className="text-[11px] text-gray-500">{label}</span>
+      {loading ? (
+        <span className="skeleton h-4 w-16 rounded" aria-label={`Loading ${label}`} />
+      ) : (
+        <span className="shrink-0 text-xs font-semibold text-gray-200">{value}</span>
+      )}
+    </div>
+  );
+}
+
+function MyTeamCard({
+  members,
+  totalMembers,
+  levelCounts,
+  activeFilter,
+  onFilterChange,
+  loading,
+}: {
+  members: ReferralMember[];
+  totalMembers: number;
+  levelCounts: LevelCounts;
+  activeFilter: ReferralLevelFilter;
+  onFilterChange: (value: ReferralLevelFilter) => void;
+  loading: boolean;
+}) {
+  return (
+    <Card>
+      <SectionHeader
+        title="My Team"
+        description="Filter team members by level and activity status."
+        className="mb-3"
+      />
+
+      <TeamLevelFilters
+        counts={levelCounts}
+        activeFilter={activeFilter}
+        onFilterChange={onFilterChange}
+        disabled={loading}
+      />
+
+      <p className="mb-3 text-[10px] leading-relaxed text-gray-600">
+        <span className="font-semibold text-gray-400">Active</span> = member has a running mining contract.
+      </p>
+
+      {loading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="space-y-2">
+                  <div className="skeleton h-4 w-24 rounded" />
+                  <div className="skeleton h-3 w-32 rounded" />
+                </div>
+                <div className="skeleton h-6 w-16 rounded-full" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : totalMembers === 0 ? (
+        <EmptyState
+          icon={<Users size={22} />}
+          title="No team members yet"
+          description="Share your referral link to start building your team."
+          className="px-4 py-8"
+        />
+      ) : members.length === 0 ? (
+        <EmptyState
+          icon={<Users size={22} />}
+          title="No members in this level"
+          description="Choose another level filter to view more team members."
+          className="px-4 py-8"
+        />
+      ) : (
+        <div className="space-y-2">
+          {members.map((member) => (
+            <TeamMemberRow key={member.id} member={member} />
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function TeamLevelFilters({
+  counts,
+  activeFilter,
+  onFilterChange,
+  disabled,
+}: {
+  counts: LevelCounts;
+  activeFilter: ReferralLevelFilter;
+  onFilterChange: (value: ReferralLevelFilter) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="mb-2 grid grid-cols-4 gap-1.5 rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] p-1">
+      {TEAM_FILTERS.map((filter) => {
+        const active = activeFilter === filter.value;
+        const count = getFilterCount(counts, filter.value);
+
+        return (
+          <button
+            key={filter.label}
+            type="button"
+            disabled={disabled}
+            onClick={() => onFilterChange(filter.value)}
+            className={[
+              "flex items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[10px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
+              active
+                ? "bg-[#00ff41] text-black"
+                : "bg-[#111] text-gray-500 hover:text-gray-200",
+            ].join(" ")}
+          >
+            <span>{filter.label}</span>
+            <span className={active ? "text-black/70" : "text-gray-700"}>
+              {count}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function TeamMemberRow({ member }: { member: ReferralMember }) {
+  const displayName = member.name ? `@${member.name}` : "Team member";
+
+  return (
+    <div className="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-gray-100">{displayName}</p>
+          <p className="mt-1 text-[10px] text-gray-600">
+            Level {member.level} · Joined {formatJoinedDate(member.joinedAt)}
+          </p>
+        </div>
+        <span
+          className={[
+            "shrink-0 rounded-full border px-2 py-1 text-[10px] font-semibold",
+            member.isActive
+              ? "border-[rgba(0,255,65,0.25)] bg-[rgba(0,255,65,0.08)] text-[#00ff41]"
+              : "border-[#2a2a2a] bg-[#111] text-gray-500",
+          ].join(" ")}
+        >
+          {member.isActive ? "Active" : "Not active"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function CompactStepRow({
   icon,
   step,
   title,
@@ -363,15 +640,19 @@ function StepCard({
   description: string;
 }) {
   return (
-    <div className="rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] p-3">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.06)] text-[#00ff41]">
-          {icon}
-        </div>
-        <span className="font-mono text-[10px] text-gray-700">{step}</span>
+    <div className="flex items-start gap-3 rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5">
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.06)] text-[#00ff41]">
+        {icon}
       </div>
-      <p className="text-xs font-semibold text-gray-100">{title}</p>
-      <p className="mt-1 text-[11px] leading-relaxed text-gray-500">{description}</p>
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[10px] text-gray-600">0{step}</span>
+          <p className="text-xs font-semibold text-gray-100">{title}</p>
+        </div>
+        <p className="mt-0.5 text-[10px] leading-relaxed text-gray-500">
+          {description}
+        </p>
+      </div>
     </div>
   );
 }
@@ -438,4 +719,50 @@ function TierRow({
       </div>
     </div>
   );
+}
+
+function getLevelCounts(members: ReferralMember[]): LevelCounts {
+  return members.reduce<LevelCounts>(
+    (counts, member) => {
+      if (member.level === 1 || member.level === 2 || member.level === 3) {
+        counts[member.level] += 1;
+      }
+
+      return counts;
+    },
+    {
+      all: members.length,
+      1: 0,
+      2: 0,
+      3: 0,
+    },
+  );
+}
+
+function getFilterCount(counts: LevelCounts, filter: ReferralLevelFilter): number {
+  return filter === "all" ? counts.all : counts[filter];
+}
+
+function filterMembersByLevel(
+  members: ReferralMember[],
+  filter: ReferralLevelFilter,
+): ReferralMember[] {
+  if (filter === "all") return members;
+  return members.filter((member) => member.level === filter);
+}
+
+function formatEtb(value: number): string {
+  const amount = Number.isFinite(value) ? value : 0;
+  return `${amount.toFixed(2)} ETB`;
+}
+
+function formatJoinedDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "recently";
+
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
