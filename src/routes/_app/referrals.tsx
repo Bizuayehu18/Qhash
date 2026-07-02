@@ -273,7 +273,7 @@ function ReferralsPage() {
       </Card>
 
       <div className="space-y-3 lg:col-span-4">
-        <TeamOverviewCard stats={stats} loading={!statsLoaded} />
+        <RewardsOverviewCard stats={stats} loading={!statsLoaded} />
 
         {hasNoReferrals && (
           <Card padding="none">
@@ -324,7 +324,7 @@ function ReferralsPage() {
   );
 }
 
-function TeamOverviewCard({
+function RewardsOverviewCard({
   stats,
   loading,
 }: {
@@ -333,11 +333,11 @@ function TeamOverviewCard({
 }) {
   return (
     <Card className="overflow-hidden">
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-100">Team Overview</p>
+          <p className="text-sm font-semibold text-gray-100">Rewards Overview</p>
           <p className="mt-1 text-[10px] leading-relaxed text-gray-600">
-            Your referral rewards and team activity.
+            Track today&apos;s team rewards and growth.
           </p>
         </div>
 
@@ -346,13 +346,13 @@ function TeamOverviewCard({
         </div>
       </div>
 
-      <div className="rounded-xl border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.06)] p-3">
-        <div className="mb-2 flex items-center justify-between gap-3">
+      <div className="rounded-xl border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.05)] p-3">
+        <div className="flex items-end justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#00ff41]">
               Today&apos;s Rewards
             </p>
-            <p className="mt-0.5 text-[10px] text-gray-500">
+            <p className="mt-1 text-[10px] text-gray-500">
               From your team today
             </p>
           </div>
@@ -361,15 +361,11 @@ function TeamOverviewCard({
             {loading ? (
               <span className="skeleton inline-block h-6 w-24 rounded" aria-label="Loading today's rewards" />
             ) : (
-              <span className="font-mono text-lg font-black leading-none text-[#00ff41]">
+              <span className="font-mono text-xl font-black leading-none text-[#00ff41]">
                 {formatEtb(stats.todayRewards)}
               </span>
             )}
           </div>
-        </div>
-
-        <div className="h-1 overflow-hidden rounded-full bg-[#0a0a0a]">
-          <div className="h-full w-2/3 rounded-full bg-[#00ff41]" />
         </div>
       </div>
 
@@ -394,7 +390,6 @@ function TeamOverviewCard({
             label="Active Team"
             value={stats.active}
             loading={loading}
-            accent
           />
         </div>
       </div>
@@ -432,23 +427,21 @@ function OverviewMiniMetric({
   label,
   value,
   loading,
-  accent,
 }: {
   icon: ReactNode;
   label: string;
   value: number;
   loading: boolean;
-  accent?: boolean;
 }) {
   return (
     <div className="px-3 py-2.5">
-      <div className={`mb-1 ${accent ? "text-[#00ff41]" : "text-gray-500"}`}>
+      <div className="mb-1 text-gray-500">
         {icon}
       </div>
       {loading ? (
         <span className="skeleton inline-block h-4 w-8 rounded" aria-label={`Loading ${label}`} />
       ) : (
-        <p className={`font-mono text-base font-bold leading-none ${accent ? "text-[#00ff41]" : "text-gray-100"}`}>
+        <p className="font-mono text-base font-bold leading-none text-gray-100">
           {value}
         </p>
       )}
