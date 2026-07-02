@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   CheckCircle2,
   ExternalLink,
@@ -235,8 +235,8 @@ function SupportNote({
   icon,
   children,
 }: {
-  icon: React.ReactNode;
-  children: React.ReactNode;
+  icon: ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div className="flex items-start gap-2.5 rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5">
