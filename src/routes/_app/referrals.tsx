@@ -217,44 +217,44 @@ function ReferralsPage() {
         </p>
       </div>
 
-      <Card neon className="lg:col-span-12">
-        <div className="mb-3 flex items-start justify-between gap-3">
+      <Card neon padding="sm" className="lg:col-span-12">
+        <div className="mb-2 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <Link2 size={16} className="text-[#00ff41]" />
+              <Link2 size={15} className="text-[#00ff41]" />
               <span className="text-xs font-semibold uppercase tracking-wider text-[#00ff41]">
                 Your Referral Link
               </span>
             </div>
-            <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
-              Share this link with friends. When they join and invest, eligible rewards are added to your account.
+            <p className="mt-1 text-[10px] leading-relaxed text-gray-500">
+              Share your link to grow your team.
             </p>
           </div>
         </div>
 
         {username ? (
           <>
-            <div className="mb-3 flex items-center gap-2">
-              <div className="flex-1 truncate rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5 font-mono text-xs text-gray-300">
+            <div className="mb-2 flex items-center gap-2">
+              <div className="flex-1 truncate rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2 font-mono text-[11px] text-gray-300">
                 {referralLink}
               </div>
               <button
                 type="button"
                 onClick={handleCopy}
-                className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-[#00ff41] transition-all active:scale-95"
+                className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-[#00ff41] transition-all active:scale-95"
                 aria-label="Copy referral link"
               >
                 {copied ? (
-                  <Check size={16} className="text-black" />
+                  <Check size={15} className="text-black" />
                 ) : (
-                  <Copy size={16} className="text-black" />
+                  <Copy size={15} className="text-black" />
                 )}
               </button>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[10px] text-gray-600">Referral code:</span>
-              <span className="rounded-md border border-[#1f1f1f] bg-[#0a0a0a] px-2 py-1 font-mono text-xs text-gray-400">
+              <span className="text-[10px] text-gray-600">Code:</span>
+              <span className="rounded-md border border-[#1f1f1f] bg-[#0a0a0a] px-2 py-0.5 font-mono text-[11px] text-gray-400">
                 {username}
               </span>
               {copied && (
@@ -272,7 +272,7 @@ function ReferralsPage() {
       </Card>
 
       <div className="space-y-3 lg:col-span-4">
-        <RewardsOverviewCard stats={stats} loading={!statsLoaded} />
+        <TodaysRewardsCard stats={stats} loading={!statsLoaded} />
 
         {hasNoReferrals && (
           <Card padding="none">
@@ -323,7 +323,7 @@ function ReferralsPage() {
   );
 }
 
-function RewardsOverviewCard({
+function TodaysRewardsCard({
   stats,
   loading,
 }: {
@@ -331,38 +331,29 @@ function RewardsOverviewCard({
   loading: boolean;
 }) {
   return (
-    <Card>
-      <div className="mb-3">
-        <p className="text-sm font-semibold text-gray-100">Rewards Overview</p>
-        <p className="mt-1 text-[10px] leading-relaxed text-gray-600">
-          Today&apos;s team rewards and growth.
-        </p>
+    <Card className="overflow-hidden">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#00ff41]">
+            Today&apos;s Rewards
+          </p>
+          <p className="mt-1 text-[10px] leading-relaxed text-gray-600">
+            From your team today
+          </p>
+        </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#0a0a0a]">
-        <div className="border-b border-[#141414] px-3 py-3">
-          <div className="flex items-end justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#00ff41]">
-                Today&apos;s Rewards
-              </p>
-              <p className="mt-1 text-[10px] text-gray-500">
-                From your team today
-              </p>
-            </div>
+      <div className="mt-2">
+        {loading ? (
+          <span className="skeleton inline-block h-8 w-32 rounded" aria-label="Loading today's rewards" />
+        ) : (
+          <span className="font-mono text-3xl font-black leading-none text-[#00ff41]">
+            {formatEtb(stats.todayRewards)}
+          </span>
+        )}
+      </div>
 
-            <div className="shrink-0 text-right">
-              {loading ? (
-                <span className="skeleton inline-block h-6 w-24 rounded" aria-label="Loading today's rewards" />
-              ) : (
-                <span className="font-mono text-xl font-black leading-none text-[#00ff41]">
-                  {formatEtb(stats.todayRewards)}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-
+      <div className="mt-3 overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#0a0a0a]">
         <OverviewRow
           label="Total Earned"
           value={formatEtb(stats.earned)}
@@ -440,7 +431,7 @@ function OverviewMiniMetric({
 
 function HowRewardsCard() {
   return (
-    <Card>
+    <Card padding="sm">
       <SectionHeader
         title="How Team Rewards Work"
         description="Earn from plan purchases and daily mining rewards."
