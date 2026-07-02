@@ -200,7 +200,6 @@ function ReferralsPage() {
     });
   }
 
-  const hasNoReferrals = statsLoaded && stats.total === 0;
   const levelCounts = getLevelCounts(stats.members);
   const filteredMembers = filterMembersByLevel(stats.members, teamLevelFilter);
 
@@ -274,17 +273,6 @@ function ReferralsPage() {
 
       <div className="space-y-3 lg:col-span-4">
         <TodaysRewardsCard stats={stats} loading={!statsLoaded} />
-
-        {hasNoReferrals && (
-          <Card padding="none">
-            <EmptyState
-              icon={<Users size={22} />}
-              title="Start building your team"
-              description="Copy your referral link and share it with friends to begin earning from eligible activity."
-              className="px-4 py-8"
-            />
-          </Card>
-        )}
       </div>
 
       <div className="flex flex-col gap-3 lg:col-span-8">
