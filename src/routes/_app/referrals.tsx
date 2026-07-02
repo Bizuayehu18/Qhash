@@ -63,7 +63,7 @@ const TEAM_FILTERS: Array<{ label: string; value: ReferralLevelFilter }> = [
 const REFERRAL_LOAD_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
 const MAX_AUTO_RETRIES = 2;
-const TEAM_PREVIEW_LIMIT = 10;
+const TEAM_PREVIEW_LIMIT = 6;
 
 function useReferralData() {
   const user = useAuthStore((s) => s.user);
@@ -406,7 +406,7 @@ function HowRewardsCard() {
     <Card padding="sm">
       <SectionHeader
         title="How Team Rewards Work"
-        description="Plan purchase and daily mining rewards use the same level rates."
+        description="Both reward types use L1 5%, L2 3%, and L3 2%."
         className="mb-3"
       />
 
