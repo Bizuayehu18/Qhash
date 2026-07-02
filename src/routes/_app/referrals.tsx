@@ -331,7 +331,7 @@ function TodaysRewardsCard({
   loading: boolean;
 }) {
   return (
-    <Card className="overflow-hidden">
+    <Card padding="sm">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#00ff41]">
@@ -341,45 +341,41 @@ function TodaysRewardsCard({
             From your team today
           </p>
         </div>
+
+        <div className="shrink-0 text-right">
+          {loading ? (
+            <span className="skeleton inline-block h-5 w-24 rounded" aria-label="Loading today's rewards" />
+          ) : (
+            <span className="font-mono text-lg font-black leading-none text-[#00ff41]">
+              {formatEtb(stats.todayRewards)}
+            </span>
+          )}
+        </div>
       </div>
 
-      <div className="mt-2">
-        {loading ? (
-          <span className="skeleton inline-block h-8 w-32 rounded" aria-label="Loading today's rewards" />
-        ) : (
-          <span className="font-mono text-3xl font-black leading-none text-[#00ff41]">
-            {formatEtb(stats.todayRewards)}
-          </span>
-        )}
-      </div>
-
-      <div className="mt-3 overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#0a0a0a]">
-        <OverviewRow
+      <div className="mt-2 border-t border-[#1a1a1a] pt-2">
+        <CompactMetricRow
           label="Total Earned"
           value={formatEtb(stats.earned)}
           loading={loading}
           accent
         />
-
-        <div className="grid grid-cols-2 divide-x divide-[#141414] border-t border-[#141414]">
-          <OverviewMiniMetric
-            label="Team"
-            value={stats.total}
-            loading={loading}
-          />
-
-          <OverviewMiniMetric
-            label="Active"
-            value={stats.active}
-            loading={loading}
-          />
-        </div>
+        <CompactMetricRow
+          label="Team"
+          value={stats.total.toString()}
+          loading={loading}
+        />
+        <CompactMetricRow
+          label="Active"
+          value={stats.active.toString()}
+          loading={loading}
+        />
       </div>
     </Card>
   );
 }
 
-function OverviewRow({
+function CompactMetricRow({
   label,
   value,
   loading,
@@ -391,40 +387,15 @@ function OverviewRow({
   accent?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 px-3 py-2.5">
+    <div className="flex items-center justify-between gap-3 py-1">
       <span className="text-[11px] text-gray-500">{label}</span>
       {loading ? (
-        <span className="skeleton h-4 w-20 rounded" aria-label={`Loading ${label}`} />
+        <span className="skeleton h-3.5 w-16 rounded" aria-label={`Loading ${label}`} />
       ) : (
         <span className={`shrink-0 font-mono text-xs font-semibold ${accent ? "text-[#00ff41]" : "text-gray-200"}`}>
           {value}
         </span>
       )}
-    </div>
-  );
-}
-
-function OverviewMiniMetric({
-  label,
-  value,
-  loading,
-}: {
-  label: string;
-  value: number;
-  loading: boolean;
-}) {
-  return (
-    <div className="px-3 py-2.5">
-      {loading ? (
-        <span className="skeleton inline-block h-4 w-8 rounded" aria-label={`Loading ${label}`} />
-      ) : (
-        <p className="font-mono text-base font-bold leading-none text-gray-100">
-          {value}
-        </p>
-      )}
-      <p className="mt-1 text-[10px] uppercase tracking-[0.12em] text-gray-600">
-        {label}
-      </p>
     </div>
   );
 }
