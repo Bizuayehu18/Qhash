@@ -2,7 +2,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Users,
-  UserCheck,
   Copy,
   Check,
   Link2,
@@ -36,8 +35,6 @@ interface ReferralStats {
   active: number;
   earned: number;
   todayRewards: number;
-  investmentRewards: number;
-  miningRewards: number;
   members: ReferralMember[];
 }
 
@@ -53,8 +50,6 @@ const EMPTY_REFERRAL_STATS: ReferralStats = {
   active: 0,
   earned: 0,
   todayRewards: 0,
-  investmentRewards: 0,
-  miningRewards: 0,
   members: [],
 };
 
@@ -68,6 +63,7 @@ const TEAM_FILTERS: Array<{ label: string; value: ReferralLevelFilter }> = [
 const REFERRAL_LOAD_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
 const MAX_AUTO_RETRIES = 2;
+const TEAM_PREVIEW_LIMIT = 6;
 
 function useReferralData() {
   const user = useAuthStore((s) => s.user);
@@ -130,8 +126,6 @@ function useReferralData() {
           active: result.active,
           earned: result.earned,
           todayRewards: result.todayRewards ?? 0,
-          investmentRewards: result.investmentRewards ?? 0,
-          miningRewards: result.miningRewards ?? 0,
           members: Array.isArray(result.members) ? result.members : [],
         });
         setStatsLoaded(true);
@@ -224,44 +218,44 @@ function ReferralsPage() {
         </p>
       </div>
 
-      <Card neon className="lg:col-span-12">
-        <div className="mb-3 flex items-start justify-between gap-3">
+      <Card neon padding="sm" className="lg:col-span-12">
+        <div className="mb-2 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <Link2 size={16} className="text-[#00ff41]" />
+              <Link2 size={15} className="text-[#00ff41]" />
               <span className="text-xs font-semibold uppercase tracking-wider text-[#00ff41]">
                 Your Referral Link
               </span>
             </div>
-            <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
-              Share this link with friends. When they join and invest, eligible rewards are added to your account.
+            <p className="mt-1 text-[10px] leading-relaxed text-gray-500">
+              Share your link to grow your team.
             </p>
           </div>
         </div>
 
         {username ? (
           <>
-            <div className="mb-3 flex items-center gap-2">
-              <div className="flex-1 truncate rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5 font-mono text-xs text-gray-300">
+            <div className="mb-2 flex items-center gap-2">
+              <div className="flex-1 truncate rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2 font-mono text-[11px] text-gray-300">
                 {referralLink}
               </div>
               <button
                 type="button"
                 onClick={handleCopy}
-                className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-[#00ff41] transition-all active:scale-95"
+                className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-[#00ff41] transition-all active:scale-95"
                 aria-label="Copy referral link"
               >
                 {copied ? (
-                  <Check size={16} className="text-black" />
+                  <Check size={15} className="text-black" />
                 ) : (
-                  <Copy size={16} className="text-black" />
+                  <Copy size={15} className="text-black" />
                 )}
               </button>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[10px] text-gray-600">Referral code:</span>
-              <span className="rounded-md border border-[#1f1f1f] bg-[#0a0a0a] px-2 py-1 font-mono text-xs text-gray-400">
+              <span className="text-[10px] text-gray-600">Code:</span>
+              <span className="rounded-md border border-[#1f1f1f] bg-[#0a0a0a] px-2 py-0.5 font-mono text-[11px] text-gray-400">
                 {username}
               </span>
               {copied && (
@@ -279,41 +273,7 @@ function ReferralsPage() {
       </Card>
 
       <div className="space-y-3 lg:col-span-4">
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
-          <StatCard
-            icon={<Users size={18} />}
-            label="Total"
-            value={stats.total}
-            description="People who joined from your link"
-            loading={!statsLoaded}
-          />
-          <StatCard
-            icon={<UserCheck size={18} />}
-            label="Active"
-            value={stats.active}
-            description="Invited users with active mining"
-            accent
-            loading={!statsLoaded}
-          />
-          <StatCard
-            icon={<TrendingUp size={18} />}
-            label="Today's Rewards"
-            value={formatEtb(stats.todayRewards)}
-            description="Team rewards since 21:00 UTC"
-            accent
-            loading={!statsLoaded}
-          />
-          <StatCard
-            icon={<TrendingUp size={18} />}
-            label="Total Earned"
-            value={formatEtb(stats.earned)}
-            description="All-time referral rewards"
-            accent
-            loading={!statsLoaded}
-          />
-        </div>
-
-        <RewardBreakdownCard stats={stats} loading={!statsLoaded} />
+        <TodaysRewardsCard stats={stats} loading={!statsLoaded} />
 
         {hasNoReferrals && (
           <Card padding="none">
@@ -340,14 +300,10 @@ function ReferralsPage() {
         </div>
 
         <div className="order-1 lg:order-none">
-          <HowItWorksCard />
-        </div>
-
-        <div className="order-2 lg:order-none">
           <HowRewardsCard />
         </div>
 
-        <Card className="order-3 lg:order-none">
+        <Card className="order-2 lg:order-none">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-semibold text-gray-100">Reward History</p>
@@ -368,67 +324,110 @@ function ReferralsPage() {
   );
 }
 
-function HowItWorksCard() {
+function TodaysRewardsCard({
+  stats,
+  loading,
+}: {
+  stats: ReferralStats;
+  loading: boolean;
+}) {
   return (
     <Card padding="sm">
-      <div className="mb-3">
-        <p className="text-sm font-semibold text-gray-100">How It Works</p>
-        <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
-          Invite, build your team, and earn rewards.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#00ff41]">
+            Today&apos;s Rewards
+          </p>
+          <p className="mt-1 text-[10px] leading-relaxed text-gray-600">
+            From your team today
+          </p>
+        </div>
+
+        <div className="shrink-0 text-right">
+          {loading ? (
+            <span className="skeleton inline-block h-5 w-24 rounded" aria-label="Loading today's rewards" />
+          ) : (
+            <span className="font-mono text-lg font-black leading-none text-[#00ff41]">
+              {formatEtb(stats.todayRewards)}
+            </span>
+          )}
+        </div>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-3">
-        <CompactStepRow
-          icon={<Copy size={14} />}
-          step="1"
-          title="Share your link"
-          description="Invite friends with your referral link."
+      <div className="mt-2 border-t border-[#1a1a1a] pt-2">
+        <CompactMetricRow
+          label="Total Earned"
+          value={formatEtb(stats.earned)}
+          loading={loading}
+          accent
         />
-        <CompactStepRow
-          icon={<UserCheck size={14} />}
-          step="2"
-          title="Build your team"
-          description="Users who register through your link join your team."
+        <CompactMetricRow
+          label="Team"
+          value={stats.total.toString()}
+          loading={loading}
         />
-        <CompactStepRow
-          icon={<TrendingUp size={14} />}
-          step="3"
-          title="Earn rewards"
-          description="Receive rewards from team purchases and daily mining."
+        <CompactMetricRow
+          label="Active"
+          value={stats.active.toString()}
+          loading={loading}
         />
       </div>
     </Card>
   );
 }
 
+function CompactMetricRow({
+  label,
+  value,
+  loading,
+  accent,
+}: {
+  label: string;
+  value: string;
+  loading: boolean;
+  accent?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1">
+      <span className="text-[11px] text-gray-500">{label}</span>
+      {loading ? (
+        <span className="skeleton h-3.5 w-16 rounded" aria-label={`Loading ${label}`} />
+      ) : (
+        <span className={`shrink-0 font-mono text-xs font-semibold ${accent ? "text-[#00ff41]" : "text-gray-200"}`}>
+          {value}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function HowRewardsCard() {
   return (
-    <Card>
+    <Card padding="sm">
       <SectionHeader
         title="How Team Rewards Work"
-        description="Earn from both plan purchases and daily mining rewards in your team."
-        className="mb-4"
+        description="Both reward types use L1 5%, L2 3%, and L3 2%."
+        className="mb-3"
       />
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <RewardSourceCard
+      <div className="space-y-2">
+        <RewardSourceRow
           title="Plan Purchase Reward"
           description="Earn when someone in your team buys a mining plan."
         />
-        <RewardSourceCard
+        <RewardSourceRow
           title="Daily Mining Reward"
           description="Earn when someone in your team receives daily mining income."
         />
       </div>
 
-      <div className="mt-4 space-y-2.5">
+      <div className="mt-3 space-y-2">
         <TierRow level={1} label="Direct referrals" rate="5%" />
         <TierRow level={2} label="Level 2 team" rate="3%" />
         <TierRow level={3} label="Level 3 team" rate="2%" />
       </div>
 
-      <div className="mt-4 rounded-lg border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.05)] px-3 py-2.5">
+      <div className="mt-3 rounded-lg border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.05)] px-3 py-2">
         <p className="text-[10px] leading-relaxed text-gray-400">
           Keep an active mining plan to receive eligible team rewards.
         </p>
@@ -437,52 +436,16 @@ function HowRewardsCard() {
   );
 }
 
-function RewardSourceCard({ title, description }: { title: string; description: string }) {
+function RewardSourceRow({ title, description }: { title: string; description: string }) {
   return (
-    <div className="rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] p-3">
-      <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.06)] text-[#00ff41]">
-        <TrendingUp size={15} />
+    <div className="flex items-start gap-2.5 rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5">
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.06)] text-[#00ff41]">
+        <TrendingUp size={13} />
       </div>
-      <p className="text-xs font-semibold text-gray-100">{title}</p>
-      <p className="mt-1 text-[11px] leading-relaxed text-gray-500">{description}</p>
-    </div>
-  );
-}
-
-function RewardBreakdownCard({ stats, loading }: { stats: ReferralStats; loading: boolean }) {
-  return (
-    <Card padding="sm">
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-        Reward Breakdown
-      </p>
-      <div className="space-y-2">
-        <BreakdownRow
-          label="Plan purchase rewards"
-          value={formatEtb(stats.investmentRewards)}
-          loading={loading}
-        />
-        <BreakdownRow
-          label="Daily mining rewards"
-          value={formatEtb(stats.miningRewards)}
-          loading={loading}
-        />
+      <div className="min-w-0">
+        <p className="text-xs font-semibold text-gray-100">{title}</p>
+        <p className="mt-0.5 text-[10px] leading-relaxed text-gray-500">{description}</p>
       </div>
-      <p className="mt-2 text-[10px] leading-relaxed text-gray-600">
-        <span className="font-semibold text-gray-400">Today's Rewards</span> reset at 21:00 UTC.
-      </p>
-    </Card>
-  );
-}
-
-function BreakdownRow({ label, value, loading }: { label: string; value: string; loading: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-lg bg-[#0a0a0a] px-3 py-2">
-      <span className="text-[11px] text-gray-500">{label}</span>
-      {loading ? (
-        <span className="skeleton h-4 w-16 rounded" aria-label={`Loading ${label}`} />
-      ) : (
-        <span className="shrink-0 text-xs font-semibold text-gray-200">{value}</span>
-      )}
     </div>
   );
 }
@@ -502,11 +465,20 @@ function MyTeamCard({
   onFilterChange: (value: ReferralLevelFilter) => void;
   loading: boolean;
 }) {
+  const [showAllMembers, setShowAllMembers] = useState(false);
+
+  useEffect(() => {
+    setShowAllMembers(false);
+  }, [activeFilter]);
+
+  const hasMoreMembers = members.length > TEAM_PREVIEW_LIMIT;
+  const visibleMembers = showAllMembers ? members : members.slice(0, TEAM_PREVIEW_LIMIT);
+
   return (
     <Card>
       <SectionHeader
         title="My Team"
-        description="Filter team members by level and activity status."
+        description="Filter team members by level."
         className="mb-3"
       />
 
@@ -551,9 +523,19 @@ function MyTeamCard({
         />
       ) : (
         <div className="space-y-2">
-          {members.map((member) => (
+          {visibleMembers.map((member) => (
             <TeamMemberRow key={member.id} member={member} />
           ))}
+
+          {hasMoreMembers && (
+            <button
+              type="button"
+              onClick={() => setShowAllMembers((current) => !current)}
+              className="mt-1 w-full rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2 text-[10px] font-semibold text-gray-400 transition hover:text-gray-100 active:scale-[0.99]"
+            >
+              {showAllMembers ? "Show less" : `See more (${members.length - TEAM_PREVIEW_LIMIT})`}
+            </button>
+          )}
         </div>
       )}
     </Card>
@@ -621,80 +603,10 @@ function TeamMemberRow({ member }: { member: ReferralMember }) {
               : "border-[#2a2a2a] bg-[#111] text-gray-500",
           ].join(" ")}
         >
-          {member.isActive ? "Active" : "Not active"}
+          {member.isActive ? "Active" : "Inactive"}
         </span>
       </div>
     </div>
-  );
-}
-
-function CompactStepRow({
-  icon,
-  step,
-  title,
-  description,
-}: {
-  icon: React.ReactNode;
-  step: string;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="flex items-start gap-3 rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5">
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.06)] text-[#00ff41]">
-        {icon}
-      </div>
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] text-gray-600">0{step}</span>
-          <p className="text-xs font-semibold text-gray-100">{title}</p>
-        </div>
-        <p className="mt-0.5 text-[10px] leading-relaxed text-gray-500">
-          {description}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function StatCard({
-  icon,
-  label,
-  value,
-  description,
-  accent,
-  loading,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string | number;
-  description?: string;
-  accent?: boolean;
-  loading?: boolean;
-}) {
-  return (
-    <Card padding="sm">
-      <div className="flex flex-col items-center gap-1.5 py-1 text-center">
-        <div className={accent ? "text-[#00ff41]" : "text-gray-500"}>
-          {icon}
-        </div>
-        <span className={`text-base font-bold ${accent ? "text-[#00ff41]" : "text-gray-100"}`}>
-          {loading ? (
-            <span className="skeleton inline-block h-5 w-12 rounded" aria-label={`Loading ${label}`} />
-          ) : (
-            value
-          )}
-        </span>
-        <span className="text-[10px] uppercase tracking-wider text-gray-600">
-          {label}
-        </span>
-        {description && (
-          <span className="hidden text-[10px] leading-relaxed text-gray-600 lg:block">
-            {description}
-          </span>
-        )}
-      </div>
-    </Card>
   );
 }
 
@@ -708,15 +620,12 @@ function TierRow({
   rate: string;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg bg-[#0a0a0a] px-3 py-2.5">
-      <div className="flex h-7 w-7 items-center justify-center rounded-full border border-[rgba(0,255,65,0.2)] bg-[rgba(0,255,65,0.08)]">
+    <div className="flex items-center gap-2.5 rounded-lg bg-[#0a0a0a] px-3 py-2">
+      <div className="flex h-6 w-6 items-center justify-center rounded-full border border-[rgba(0,255,65,0.2)] bg-[rgba(0,255,65,0.08)]">
         <span className="text-[10px] font-bold text-[#00ff41]">L{level}</span>
       </div>
       <span className="flex-1 text-xs text-gray-300">{label}</span>
-      <div className="flex items-center gap-1">
-        <span className="text-sm font-bold text-[#00ff41]">{rate}</span>
-        <ChevronRight size={12} className="text-gray-600" />
-      </div>
+      <span className="text-sm font-bold text-[#00ff41]">{rate}</span>
     </div>
   );
 }
