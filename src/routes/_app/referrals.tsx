@@ -63,6 +63,7 @@ const TEAM_FILTERS: Array<{ label: string; value: ReferralLevelFilter }> = [
 const REFERRAL_LOAD_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
 const MAX_AUTO_RETRIES = 2;
+const TEAM_PREVIEW_LIMIT = 10;
 
 function useReferralData() {
   const user = useAuthStore((s) => s.user);
@@ -405,7 +406,7 @@ function HowRewardsCard() {
     <Card padding="sm">
       <SectionHeader
         title="How Team Rewards Work"
-        description="Earn from plan purchases and daily mining rewards."
+        description="Plan purchase and daily mining rewards use the same level rates."
         className="mb-3"
       />
 
@@ -464,6 +465,15 @@ function MyTeamCard({
   onFilterChange: (value: ReferralLevelFilter) => void;
   loading: boolean;
 }) {
+  const [showAllMembers, setShowAllMembers] = useState(false);
+
+  useEffect(() => {
+    setShowAllMembers(false);
+  }, [activeFilter]);
+
+  const hasMoreMembers = members.length > TEAM_PREVIEW_LIMIT;
+  const visibleMembers = showAllMembers ? members : members.slice(0, TEAM_PREVIEW_LIMIT);
+
   return (
     <Card>
       <SectionHeader
@@ -513,9 +523,19 @@ function MyTeamCard({
         />
       ) : (
         <div className="space-y-2">
-          {members.map((member) => (
+          {visibleMembers.map((member) => (
             <TeamMemberRow key={member.id} member={member} />
           ))}
+
+          {hasMoreMembers && (
+            <button
+              type="button"
+              onClick={() => setShowAllMembers((current) => !current)}
+              className="mt-1 w-full rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2 text-[10px] font-semibold text-gray-400 transition hover:text-gray-100 active:scale-[0.99]"
+            >
+              {showAllMembers ? "Show less" : `See more (${members.length - TEAM_PREVIEW_LIMIT})`}
+            </button>
+          )}
         </div>
       )}
     </Card>
