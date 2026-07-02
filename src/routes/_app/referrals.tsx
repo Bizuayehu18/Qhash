@@ -1,8 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Users,
-  UserCheck,
   Copy,
   Check,
   Link2,
@@ -332,44 +331,38 @@ function RewardsOverviewCard({
   loading: boolean;
 }) {
   return (
-    <Card className="overflow-hidden">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-100">Rewards Overview</p>
-          <p className="mt-1 text-[10px] leading-relaxed text-gray-600">
-            Track today&apos;s team rewards and growth.
-          </p>
-        </div>
-
-        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[rgba(0,255,65,0.08)] text-[#00ff41]">
-          <TrendingUp size={15} />
-        </div>
+    <Card>
+      <div className="mb-3">
+        <p className="text-sm font-semibold text-gray-100">Rewards Overview</p>
+        <p className="mt-1 text-[10px] leading-relaxed text-gray-600">
+          Today&apos;s team rewards and growth.
+        </p>
       </div>
 
-      <div className="rounded-xl border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.05)] p-3">
-        <div className="flex items-end justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#00ff41]">
-              Today&apos;s Rewards
-            </p>
-            <p className="mt-1 text-[10px] text-gray-500">
-              From your team today
-            </p>
-          </div>
+      <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#0a0a0a]">
+        <div className="border-b border-[#141414] px-3 py-3">
+          <div className="flex items-end justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#00ff41]">
+                Today&apos;s Rewards
+              </p>
+              <p className="mt-1 text-[10px] text-gray-500">
+                From your team today
+              </p>
+            </div>
 
-          <div className="shrink-0 text-right">
-            {loading ? (
-              <span className="skeleton inline-block h-6 w-24 rounded" aria-label="Loading today's rewards" />
-            ) : (
-              <span className="font-mono text-xl font-black leading-none text-[#00ff41]">
-                {formatEtb(stats.todayRewards)}
-              </span>
-            )}
+            <div className="shrink-0 text-right">
+              {loading ? (
+                <span className="skeleton inline-block h-6 w-24 rounded" aria-label="Loading today's rewards" />
+              ) : (
+                <span className="font-mono text-xl font-black leading-none text-[#00ff41]">
+                  {formatEtb(stats.todayRewards)}
+                </span>
+              )}
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="mt-3 overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#0a0a0a]">
         <OverviewRow
           label="Total Earned"
           value={formatEtb(stats.earned)}
@@ -379,15 +372,13 @@ function RewardsOverviewCard({
 
         <div className="grid grid-cols-2 divide-x divide-[#141414] border-t border-[#141414]">
           <OverviewMiniMetric
-            icon={<Users size={14} />}
-            label="Total Team"
+            label="Team"
             value={stats.total}
             loading={loading}
           />
 
           <OverviewMiniMetric
-            icon={<UserCheck size={14} />}
-            label="Active Team"
+            label="Active"
             value={stats.active}
             loading={loading}
           />
@@ -423,21 +414,16 @@ function OverviewRow({
 }
 
 function OverviewMiniMetric({
-  icon,
   label,
   value,
   loading,
 }: {
-  icon: ReactNode;
   label: string;
   value: number;
   loading: boolean;
 }) {
   return (
     <div className="px-3 py-2.5">
-      <div className="mb-1 text-gray-500">
-        {icon}
-      </div>
       {loading ? (
         <span className="skeleton inline-block h-4 w-8 rounded" aria-label={`Loading ${label}`} />
       ) : (
@@ -457,28 +443,28 @@ function HowRewardsCard() {
     <Card>
       <SectionHeader
         title="How Team Rewards Work"
-        description="Earn from both plan purchases and daily mining rewards in your team."
-        className="mb-4"
+        description="Earn from plan purchases and daily mining rewards."
+        className="mb-3"
       />
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <RewardSourceCard
+      <div className="space-y-2">
+        <RewardSourceRow
           title="Plan Purchase Reward"
           description="Earn when someone in your team buys a mining plan."
         />
-        <RewardSourceCard
+        <RewardSourceRow
           title="Daily Mining Reward"
           description="Earn when someone in your team receives daily mining income."
         />
       </div>
 
-      <div className="mt-4 space-y-2.5">
+      <div className="mt-3 space-y-2">
         <TierRow level={1} label="Direct referrals" rate="5%" />
         <TierRow level={2} label="Level 2 team" rate="3%" />
         <TierRow level={3} label="Level 3 team" rate="2%" />
       </div>
 
-      <div className="mt-4 rounded-lg border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.05)] px-3 py-2.5">
+      <div className="mt-3 rounded-lg border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.05)] px-3 py-2">
         <p className="text-[10px] leading-relaxed text-gray-400">
           Keep an active mining plan to receive eligible team rewards.
         </p>
@@ -487,14 +473,16 @@ function HowRewardsCard() {
   );
 }
 
-function RewardSourceCard({ title, description }: { title: string; description: string }) {
+function RewardSourceRow({ title, description }: { title: string; description: string }) {
   return (
-    <div className="rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] p-3">
-      <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.06)] text-[#00ff41]">
-        <TrendingUp size={15} />
+    <div className="flex items-start gap-2.5 rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5">
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.06)] text-[#00ff41]">
+        <TrendingUp size={13} />
       </div>
-      <p className="text-xs font-semibold text-gray-100">{title}</p>
-      <p className="mt-1 text-[11px] leading-relaxed text-gray-500">{description}</p>
+      <div className="min-w-0">
+        <p className="text-xs font-semibold text-gray-100">{title}</p>
+        <p className="mt-0.5 text-[10px] leading-relaxed text-gray-500">{description}</p>
+      </div>
     </div>
   );
 }
@@ -650,15 +638,12 @@ function TierRow({
   rate: string;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg bg-[#0a0a0a] px-3 py-2.5">
-      <div className="flex h-7 w-7 items-center justify-center rounded-full border border-[rgba(0,255,65,0.2)] bg-[rgba(0,255,65,0.08)]">
+    <div className="flex items-center gap-2.5 rounded-lg bg-[#0a0a0a] px-3 py-2">
+      <div className="flex h-6 w-6 items-center justify-center rounded-full border border-[rgba(0,255,65,0.2)] bg-[rgba(0,255,65,0.08)]">
         <span className="text-[10px] font-bold text-[#00ff41]">L{level}</span>
       </div>
       <span className="flex-1 text-xs text-gray-300">{label}</span>
-      <div className="flex items-center gap-1">
-        <span className="text-sm font-bold text-[#00ff41]">{rate}</span>
-        <ChevronRight size={12} className="text-gray-600" />
-      </div>
+      <span className="text-sm font-bold text-[#00ff41]">{rate}</span>
     </div>
   );
 }
