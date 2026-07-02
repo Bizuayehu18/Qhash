@@ -1,7 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, HeadphonesIcon, Info, MessageSquare, Send } from "lucide-react";
+import {
+  CheckCircle2,
+  ExternalLink,
+  HeadphonesIcon,
+  Info,
+  MessageSquare,
+  Send,
+  ShieldCheck,
+} from "lucide-react";
 import { Button } from "@/components/ui/Button.js";
+import { Card } from "@/components/ui/Card.js";
+import { SectionHeader } from "@/components/ui/SectionHeader.js";
 import {
   getSupportSettingsFn,
   type SupportSettings,
@@ -123,64 +133,115 @@ function SupportPage() {
   };
 
   return (
-    <div className="space-y-5 lg:max-w-3xl lg:mx-auto">
+    <div className="space-y-3 lg:mx-auto lg:max-w-3xl">
       <div>
-        <h1 className="text-lg font-bold">Support</h1>
-        <p className="text-xs text-gray-500 mt-1">Get help from the official QHash support team</p>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
+          Support Center
+        </p>
+        <h1 className="mt-1 text-lg font-bold leading-tight text-gray-100">Support</h1>
+        <p className="mt-1 text-xs leading-relaxed text-gray-500">
+          Get help from the official QHash support team.
+        </p>
       </div>
 
-      <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4 space-y-4">
-        <div className="flex items-center gap-2">
-          <HeadphonesIcon size={14} className="text-[#00ff41]" />
-          <span className="text-xs font-semibold">Telegram Support</span>
+      <Card neon className="overflow-hidden" padding="none">
+        <div className="border-b border-[rgba(0,255,65,0.12)] bg-[rgba(0,255,65,0.04)] px-4 py-3">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[rgba(0,255,65,0.22)] bg-[rgba(0,255,65,0.08)] text-[#00ff41]">
+              <HeadphonesIcon size={18} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold leading-tight text-gray-100">Telegram Support</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+                Use the official contact below for account and mining support.
+              </p>
+            </div>
+            {settingsLoaded && settings?.isConfigured && (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[rgba(0,255,65,0.22)] bg-[rgba(0,255,65,0.08)] px-2 py-1 text-[10px] font-semibold text-[#00ff41]">
+                <CheckCircle2 size={11} /> Live
+              </span>
+            )}
+          </div>
         </div>
 
-        {!settingsLoaded ? (
-          <div className="space-y-3">
-            <div className="skeleton h-16 rounded-xl" aria-label="Loading support contact" />
-            <div className="skeleton h-10 rounded-xl" />
-          </div>
-        ) : settings?.isConfigured ? (
-          <>
-            <div className="flex gap-2.5 p-3 rounded-xl bg-[rgba(0,255,65,0.04)] border border-[rgba(0,255,65,0.1)]">
-              <Send size={15} className="text-[#00ff41] shrink-0 mt-0.5" />
+        <div className="space-y-3 p-4">
+          {!settingsLoaded ? (
+            <div className="space-y-3">
+              <div className="skeleton h-20 rounded-xl" aria-label="Loading support contact" />
+              <div className="skeleton h-10 rounded-xl" />
+              <div className="skeleton mx-auto h-3 w-52 rounded" />
+            </div>
+          ) : settings?.isConfigured ? (
+            <>
+              <div className="rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] p-3">
+                <div className="flex items-start gap-2.5">
+                  <Send size={15} className="mt-0.5 shrink-0 text-[#00ff41]" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-medium text-gray-300">Official Telegram</p>
+                    <p className="mt-1 truncate font-mono text-base font-bold text-[#00ff41]">
+                      {settings.telegramDisplay}
+                    </p>
+                    <p className="mt-1 text-[10px] leading-relaxed text-gray-600">
+                      Tap the button below to open Telegram securely.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <Button fullWidth onClick={openTelegram}>
+                <ExternalLink size={14} /> Open Telegram Support
+              </Button>
+
+              <p className="text-center text-[10px] leading-relaxed text-gray-600">
+                If Telegram does not open automatically, search for {settings.telegramDisplay} in Telegram.
+              </p>
+            </>
+          ) : (
+            <div className="flex gap-2.5 rounded-xl border border-yellow-500/[0.12] bg-yellow-500/[0.04] p-3">
+              <Info size={15} className="mt-0.5 shrink-0 text-yellow-400" />
               <div>
-                <p className="text-[11px] text-gray-400 leading-relaxed">
-                  Need help? Message our official QHash support contact on Telegram.
+                <p className="text-xs font-semibold text-gray-200">Support contact unavailable</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+                  Telegram support is not configured yet. Please check back later.
                 </p>
-                <p className="text-xs font-mono text-[#00ff41] mt-2">{settings.telegramDisplay}</p>
               </div>
             </div>
-
-            <Button fullWidth onClick={openTelegram}>
-              <ExternalLink size={14} /> Open Telegram Support
-            </Button>
-
-            <p className="text-[10px] text-gray-600 text-center">
-              If Telegram does not open automatically, search for {settings.telegramDisplay} in Telegram.
-            </p>
-          </>
-        ) : (
-          <div className="flex gap-2.5 p-3 rounded-xl bg-yellow-500/[0.04] border border-yellow-500/[0.12]">
-            <Info size={15} className="text-yellow-400 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-gray-400 leading-relaxed">
-              Telegram support is not configured yet. Please check back later.
-            </p>
-          </div>
-        )}
-      </div>
-
-      <div>
-        <div className="flex items-center gap-2 mb-3">
-          <MessageSquare size={14} className="text-gray-500" />
-          <h2 className="text-sm font-semibold">Support Notes</h2>
+          )}
         </div>
+      </Card>
 
-        <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-4 text-[11px] text-gray-500 leading-relaxed space-y-2">
-          <p>Only use the official Telegram support username shown on this page.</p>
-          <p>QHash support will never ask for your password or private wallet credentials.</p>
+      <Card padding="sm">
+        <SectionHeader
+          title="Security Reminder"
+          description="Use only the official support channel shown on this page."
+          className="mb-3"
+          action={<ShieldCheck size={15} className="text-[#00ff41]" />}
+        />
+
+        <div className="space-y-2">
+          <SupportNote icon={<MessageSquare size={13} />}>
+            QHash support will never ask for your password or private wallet credentials.
+          </SupportNote>
+          <SupportNote icon={<CheckCircle2 size={13} />}>
+            Confirm the Telegram username before sharing account details.
+          </SupportNote>
         </div>
-      </div>
+      </Card>
+    </div>
+  );
+}
+
+function SupportNote({
+  icon,
+  children,
+}: {
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-start gap-2.5 rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5">
+      <span className="mt-0.5 text-[#00ff41]">{icon}</span>
+      <p className="text-[11px] leading-relaxed text-gray-500">{children}</p>
     </div>
   );
 }
