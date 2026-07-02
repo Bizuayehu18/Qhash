@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Users,
   UserCheck,
@@ -273,39 +273,7 @@ function ReferralsPage() {
       </Card>
 
       <div className="space-y-3 lg:col-span-4">
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
-          <StatCard
-            icon={<TrendingUp size={18} />}
-            label="Total Earned"
-            value={formatEtb(stats.earned)}
-            description="All-time referral rewards"
-            accent
-            loading={!statsLoaded}
-          />
-          <StatCard
-            icon={<TrendingUp size={18} />}
-            label="Today's Rewards"
-            value={formatEtb(stats.todayRewards)}
-            description="Rewards earned today"
-            accent
-            loading={!statsLoaded}
-          />
-          <StatCard
-            icon={<Users size={18} />}
-            label="Total Team"
-            value={stats.total}
-            description="People who joined from your link"
-            loading={!statsLoaded}
-          />
-          <StatCard
-            icon={<UserCheck size={18} />}
-            label="Active Team"
-            value={stats.active}
-            description="Invited users with active mining"
-            accent
-            loading={!statsLoaded}
-          />
-        </div>
+        <TeamOverviewCard stats={stats} loading={!statsLoaded} />
 
         {hasNoReferrals && (
           <Card padding="none">
@@ -352,6 +320,141 @@ function ReferralsPage() {
           </div>
         </Card>
       </div>
+    </div>
+  );
+}
+
+function TeamOverviewCard({
+  stats,
+  loading,
+}: {
+  stats: ReferralStats;
+  loading: boolean;
+}) {
+  return (
+    <Card className="overflow-hidden">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-100">Team Overview</p>
+          <p className="mt-1 text-[10px] leading-relaxed text-gray-600">
+            Your referral rewards and team activity.
+          </p>
+        </div>
+
+        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[rgba(0,255,65,0.08)] text-[#00ff41]">
+          <TrendingUp size={15} />
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.06)] p-3">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#00ff41]">
+              Today&apos;s Rewards
+            </p>
+            <p className="mt-0.5 text-[10px] text-gray-500">
+              From your team today
+            </p>
+          </div>
+
+          <div className="shrink-0 text-right">
+            {loading ? (
+              <span className="skeleton inline-block h-6 w-24 rounded" aria-label="Loading today's rewards" />
+            ) : (
+              <span className="font-mono text-lg font-black leading-none text-[#00ff41]">
+                {formatEtb(stats.todayRewards)}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="h-1 overflow-hidden rounded-full bg-[#0a0a0a]">
+          <div className="h-full w-2/3 rounded-full bg-[#00ff41]" />
+        </div>
+      </div>
+
+      <div className="mt-3 overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#0a0a0a]">
+        <OverviewRow
+          label="Total Earned"
+          value={formatEtb(stats.earned)}
+          loading={loading}
+          accent
+        />
+
+        <div className="grid grid-cols-2 divide-x divide-[#141414] border-t border-[#141414]">
+          <OverviewMiniMetric
+            icon={<Users size={14} />}
+            label="Total Team"
+            value={stats.total}
+            loading={loading}
+          />
+
+          <OverviewMiniMetric
+            icon={<UserCheck size={14} />}
+            label="Active Team"
+            value={stats.active}
+            loading={loading}
+            accent
+          />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function OverviewRow({
+  label,
+  value,
+  loading,
+  accent,
+}: {
+  label: string;
+  value: string;
+  loading: boolean;
+  accent?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 px-3 py-2.5">
+      <span className="text-[11px] text-gray-500">{label}</span>
+      {loading ? (
+        <span className="skeleton h-4 w-20 rounded" aria-label={`Loading ${label}`} />
+      ) : (
+        <span className={`shrink-0 font-mono text-xs font-semibold ${accent ? "text-[#00ff41]" : "text-gray-200"}`}>
+          {value}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function OverviewMiniMetric({
+  icon,
+  label,
+  value,
+  loading,
+  accent,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: number;
+  loading: boolean;
+  accent?: boolean;
+}) {
+  return (
+    <div className="px-3 py-2.5">
+      <div className={`mb-1 ${accent ? "text-[#00ff41]" : "text-gray-500"}`}>
+        {icon}
+      </div>
+      {loading ? (
+        <span className="skeleton inline-block h-4 w-8 rounded" aria-label={`Loading ${label}`} />
+      ) : (
+        <p className={`font-mono text-base font-bold leading-none ${accent ? "text-[#00ff41]" : "text-gray-100"}`}>
+          {value}
+        </p>
+      )}
+      <p className="mt-1 text-[10px] uppercase tracking-[0.12em] text-gray-600">
+        {label}
+      </p>
     </div>
   );
 }
@@ -537,51 +640,10 @@ function TeamMemberRow({ member }: { member: ReferralMember }) {
               : "border-[#2a2a2a] bg-[#111] text-gray-500",
           ].join(" ")}
         >
-          {member.isActive ? "Active" : "Not active"}
+          {member.isActive ? "Active" : "Inactive"}
         </span>
       </div>
     </div>
-  );
-}
-
-function StatCard({
-  icon,
-  label,
-  value,
-  description,
-  accent,
-  loading,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string | number;
-  description?: string;
-  accent?: boolean;
-  loading?: boolean;
-}) {
-  return (
-    <Card padding="sm">
-      <div className="flex flex-col items-center gap-1.5 py-1 text-center">
-        <div className={accent ? "text-[#00ff41]" : "text-gray-500"}>
-          {icon}
-        </div>
-        <span className={`text-base font-bold ${accent ? "text-[#00ff41]" : "text-gray-100"}`}>
-          {loading ? (
-            <span className="skeleton inline-block h-5 w-12 rounded" aria-label={`Loading ${label}`} />
-          ) : (
-            value
-          )}
-        </span>
-        <span className="text-[10px] uppercase tracking-wider text-gray-600">
-          {label}
-        </span>
-        {description && (
-          <span className="hidden text-[10px] leading-relaxed text-gray-600 lg:block">
-            {description}
-          </span>
-        )}
-      </div>
-    </Card>
   );
 }
 
