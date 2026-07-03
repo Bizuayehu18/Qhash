@@ -164,63 +164,62 @@ function PlanCard({ plan, onSelect }: { plan: PlanWithEligibility; onSelect: () 
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1">
-          {plan.is_popular && <Badge variant="neon">Popular</Badge>}
-          <span
-            className={`rounded-full border px-1.5 py-0.5 text-[9px] ${
-              isAvailable
-                ? "border-[rgba(0,255,65,0.22)] bg-[rgba(0,255,65,0.05)] text-[#00ff41]"
-                : "border-amber-400/20 bg-amber-400/5 text-amber-300"
-            }`}
-          >
-            {isAvailable ? "Open" : "Locked"}
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <div className="flex items-center gap-1">
+            {plan.is_popular && <Badge variant="neon">Popular</Badge>}
+            <span
+              className={`rounded-full border px-1.5 py-0.5 text-[9px] ${
+                isAvailable
+                  ? "border-[rgba(0,255,65,0.22)] bg-[rgba(0,255,65,0.05)] text-[#00ff41]"
+                  : "border-amber-400/20 bg-amber-400/5 text-amber-300"
+              }`}
+            >
+              {isAvailable ? "Open" : "Locked"}
+            </span>
+          </div>
+          <span className="text-[9px] text-gray-600">
+            Limit {plan.eligibility.activePlanCount}/{plan.eligibility.maxActivePerUser}
           </span>
         </div>
       </div>
 
-      <div className="mt-2.5 flex items-end justify-between gap-3">
+      <div className="mt-2 grid grid-cols-[1.05fr_0.8fr_1fr] gap-2 rounded-lg border border-[#181818] bg-[#0a0a0a] px-2.5 py-2">
         <div className="min-w-0">
-          <p className="text-[10px] uppercase tracking-[0.16em] text-gray-600">Investment</p>
-          <p className="mt-0.5 text-lg font-black leading-none text-gray-100">
-            {formatEtb(plan.investment_amount)} <span className="text-[10px] font-semibold text-gray-500">ETB</span>
+          <p className="text-[9px] uppercase tracking-[0.14em] text-gray-600">Invest</p>
+          <p className="mt-0.5 truncate text-sm font-black leading-tight text-gray-100">
+            {formatEtb(plan.investment_amount)} <span className="text-[9px] font-semibold text-gray-500">ETB</span>
           </p>
         </div>
-        <div className="shrink-0 text-right">
-          <p className="text-[10px] text-gray-600">Limit</p>
-          <p className="mt-0.5 text-xs font-semibold text-gray-300">
-            {plan.eligibility.activePlanCount}/{plan.eligibility.maxActivePerUser}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-2 grid grid-cols-2 overflow-hidden rounded-lg border border-[#181818] bg-[#0a0a0a]">
-        <div className="p-2">
+        <div className="min-w-0 text-right">
           <p className="text-[9px] text-gray-600">Daily</p>
-          <p className="mt-0.5 text-xs font-black text-[#00ff41]">
+          <p className="mt-0.5 truncate text-xs font-black leading-tight text-[#00ff41]">
             {formatEtb(plan.daily_earning)} <span className="text-[9px] font-normal text-gray-500">ETB</span>
           </p>
         </div>
-        <div className="border-l border-[#181818] p-2 text-right">
+        <div className="min-w-0 text-right">
           <p className="text-[9px] text-gray-600">Total</p>
-          <p className="mt-0.5 text-xs font-black text-gray-100">
+          <p className="mt-0.5 truncate text-xs font-black leading-tight text-gray-100">
             {formatEtb(totalEarnings)} <span className="text-[9px] font-normal text-gray-500">ETB</span>
           </p>
         </div>
       </div>
 
-      <p className={`mt-2 truncate rounded-lg px-2 py-1.5 text-[10px] ${isAvailable ? "bg-[rgba(0,255,65,0.04)] text-gray-400" : "bg-amber-400/5 text-amber-200"}`}>
-        {summary}
-      </p>
-
-      <Button
-        variant={isAvailable ? "primary" : "ghost"}
-        size="sm"
-        fullWidth
-        className="mt-2"
-        onClick={onSelect}
-      >
-        {isAvailable ? "Purchase" : "View Requirements"}
-      </Button>
+      <div className="mt-2 flex items-center justify-between gap-2 border-t border-[#1a1a1a] pt-2">
+        <p className={`min-w-0 flex-1 truncate text-[10px] ${isAvailable ? "text-gray-500" : "text-amber-200"}`}>
+          {summary}
+        </p>
+        <button
+          type="button"
+          onClick={onSelect}
+          className={`shrink-0 rounded-lg border px-2.5 py-1 text-[10px] font-semibold transition active:scale-[0.98] ${
+            isAvailable
+              ? "border-[rgba(0,255,65,0.28)] bg-[rgba(0,255,65,0.08)] text-[#00ff41]"
+              : "border-[#2a2a2a] bg-[#151515] text-gray-300"
+          }`}
+        >
+          {isAvailable ? "Purchase" : "Details"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -359,7 +358,7 @@ function PlansPage() {
         <div className="skeleton h-8 w-44 rounded-lg" />
         <div className="skeleton h-4 w-72 rounded-lg" />
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {[1, 2, 3, 4, 5, 6].map((i) => <div key={i} className="skeleton h-36 rounded-xl" />)}
+          {[1, 2, 3, 4, 5, 6].map((i) => <div key={i} className="skeleton h-28 rounded-xl" />)}
         </div>
       </div>
     );
