@@ -117,10 +117,12 @@ function DashboardPage() {
     const url = await loadSupportUrl();
 
     if (url) {
+      setSupportOpening(false);
       window.location.assign(url);
       return;
     }
 
+    setSupportOpening(false);
     window.location.assign("/support");
   }, [loadSupportUrl, supportOpening, supportUrl]);
 
@@ -374,14 +376,22 @@ function DashboardPage() {
           description="Grow your team"
         />
 
-        <QuickActionCard
-          href={supportUrl ?? undefined}
-          onClick={supportUrl ? undefined : handleSupportClick}
-          disabled={supportOpening}
-          icon={<LifeBuoy size={15} />}
-          title="Support"
-          description={supportOpening ? "Opening..." : "Get help fast"}
-        />
+        {supportUrl ? (
+          <QuickActionCard
+            href={supportUrl}
+            icon={<LifeBuoy size={15} />}
+            title="Support"
+            description="Get help fast"
+          />
+        ) : (
+          <QuickActionCard
+            onClick={handleSupportClick}
+            disabled={supportOpening}
+            icon={<LifeBuoy size={15} />}
+            title="Support"
+            description={supportOpening ? "Opening..." : "Get help fast"}
+          />
+        )}
       </div>
 
       {/* Real Mining Status */}
