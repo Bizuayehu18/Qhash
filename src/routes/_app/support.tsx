@@ -73,7 +73,7 @@ function SupportPage() {
 
         if (result.isConfigured && result.telegramUrl) {
           setStatus("redirecting");
-          window.location.assign(result.telegramUrl);
+          window.location.replace(result.telegramUrl);
           return;
         }
 
