@@ -75,6 +75,17 @@ function getMissingRows(plan: PlanWithEligibility) {
     .filter((row) => row.missing > 0);
 }
 
+function getMissingRequirementName(label: string, count: number) {
+  const name =
+    label === "Direct referrals"
+      ? "active direct referral"
+      : label === "Level 2 referrals"
+        ? "active level 2 referral"
+        : "active level 3 referral";
+
+  return `${name}${count === 1 ? "" : "s"}`;
+}
+
 function getLockReason(plan: PlanWithEligibility) {
   if (plan.eligibility.limitReached) {
     return `Active limit reached (${plan.eligibility.activePlanCount}/${plan.eligibility.maxActivePerUser}).`;
@@ -83,7 +94,7 @@ function getLockReason(plan: PlanWithEligibility) {
   const missing = getMissingRows(plan);
   if (missing.length > 0) {
     const first = missing[0];
-    return `Requires ${first.missing} more active ${first.label.toLowerCase()}.`;
+    return `Requires ${first.missing} more ${getMissingRequirementName(first.label, first.missing)}.`;
   }
 
   return "Requirements not met.";
@@ -104,7 +115,7 @@ function RequirementProgress({ plan }: { plan: PlanWithEligibility }) {
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-gray-600">
         <span>Eligibility</span>
-        <span>{plan.eligibility.isEligible ? "Cleared" : "Required"}</span>
+        <span>{plan.eligibility.referralRequirementMet ? "Cleared" : "Required"}</span>
       </div>
       {rows.length === 0 ? (
         <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
@@ -404,10 +415,10 @@ function PlansPage() {
       )}
 
       {selectedPlan && (
-        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/80 backdrop-blur-sm md:items-center">
-          <div className="relative w-full max-w-[520px] overflow-y-auto rounded-t-2xl border-t border-[rgba(0,255,65,0.12)] bg-[#111] p-4 animate-[slideUp_0.25s_ease-out] max-h-[85dvh] md:rounded-2xl md:border" style={{ paddingBottom: 'calc(70px + env(safe-area-inset-bottom, 0px))' }}>
+        <div className="fixed inset-x-0 top-0 bottom-14 z-40 flex items-end justify-center bg-black/80 backdrop-blur-sm lg:inset-0 lg:z-[60] lg:items-center">
+          <div className="relative w-full max-w-[520px] overflow-y-auto rounded-t-2xl border border-[rgba(0,255,65,0.12)] bg-[#111] p-4 animate-[slideUp_0.25s_ease-out] max-h-[85dvh] shadow-[0_24px_80px_rgba(0,0,0,0.55)] lg:rounded-2xl" style={{ paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))' }}>
             <div className="mb-3 flex justify-center"><div className="h-1 w-10 rounded-full bg-gray-700" /></div>
-            <button onClick={() => setSelectedPlan(null)} className="absolute top-4 right-4 text-gray-500 hover:text-gray-300"><X size={18} /></button>
+            <button type="button" aria-label="Close plan details" onClick={() => setSelectedPlan(null)} className="absolute top-4 right-4 text-gray-500 hover:text-gray-300"><X size={18} /></button>
 
             <div className="mb-3 flex items-start gap-2.5 pr-8">
               <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl border ${selectedPlan.eligibility.isEligible ? "border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.08)] text-[#00ff41]" : "border-[#242424] bg-[#171717] text-gray-500"}`}>
@@ -458,7 +469,7 @@ function PlansPage() {
                   )}
                   {getMissingRows(selectedPlan).length > 0 && (
                     <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
-                      {getMissingRows(selectedPlan).map((row) => `${row.missing} ${row.label.toLowerCase()}`).join(" · ")} missing.
+                      Missing: {getMissingRows(selectedPlan).map((row) => `${row.missing} ${getMissingRequirementName(row.label, row.missing)}`).join(" · ")}.
                     </p>
                   )}
                 </div>
@@ -479,7 +490,7 @@ function PlansPage() {
             {!selectedPlan.eligibility.isEligible ? (
               <div className="flex gap-3">
                 <Button variant="ghost" size="sm" fullWidth onClick={() => setSelectedPlan(null)}>Close</Button>
-                <Button variant="outline" size="sm" fullWidth disabled>Locked</Button>
+                <Button variant="outline" size="sm" fullWidth disabled className="border-[#2a2a2a] bg-[#121212] text-gray-500 shadow-none disabled:opacity-100">Locked</Button>
               </div>
             ) : !walletBalanceKnown ? (
               <div className="flex gap-3">
