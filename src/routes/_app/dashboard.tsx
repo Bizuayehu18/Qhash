@@ -25,6 +25,7 @@ import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
 import { loadDashboardFn } from "@/lib/server/dashboard.js";
 import { getPlansFn } from "@/lib/server/plans.js";
+import { getSupportSettingsFn } from "@/lib/server/support-settings.js";
 import { withTimeout } from "@/lib/async.js";
 import type { Plan } from "@/lib/database.types.js";
 
@@ -35,6 +36,7 @@ export const Route = createFileRoute("/_app/dashboard")({
 type DashboardData = Awaited<ReturnType<typeof loadDashboardFn>>;
 
 const DASHBOARD_LOAD_TIMEOUT_MS = 10_000;
+const SUPPORT_SETTINGS_LOAD_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
 const MAX_AUTO_RETRIES = 2;
 
@@ -60,6 +62,8 @@ function DashboardPage() {
   const setWalletBalance = useWalletStore((s) => s.setBalance);
   const [data, setData] = useState<DashboardData | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [supportUrl, setSupportUrl] = useState<string | null>(null);
+  const [supportOpening, setSupportOpening] = useState(false);
   const loadingRef = useRef(false);
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,6 +84,47 @@ function DashboardPage() {
     retryCountRef.current += 1;
     retryTimerRef.current = setTimeout(loadFn, AUTO_RETRY_DELAY_MS);
   }, [clearRetryTimer]);
+
+  const loadSupportUrl = useCallback(async () => {
+    try {
+      const result = await withTimeout(
+        getSupportSettingsFn({ data: {} }),
+        SUPPORT_SETTINGS_LOAD_TIMEOUT_MS,
+        "Support settings request timed out.",
+      );
+      const url = result.isConfigured ? result.telegramUrl : null;
+
+      if (mountedRef.current) {
+        setSupportUrl(url);
+      }
+
+      return url;
+    } catch (err) {
+      console.error("[QHash] Support settings preload failed:", err);
+      return null;
+    }
+  }, []);
+
+  const handleSupportClick = useCallback(async () => {
+    if (supportOpening) return;
+
+    if (supportUrl) {
+      window.location.assign(supportUrl);
+      return;
+    }
+
+    setSupportOpening(true);
+    const url = await loadSupportUrl();
+
+    if (url) {
+      setSupportOpening(false);
+      window.location.assign(url);
+      return;
+    }
+
+    setSupportOpening(false);
+    window.location.assign("/support");
+  }, [loadSupportUrl, supportOpening, supportUrl]);
 
   const load = useCallback(
     async (options?: { resetRetryCount?: boolean }) => {
@@ -147,22 +192,25 @@ function DashboardPage() {
   useEffect(() => {
     mountedRef.current = true;
     void load({ resetRetryCount: true });
+    void loadSupportUrl();
 
     return () => {
       mountedRef.current = false;
       clearRetryTimer();
     };
-  }, [clearRetryTimer, load]);
+  }, [clearRetryTimer, load, loadSupportUrl]);
 
   useEffect(() => {
     const handleVisible = () => {
       if (document.visibilityState === "visible") {
         void load({ resetRetryCount: true });
+        void loadSupportUrl();
       }
     };
 
     const handleOnline = () => {
       void load({ resetRetryCount: true });
+      void loadSupportUrl();
     };
 
     document.addEventListener("visibilitychange", handleVisible);
@@ -172,7 +220,7 @@ function DashboardPage() {
       document.removeEventListener("visibilitychange", handleVisible);
       window.removeEventListener("online", handleOnline);
     };
-  }, [load]);
+  }, [load, loadSupportUrl]);
 
   const hasDashboardData = data !== null;
   const wallet = data?.wallet ?? null;
@@ -328,12 +376,22 @@ function DashboardPage() {
           description="Grow your team"
         />
 
-        <QuickActionCard
-          to="/support"
-          icon={<LifeBuoy size={15} />}
-          title="Support"
-          description="Get help fast"
-        />
+        {supportUrl ? (
+          <QuickActionCard
+            href={supportUrl}
+            icon={<LifeBuoy size={15} />}
+            title="Support"
+            description="Get help fast"
+          />
+        ) : (
+          <QuickActionCard
+            onClick={handleSupportClick}
+            disabled={supportOpening}
+            icon={<LifeBuoy size={15} />}
+            title="Support"
+            description={supportOpening ? "Opening..." : "Get help fast"}
+          />
+        )}
       </div>
 
       {/* Real Mining Status */}
@@ -518,33 +576,67 @@ function DashboardPage() {
   );
 }
 
-function QuickActionCard({
-  to,
-  icon,
-  title,
-  description,
-}: {
-  to: "/referrals" | "/support";
+type QuickActionCardProps = {
   icon: ReactNode;
   title: string;
   description: string;
-}) {
-  return (
-    <Link to={to} className="block min-w-0">
-      <div className="flex h-full items-center justify-between gap-3 rounded-xl border border-[#1a1a1a] bg-[#111] p-3 card-press">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[rgba(0,255,65,0.08)] text-[#00ff41]">
-            {icon}
-          </div>
+  disabled?: boolean;
+} & (
+  | { to: "/referrals"; href?: never; onClick?: never }
+  | { href: string; to?: never; onClick?: never }
+  | { onClick: () => void; to?: never; href?: never }
+);
 
-          <div className="min-w-0">
-            <p className="truncate text-xs font-semibold text-gray-100">{title}</p>
-            <p className="mt-0.5 truncate text-[10px] text-gray-600">{description}</p>
-          </div>
+function QuickActionCard({
+  to,
+  href,
+  onClick,
+  icon,
+  title,
+  description,
+  disabled,
+}: QuickActionCardProps) {
+  const content = (
+    <div className="flex h-full items-center justify-between gap-3 rounded-xl border border-[#1a1a1a] bg-[#111] p-3 card-press">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[rgba(0,255,65,0.08)] text-[#00ff41]">
+          {icon}
         </div>
 
-        <ChevronRight size={13} className="shrink-0 text-gray-600" />
+        <div className="min-w-0">
+          <p className="truncate text-xs font-semibold text-gray-100">{title}</p>
+          <p className="mt-0.5 truncate text-[10px] text-gray-600">{description}</p>
+        </div>
       </div>
+
+      <ChevronRight size={13} className="shrink-0 text-gray-600" />
+    </div>
+  );
+
+  if (href) {
+    return (
+      <a href={href} className="block min-w-0">
+        {content}
+      </a>
+    );
+  }
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        className="block w-full min-w-0 border-0 bg-transparent p-0 text-left disabled:cursor-wait disabled:opacity-70"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <Link to={to} className="block min-w-0">
+      {content}
     </Link>
   );
 }
