@@ -404,78 +404,82 @@ function PlansPage() {
       )}
 
       {selectedPlan && (
-        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/80 backdrop-blur-sm">
-          <div className="relative bg-[#111] border-t border-[rgba(0,255,65,0.1)] rounded-t-2xl w-full max-w-[520px] p-5 animate-[slideUp_0.25s_ease-out] max-h-[85dvh] overflow-y-auto" style={{ paddingBottom: 'calc(70px + env(safe-area-inset-bottom, 0px))' }}>
-            <div className="flex justify-center mb-4"><div className="h-1 w-10 rounded-full bg-gray-700" /></div>
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/80 backdrop-blur-sm md:items-center">
+          <div className="relative w-full max-w-[520px] overflow-y-auto rounded-t-2xl border-t border-[rgba(0,255,65,0.12)] bg-[#111] p-4 animate-[slideUp_0.25s_ease-out] max-h-[85dvh] md:rounded-2xl md:border" style={{ paddingBottom: 'calc(70px + env(safe-area-inset-bottom, 0px))' }}>
+            <div className="mb-3 flex justify-center"><div className="h-1 w-10 rounded-full bg-gray-700" /></div>
             <button onClick={() => setSelectedPlan(null)} className="absolute top-4 right-4 text-gray-500 hover:text-gray-300"><X size={18} /></button>
 
-            <div className="flex items-start gap-3 mb-4 pr-8">
-              <div className={`h-10 w-10 rounded-xl flex items-center justify-center ${selectedPlan.eligibility.isEligible ? "bg-[rgba(0,255,65,0.08)] text-[#00ff41]" : "bg-[#171717] text-gray-500"}`}>
-                {selectedPlan.eligibility.isEligible ? (PLAN_ICONS[selectedPlan.icon_key ?? "contract"] ?? <Zap size={18} />) : <Lock size={17} />}
+            <div className="mb-3 flex items-start gap-2.5 pr-8">
+              <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl border ${selectedPlan.eligibility.isEligible ? "border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.08)] text-[#00ff41]" : "border-[#242424] bg-[#171717] text-gray-500"}`}>
+                {selectedPlan.eligibility.isEligible ? (PLAN_ICONS[selectedPlan.icon_key ?? "contract"] ?? <Zap size={17} />) : <Lock size={16} />}
               </div>
-              <div>
-                <h3 className="font-bold text-base">{selectedPlan.name}</h3>
-                <p className="text-xs text-gray-500">{selectedPlan.duration_days}-Day Mining Contract</p>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <h3 className="truncate text-base font-bold leading-tight">{selectedPlan.name}</h3>
+                  {selectedPlan.is_popular && <Badge variant="neon">Popular</Badge>}
+                </div>
+                <p className="mt-0.5 text-xs text-gray-500">{selectedPlan.duration_days}-Day Mining Contract</p>
               </div>
-              {selectedPlan.is_popular && <Badge variant="neon">Popular</Badge>}
             </div>
 
-            <div className="space-y-3 mb-5">
-              <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-lg bg-[#0a0a0a] border border-[#1b1b1b] p-3">
-                  <p className="text-xs text-gray-600">Investment</p>
-                  <p className="font-black mt-1">{formatEtb(selectedPlan.investment_amount)} ETB</p>
+            <div className="mb-3 grid grid-cols-3 gap-2 rounded-xl border border-[#1b1b1b] bg-[#0a0a0a] px-3 py-2.5">
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-[0.14em] text-gray-600">Invest</p>
+                <p className="mt-1 truncate text-sm font-black text-gray-100">{formatEtb(selectedPlan.investment_amount)} <span className="text-[10px] font-normal text-gray-500">ETB</span></p>
+              </div>
+              <div className="min-w-0 text-center">
+                <p className="text-[10px] text-gray-600">Daily</p>
+                <p className="mt-1 truncate text-sm font-black text-[#00ff41]">{formatEtb(selectedPlan.daily_earning)} <span className="text-[10px] font-normal text-gray-500">ETB</span></p>
+              </div>
+              <div className="min-w-0 text-right">
+                <p className="text-[10px] text-gray-600">Total</p>
+                <p className="mt-1 truncate text-sm font-black text-gray-100">{formatEtb(selectedPlan.daily_earning * selectedPlan.duration_days)} <span className="text-[10px] font-normal text-gray-500">ETB</span></p>
+              </div>
+            </div>
+
+            <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-lg border border-[#1b1b1b] bg-[#0a0a0a] px-3 py-2">
+                <p className="text-[10px] text-gray-600">Duration</p>
+                <p className="mt-0.5 font-semibold text-gray-200">{selectedPlan.duration_days} days</p>
+              </div>
+              <div className="rounded-lg border border-[#1b1b1b] bg-[#0a0a0a] px-3 py-2 text-right">
+                <p className="text-[10px] text-gray-600">Active Limit</p>
+                <p className="mt-0.5 font-semibold text-gray-200">{selectedPlan.eligibility.activePlanCount} / {selectedPlan.eligibility.maxActivePerUser}</p>
+              </div>
+            </div>
+
+            <div className="mb-3 rounded-xl border border-[#1b1b1b] bg-[#0a0a0a] p-3">
+              <RequirementProgress plan={selectedPlan} />
+              {!selectedPlan.eligibility.isEligible && (
+                <div className="mt-2 border-t border-[#181818] pt-2">
+                  <p className="text-[11px] font-semibold text-amber-300">This contract is currently locked.</p>
+                  {selectedPlan.eligibility.limitReached && (
+                    <p className="mt-1 text-[11px] leading-relaxed text-gray-500">Active limit reached. You can purchase again after one active contract expires.</p>
+                  )}
+                  {getMissingRows(selectedPlan).length > 0 && (
+                    <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+                      {getMissingRows(selectedPlan).map((row) => `${row.missing} ${row.label.toLowerCase()}`).join(" · ")} missing.
+                    </p>
+                  )}
                 </div>
-                <div className="rounded-lg bg-[#0a0a0a] border border-[#1b1b1b] p-3 text-right">
-                  <p className="text-xs text-gray-600">Daily Yield</p>
-                  <p className="font-black text-[#00ff41] mt-1">{formatEtb(selectedPlan.daily_earning)} ETB</p>
-                </div>
-              </div>
+              )}
+            </div>
 
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Duration</span>
-                <span>{selectedPlan.duration_days} days</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Total Earnings</span>
-                <span className="text-[#00ff41] font-bold">{formatEtb(selectedPlan.daily_earning * selectedPlan.duration_days)} ETB</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Active Limit</span>
-                <span>{selectedPlan.eligibility.activePlanCount} / {selectedPlan.eligibility.maxActivePerUser}</span>
-              </div>
-
-              <div className="rounded-lg bg-[#0a0a0a] border border-[#1b1b1b] p-3">
-                <RequirementProgress plan={selectedPlan} />
-                {!selectedPlan.eligibility.isEligible && (
-                  <div className="mt-3 space-y-1.5">
-                    <p className="text-xs font-semibold text-amber-300">This contract is currently locked.</p>
-                    {selectedPlan.eligibility.limitReached && (
-                      <p className="text-[11px] text-gray-500">Active limit reached. You can purchase again after one active contract expires.</p>
-                    )}
-                    {getMissingRows(selectedPlan).map((row) => (
-                      <p key={row.label} className="text-[11px] text-gray-500">Missing {row.missing} active {row.label.toLowerCase()}.</p>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="border-t border-[#1f1f1f] pt-3 flex justify-between text-sm">
-                <span className="text-gray-500">Your Wallet</span>
-                {!walletBalanceKnown ? (
-                  <span className="skeleton inline-block h-5 w-24 rounded" aria-label="Loading wallet balance" />
-                ) : (
-                  <span className={walletBalance >= selectedPlan.investment_amount ? "text-[#00ff41]" : "text-red-400"}>
-                    {walletBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ETB
-                  </span>
-                )}
-              </div>
+            <div className="mb-4 flex items-center justify-between border-t border-[#1f1f1f] pt-3 text-sm">
+              <span className="text-gray-500">Your Wallet</span>
+              {!walletBalanceKnown ? (
+                <span className="skeleton inline-block h-5 w-24 rounded" aria-label="Loading wallet balance" />
+              ) : (
+                <span className={!selectedPlan.eligibility.isEligible ? "font-semibold text-gray-200" : walletBalance >= selectedPlan.investment_amount ? "font-semibold text-[#00ff41]" : "font-semibold text-red-400"}>
+                  {walletBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ETB
+                </span>
+              )}
             </div>
 
             {!selectedPlan.eligibility.isEligible ? (
               <div className="flex gap-3">
                 <Button variant="ghost" size="sm" fullWidth onClick={() => setSelectedPlan(null)}>Close</Button>
-                <Button variant="primary" size="sm" fullWidth disabled>Locked</Button>
+                <Button variant="outline" size="sm" fullWidth disabled>Locked</Button>
               </div>
             ) : !walletBalanceKnown ? (
               <div className="flex gap-3">
