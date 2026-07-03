@@ -89,6 +89,14 @@ function getLockReason(plan: PlanWithEligibility) {
   return "Requirements not met.";
 }
 
+function getPlanCardSummary(plan: PlanWithEligibility) {
+  if (!plan.eligibility.isEligible) return getLockReason(plan);
+
+  return getEligibilityRows(plan).length === 0
+    ? "No referral requirement"
+    : "Requirements cleared";
+}
+
 function RequirementProgress({ plan }: { plan: PlanWithEligibility }) {
   const rows = getEligibilityRows(plan);
 
@@ -118,6 +126,101 @@ function RequirementProgress({ plan }: { plan: PlanWithEligibility }) {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function PlanCard({ plan, onSelect }: { plan: PlanWithEligibility; onSelect: () => void }) {
+  const isAvailable = plan.eligibility.isEligible;
+  const iconKey = plan.icon_key ?? "contract";
+  const totalEarnings = plan.daily_earning * plan.duration_days;
+  const summary = getPlanCardSummary(plan);
+
+  return (
+    <div
+      className={`group relative overflow-hidden rounded-2xl border bg-[#101010] p-3.5 transition card-press ${
+        plan.is_popular
+          ? "border-[rgba(0,255,65,0.38)] shadow-[0_0_0_1px_rgba(0,255,65,0.08),0_18px_50px_rgba(0,255,65,0.04)]"
+          : "border-[#1b1b1b]"
+      }`}
+    >
+      {plan.is_popular && (
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#00ff41] to-transparent opacity-80" />
+      )}
+
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div
+            className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl border ${
+              isAvailable
+                ? "border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.08)] text-[#00ff41]"
+                : "border-[#242424] bg-[#171717] text-gray-500"
+            }`}
+          >
+            {isAvailable ? (PLAN_ICONS[iconKey] ?? <Zap size={17} />) : <Lock size={16} />}
+          </div>
+
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <h3 className="truncate text-sm font-bold text-gray-100">{plan.name}</h3>
+              {plan.is_popular && <Badge variant="neon">Popular</Badge>}
+            </div>
+            <p className="mt-0.5 text-[10px] text-gray-600">{plan.duration_days}-day contract</p>
+          </div>
+        </div>
+
+        <span
+          className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${
+            isAvailable
+              ? "border-[rgba(0,255,65,0.22)] bg-[rgba(0,255,65,0.05)] text-[#00ff41]"
+              : "border-amber-400/20 bg-amber-400/5 text-amber-300"
+          }`}
+        >
+          {isAvailable ? "Available" : "Locked"}
+        </span>
+      </div>
+
+      <div className="mt-3 rounded-xl border border-[#181818] bg-[#0a0a0a] p-3">
+        <p className="text-[10px] uppercase tracking-[0.16em] text-gray-600">Investment</p>
+        <p className="mt-1 text-xl font-black leading-none text-gray-100">
+          {formatEtb(plan.investment_amount)} <span className="text-[11px] font-semibold text-gray-500">ETB</span>
+        </p>
+      </div>
+
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <div className="rounded-xl border border-[#181818] bg-[#0c0c0c] p-2.5">
+          <p className="text-[10px] text-gray-600">Daily income</p>
+          <p className="mt-1 text-sm font-black text-[#00ff41]">
+            {formatEtb(plan.daily_earning)} <span className="text-[10px] font-normal text-gray-500">ETB</span>
+          </p>
+        </div>
+        <div className="rounded-xl border border-[#181818] bg-[#0c0c0c] p-2.5 text-right">
+          <p className="text-[10px] text-gray-600">Total income</p>
+          <p className="mt-1 text-sm font-black text-gray-100">
+            {formatEtb(totalEarnings)} <span className="text-[10px] font-normal text-gray-500">ETB</span>
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-2 border-t border-[#1a1a1a] pt-3">
+        <div className="flex items-center justify-between gap-3 text-[11px]">
+          <span className="text-gray-600">Active limit</span>
+          <span className="font-medium text-gray-300">{plan.eligibility.activePlanCount} / {plan.eligibility.maxActivePerUser}</span>
+        </div>
+        <div className={`rounded-lg border px-2.5 py-2 text-[11px] ${isAvailable ? "border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.04)] text-gray-400" : "border-amber-400/15 bg-amber-400/5 text-amber-200"}`}>
+          {summary}
+        </div>
+      </div>
+
+      <Button
+        variant={isAvailable ? "primary" : "ghost"}
+        size="sm"
+        fullWidth
+        className="mt-3"
+        onClick={onSelect}
+      >
+        {isAvailable ? "Purchase Contract" : "View Requirements"}
+      </Button>
     </div>
   );
 }
@@ -256,7 +359,7 @@ function PlansPage() {
         <div className="skeleton h-8 w-44 rounded-lg" />
         <div className="skeleton h-4 w-72 rounded-lg" />
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {[1, 2, 3, 4, 5, 6].map((i) => <div key={i} className="skeleton h-48 rounded-xl" />)}
+          {[1, 2, 3, 4, 5, 6].map((i) => <div key={i} className="skeleton h-44 rounded-2xl" />)}
         </div>
       </div>
     );
@@ -291,74 +394,13 @@ function PlansPage() {
         <div className="text-center py-16 text-xs text-gray-600">No contracts available at the moment.</div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {plans.map((plan) => {
-            const isAvailable = plan.eligibility.isEligible;
-            const iconKey = plan.icon_key ?? "contract";
-            return (
-              <div
-                key={plan.id}
-                className={`rounded-xl border bg-[#101010] p-3 transition card-press ${
-                  plan.is_popular
-                    ? "border-[rgba(0,255,65,0.35)] shadow-[0_0_0_1px_rgba(0,255,65,0.08)]"
-                    : "border-[#1b1b1b]"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className={`h-9 w-9 shrink-0 rounded-lg flex items-center justify-center ${isAvailable ? "bg-[rgba(0,255,65,0.08)] text-[#00ff41]" : "bg-[#171717] text-gray-500"}`}>
-                      {isAvailable ? (PLAN_ICONS[iconKey] ?? <Zap size={17} />) : <Lock size={16} />}
-                    </div>
-                    <div className="min-w-0">
-                      <h3 className="font-bold text-sm truncate">{plan.name}</h3>
-                      <p className="text-[10px] text-gray-600">{plan.duration_days}-Day Mining Contract</p>
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-1">
-                    {plan.is_popular && <Badge variant="neon">Popular</Badge>}
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${isAvailable ? "text-[#00ff41] border-[rgba(0,255,65,0.22)] bg-[rgba(0,255,65,0.05)]" : "text-amber-300 border-amber-400/20 bg-amber-400/5"}`}>
-                      {isAvailable ? "Available" : "Locked"}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 mb-3">
-                  <div className="rounded-lg bg-[#0a0a0a] border border-[#171717] p-2.5">
-                    <p className="text-[10px] text-gray-600">Investment</p>
-                    <p className="text-sm font-black mt-0.5">{formatEtb(plan.investment_amount)} <span className="text-[10px] font-normal text-gray-500">ETB</span></p>
-                  </div>
-                  <div className="rounded-lg bg-[#0a0a0a] border border-[#171717] p-2.5 text-right">
-                    <p className="text-[10px] text-gray-600">Daily Yield</p>
-                    <p className="text-sm font-black text-[#00ff41] mt-0.5">{formatEtb(plan.daily_earning)} <span className="text-[10px] font-normal text-gray-500">ETB</span></p>
-                  </div>
-                </div>
-
-                <div className="space-y-2 mb-3">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-500">Total Earnings</span>
-                    <span className="font-bold text-[#00ff41]">{formatEtb(plan.daily_earning * plan.duration_days)} ETB</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-500">Active Limit</span>
-                    <span className="font-medium">{plan.eligibility.activePlanCount} / {plan.eligibility.maxActivePerUser}</span>
-                  </div>
-                </div>
-
-                <div className="rounded-lg bg-[#0a0a0a] border border-[#171717] p-2.5 mb-3">
-                  <RequirementProgress plan={plan} />
-                  {!isAvailable && <p className="text-[11px] text-amber-300 mt-2">{getLockReason(plan)}</p>}
-                </div>
-
-                <Button
-                  variant={isAvailable ? "primary" : "ghost"}
-                  size="sm"
-                  fullWidth
-                  onClick={() => setSelectedPlan(plan)}
-                >
-                  {isAvailable ? "Purchase Contract" : "View Requirements"}
-                </Button>
-              </div>
-            );
-          })}
+          {plans.map((plan) => (
+            <PlanCard
+              key={plan.id}
+              plan={plan}
+              onSelect={() => setSelectedPlan(plan)}
+            />
+          ))}
         </div>
       )}
 
