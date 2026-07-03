@@ -138,88 +138,88 @@ function PlanCard({ plan, onSelect }: { plan: PlanWithEligibility; onSelect: () 
 
   return (
     <div
-      className={`group relative overflow-hidden rounded-2xl border bg-[#101010] p-3.5 transition card-press ${
+      className={`group relative overflow-hidden rounded-xl border bg-[#101010] p-3 transition card-press ${
         plan.is_popular
-          ? "border-[rgba(0,255,65,0.38)] shadow-[0_0_0_1px_rgba(0,255,65,0.08),0_18px_50px_rgba(0,255,65,0.04)]"
+          ? "border-[rgba(0,255,65,0.38)] shadow-[0_0_0_1px_rgba(0,255,65,0.08)]"
           : "border-[#1b1b1b]"
       }`}
     >
-      {plan.is_popular && (
-        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#00ff41] to-transparent opacity-80" />
-      )}
+      {plan.is_popular && <div className="absolute inset-x-0 top-0 h-px bg-[#00ff41]/80" />}
 
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2.5">
+      <div className="flex items-start justify-between gap-2.5">
+        <div className="flex min-w-0 items-center gap-2">
           <div
-            className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl border ${
+            className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg border ${
               isAvailable
                 ? "border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.08)] text-[#00ff41]"
                 : "border-[#242424] bg-[#171717] text-gray-500"
             }`}
           >
-            {isAvailable ? (PLAN_ICONS[iconKey] ?? <Zap size={17} />) : <Lock size={16} />}
+            {isAvailable ? (PLAN_ICONS[iconKey] ?? <Zap size={16} />) : <Lock size={15} />}
           </div>
 
           <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-1.5">
-              <h3 className="truncate text-sm font-bold text-gray-100">{plan.name}</h3>
-              {plan.is_popular && <Badge variant="neon">Popular</Badge>}
-            </div>
+            <h3 className="truncate text-sm font-bold leading-tight text-gray-100">{plan.name}</h3>
             <p className="mt-0.5 text-[10px] text-gray-600">{plan.duration_days}-day contract</p>
           </div>
         </div>
 
-        <span
-          className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${
-            isAvailable
-              ? "border-[rgba(0,255,65,0.22)] bg-[rgba(0,255,65,0.05)] text-[#00ff41]"
-              : "border-amber-400/20 bg-amber-400/5 text-amber-300"
-          }`}
-        >
-          {isAvailable ? "Available" : "Locked"}
-        </span>
+        <div className="flex shrink-0 items-center gap-1">
+          {plan.is_popular && <Badge variant="neon">Popular</Badge>}
+          <span
+            className={`rounded-full border px-1.5 py-0.5 text-[9px] ${
+              isAvailable
+                ? "border-[rgba(0,255,65,0.22)] bg-[rgba(0,255,65,0.05)] text-[#00ff41]"
+                : "border-amber-400/20 bg-amber-400/5 text-amber-300"
+            }`}
+          >
+            {isAvailable ? "Open" : "Locked"}
+          </span>
+        </div>
       </div>
 
-      <div className="mt-3 rounded-xl border border-[#181818] bg-[#0a0a0a] p-3">
-        <p className="text-[10px] uppercase tracking-[0.16em] text-gray-600">Investment</p>
-        <p className="mt-1 text-xl font-black leading-none text-gray-100">
-          {formatEtb(plan.investment_amount)} <span className="text-[11px] font-semibold text-gray-500">ETB</span>
-        </p>
-      </div>
-
-      <div className="mt-2 grid grid-cols-2 gap-2">
-        <div className="rounded-xl border border-[#181818] bg-[#0c0c0c] p-2.5">
-          <p className="text-[10px] text-gray-600">Daily income</p>
-          <p className="mt-1 text-sm font-black text-[#00ff41]">
-            {formatEtb(plan.daily_earning)} <span className="text-[10px] font-normal text-gray-500">ETB</span>
+      <div className="mt-2.5 flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-gray-600">Investment</p>
+          <p className="mt-0.5 text-lg font-black leading-none text-gray-100">
+            {formatEtb(plan.investment_amount)} <span className="text-[10px] font-semibold text-gray-500">ETB</span>
           </p>
         </div>
-        <div className="rounded-xl border border-[#181818] bg-[#0c0c0c] p-2.5 text-right">
-          <p className="text-[10px] text-gray-600">Total income</p>
-          <p className="mt-1 text-sm font-black text-gray-100">
-            {formatEtb(totalEarnings)} <span className="text-[10px] font-normal text-gray-500">ETB</span>
+        <div className="shrink-0 text-right">
+          <p className="text-[10px] text-gray-600">Limit</p>
+          <p className="mt-0.5 text-xs font-semibold text-gray-300">
+            {plan.eligibility.activePlanCount}/{plan.eligibility.maxActivePerUser}
           </p>
         </div>
       </div>
 
-      <div className="mt-3 space-y-2 border-t border-[#1a1a1a] pt-3">
-        <div className="flex items-center justify-between gap-3 text-[11px]">
-          <span className="text-gray-600">Active limit</span>
-          <span className="font-medium text-gray-300">{plan.eligibility.activePlanCount} / {plan.eligibility.maxActivePerUser}</span>
+      <div className="mt-2 grid grid-cols-2 overflow-hidden rounded-lg border border-[#181818] bg-[#0a0a0a]">
+        <div className="p-2">
+          <p className="text-[9px] text-gray-600">Daily</p>
+          <p className="mt-0.5 text-xs font-black text-[#00ff41]">
+            {formatEtb(plan.daily_earning)} <span className="text-[9px] font-normal text-gray-500">ETB</span>
+          </p>
         </div>
-        <div className={`rounded-lg border px-2.5 py-2 text-[11px] ${isAvailable ? "border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.04)] text-gray-400" : "border-amber-400/15 bg-amber-400/5 text-amber-200"}`}>
-          {summary}
+        <div className="border-l border-[#181818] p-2 text-right">
+          <p className="text-[9px] text-gray-600">Total</p>
+          <p className="mt-0.5 text-xs font-black text-gray-100">
+            {formatEtb(totalEarnings)} <span className="text-[9px] font-normal text-gray-500">ETB</span>
+          </p>
         </div>
       </div>
+
+      <p className={`mt-2 truncate rounded-lg px-2 py-1.5 text-[10px] ${isAvailable ? "bg-[rgba(0,255,65,0.04)] text-gray-400" : "bg-amber-400/5 text-amber-200"}`}>
+        {summary}
+      </p>
 
       <Button
         variant={isAvailable ? "primary" : "ghost"}
         size="sm"
         fullWidth
-        className="mt-3"
+        className="mt-2"
         onClick={onSelect}
       >
-        {isAvailable ? "Purchase Contract" : "View Requirements"}
+        {isAvailable ? "Purchase" : "View Requirements"}
       </Button>
     </div>
   );
@@ -359,7 +359,7 @@ function PlansPage() {
         <div className="skeleton h-8 w-44 rounded-lg" />
         <div className="skeleton h-4 w-72 rounded-lg" />
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {[1, 2, 3, 4, 5, 6].map((i) => <div key={i} className="skeleton h-44 rounded-2xl" />)}
+          {[1, 2, 3, 4, 5, 6].map((i) => <div key={i} className="skeleton h-36 rounded-xl" />)}
         </div>
       </div>
     );
