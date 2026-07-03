@@ -65,10 +65,12 @@ function ProfilePage() {
     const url = await loadSupportUrl();
 
     if (url) {
+      setSupportOpening(false);
       window.location.assign(url);
       return;
     }
 
+    setSupportOpening(false);
     window.location.assign("/support");
   }, [loadSupportUrl, supportOpening, supportUrl]);
 
