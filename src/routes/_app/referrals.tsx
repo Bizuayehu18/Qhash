@@ -204,7 +204,7 @@ function ReferralsPage() {
   const filteredMembers = filterMembersByLevel(stats.members, teamLevelFilter);
 
   return (
-    <div className="space-y-5 lg:mx-auto lg:grid lg:max-w-4xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
+    <div className="space-y-5 lg:mx-auto lg:grid lg:max-w-5xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
       <div className="lg:col-span-12">
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
           Affiliate Program
@@ -212,7 +212,7 @@ function ReferralsPage() {
         <h1 className="mt-1 text-lg font-bold leading-tight text-gray-100">
           Team
         </h1>
-        <p className="mt-1 text-xs text-gray-500">
+        <p className="mt-1 text-xs leading-relaxed text-gray-500">
           Invite friends, grow your mining team, and earn rewards automatically.
         </p>
       </div>
@@ -273,6 +273,7 @@ function ReferralsPage() {
 
       <div className="space-y-3 lg:col-span-4">
         <TodaysRewardsCard stats={stats} loading={!statsLoaded} />
+        <RewardHistoryCard className="hidden lg:block" />
       </div>
 
       <div className="flex flex-col gap-3 lg:col-span-8">
@@ -291,22 +292,7 @@ function ReferralsPage() {
           <HowRewardsCard />
         </div>
 
-        <Card className="order-2 lg:order-none">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-gray-100">Reward History</p>
-              <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
-                Referral bonuses also appear in your transaction history.
-              </p>
-            </div>
-            <Link
-              to="/transactions"
-              className="flex shrink-0 items-center gap-0.5 rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-2.5 py-1.5 text-[10px] font-semibold text-gray-400 card-press hover:text-white"
-            >
-              View <ChevronRight size={12} />
-            </Link>
-          </div>
-        </Card>
+        <RewardHistoryCard className="order-2 lg:hidden" />
       </div>
     </div>
   );
@@ -575,13 +561,18 @@ function TeamMemberRow({ member }: { member: ReferralMember }) {
   const displayName = member.name ? `@${member.name}` : "Team member";
 
   return (
-    <div className="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-gray-100">{displayName}</p>
-          <p className="mt-1 text-[10px] text-gray-600">
-            Level {member.level} · Joined {formatJoinedDate(member.joinedAt)}
-          </p>
+    <div className="rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.06)]">
+            <span className="text-[10px] font-bold text-[#00ff41]">L{member.level}</span>
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-gray-100">{displayName}</p>
+            <p className="mt-0.5 text-[10px] text-gray-600">
+              Joined {formatJoinedDate(member.joinedAt)}
+            </p>
+          </div>
         </div>
         <span
           className={[
@@ -615,6 +606,27 @@ function TierRow({
       <span className="flex-1 text-xs text-gray-300">{label}</span>
       <span className="text-sm font-bold text-[#00ff41]">{rate}</span>
     </div>
+  );
+}
+
+function RewardHistoryCard({ className = "" }: { className?: string }) {
+  return (
+    <Card className={className}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-100">Reward History</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+            Referral bonuses also appear in your transaction history.
+          </p>
+        </div>
+        <Link
+          to="/transactions"
+          className="flex shrink-0 items-center gap-0.5 rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-2.5 py-1.5 text-[10px] font-semibold text-gray-400 card-press hover:text-white"
+        >
+          View <ChevronRight size={12} />
+        </Link>
+      </div>
+    </Card>
   );
 }
 
