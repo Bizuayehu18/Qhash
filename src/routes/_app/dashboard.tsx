@@ -1,7 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  TrendingUp,
   Cpu,
   Layers,
   ChevronRight,
@@ -39,23 +38,28 @@ const SUPPORT_SETTINGS_LOAD_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
 const MAX_AUTO_RETRIES = 2;
 
+function formatDashboardAmount(value: number) {
+  return value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 function CompactMetric({
   label,
   value,
   caption,
   loading,
-  accent,
 }: {
   label: string;
   value: ReactNode;
   caption?: string;
   loading?: boolean;
-  accent?: boolean;
 }) {
   return (
-    <div className="min-w-0 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] px-2.5 py-2">
+    <div className="min-w-0 rounded-xl border border-[#1a1a1a] bg-[#111] px-3 py-2.5">
       <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">{label}</p>
-      <div className={`mt-0.5 truncate text-sm font-black leading-tight ${accent ? "text-[#00ff41]" : "text-gray-100"}`}>
+      <div className="mt-0.5 truncate text-sm font-black leading-tight text-[#00ff41]">
         {loading ? <span className="skeleton inline-block h-4 w-14 rounded" /> : value}
       </div>
       {caption && <p className="mt-0.5 truncate text-[9px] text-gray-700">{caption}</p>}
@@ -273,7 +277,7 @@ function DashboardPage() {
         )}
       </div>
 
-      {/* Compact Overview */}
+      {/* Balance Card */}
       <div className="relative overflow-hidden rounded-2xl border border-[rgba(0,255,65,0.14)] bg-[#111] p-4 lg:col-span-12 lg:p-5">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[rgba(0,255,65,0.5)] to-transparent" />
 
@@ -284,10 +288,7 @@ function DashboardPage() {
               {balance === null ? (
                 <span className="skeleton inline-block h-8 w-28 rounded-md" aria-label="Loading balance" />
               ) : (
-                balance.toLocaleString("en-US", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })
+                formatDashboardAmount(balance)
               )}
               <span className="ml-1.5 text-sm font-normal text-gray-500">ETB</span>
             </p>
@@ -305,31 +306,7 @@ function DashboardPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2.5">
-          <CompactMetric
-            label="Today"
-            value={<AmountText value={incomeSummary?.todayTotalIncome ?? 0} currency="" size="sm" />}
-            caption="Income"
-            accent
-            loading={!hasDashboardData}
-          />
-          <CompactMetric
-            label="Total"
-            value={<AmountText value={incomeSummary?.totalIncome ?? 0} currency="" size="sm" />}
-            caption="Income"
-            accent
-            loading={!hasDashboardData}
-          />
-          <CompactMetric
-            label="Plans"
-            value={<span className="font-mono text-sm font-black text-[#00ff41]">{activeInvestments.length}</span>}
-            caption="Active"
-            accent
-            loading={!hasDashboardData}
-          />
-        </div>
-
-        <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <Link to="/deposit" className="min-w-0">
             <button className="flex w-full items-center justify-center gap-1 rounded-xl bg-[#00ff41] px-2 py-2.5 text-[11px] font-bold text-black card-press">
               <ArrowDownCircle size={13} />
@@ -351,6 +328,28 @@ function DashboardPage() {
             </button>
           </Link>
         </div>
+      </div>
+
+      {/* Stats Row */}
+      <div className="grid grid-cols-3 gap-2.5 lg:col-span-12">
+        <CompactMetric
+          label="Today"
+          value={formatDashboardAmount(incomeSummary?.todayTotalIncome ?? 0)}
+          caption="Income"
+          loading={!hasDashboardData}
+        />
+        <CompactMetric
+          label="Total"
+          value={formatDashboardAmount(incomeSummary?.totalIncome ?? 0)}
+          caption="Income"
+          loading={!hasDashboardData}
+        />
+        <CompactMetric
+          label="Plans"
+          value={<span className="font-mono text-sm font-black text-[#00ff41]">{activeInvestments.length}</span>}
+          caption="Active"
+          loading={!hasDashboardData}
+        />
       </div>
 
       {/* Quick Actions */}
@@ -423,18 +422,21 @@ function DashboardPage() {
               const elapsedMs = Math.min(nowMs - startMs, totalMs);
               const progress = totalMs > 0 ? (elapsedMs / totalMs) * 100 : 0;
               const clampedProgress = Math.max(0, Math.min(progress, 100));
+              const roundedProgress = Math.round(clampedProgress);
               const daysRemaining = Math.max(0, Math.ceil((endMs - nowMs) / (24 * 60 * 60 * 1000)));
 
               return (
-                <div key={inv.id} className="relative overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#111] p-3.5">
-                  <div className="mb-3 flex items-start justify-between gap-3">
+                <div key={inv.id} className="relative overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#111] p-3">
+                  <div className="flex items-start justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-2.5">
                       <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.08)] text-[#00ff41]">
                         <Cpu size={14} />
                       </div>
                       <div className="min-w-0">
                         <p className="truncate text-sm font-bold leading-tight text-gray-100">{getPlanName(inv.plan_id)}</p>
-                        <p className="mt-0.5 text-[10px] text-gray-600">{dailyEarningText} ETB/day active rate</p>
+                        <p className="mt-0.5 truncate text-[10px] text-gray-600">
+                          {formatDashboardAmount(inv.daily_earning)} ETB/day · {roundedProgress}% progress
+                        </p>
                       </div>
                     </div>
                     <span className="shrink-0 rounded-full border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.05)] px-2 py-0.5 text-[10px] text-[#00ff41]">
@@ -442,32 +444,33 @@ function DashboardPage() {
                     </span>
                   </div>
 
-                  <div className="mb-2 flex items-center justify-between gap-3 text-[10px] text-gray-600">
-                    <span>Progress</span>
-                    <span>{Math.round(clampedProgress)}%</span>
-                  </div>
-
-                  <div className="h-1.5 overflow-hidden rounded-full bg-[#1a1a1a]">
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#1a1a1a]">
                     <div
                       className="h-full rounded-full bg-gradient-to-r from-[#00ff41] to-[#00cc33] transition-all"
                       style={{ width: `${clampedProgress}%` }}
                     />
                   </div>
 
-                  <div className="mt-3 grid grid-cols-3 gap-2 rounded-lg border border-[#181818] bg-[#0a0a0a] px-2.5 py-2">
+                  <div className="mt-2 grid grid-cols-3 gap-2 rounded-lg border border-[#181818] bg-[#0a0a0a] px-2.5 py-2">
                     <div className="min-w-0">
                       <p className="truncate text-[9px] uppercase tracking-[0.12em] text-gray-600">Invested</p>
-                      <AmountText value={inv.invested_amount} tone="neutral" size="sm" className="mt-0.5 block truncate" />
+                      <p className="mt-0.5 truncate text-xs font-black text-gray-100">
+                        {formatDashboardAmount(inv.invested_amount)} <span className="text-[9px] font-normal text-gray-500">ETB</span>
+                      </p>
                     </div>
 
                     <div className="min-w-0 text-center">
                       <p className="truncate text-[9px] text-gray-600">Daily</p>
-                      <AmountText value={inv.daily_earning} tone="neutral" size="sm" className="mt-0.5 block truncate" />
+                      <p className="mt-0.5 truncate text-xs font-black text-gray-100">
+                        {formatDashboardAmount(inv.daily_earning)} <span className="text-[9px] font-normal text-gray-500">ETB</span>
+                      </p>
                     </div>
 
                     <div className="min-w-0 text-right">
                       <p className="truncate text-[9px] text-gray-600">Earned</p>
-                      <AmountText value={inv.total_earned} tone="positive" size="sm" className="mt-0.5 block truncate" />
+                      <p className="mt-0.5 truncate text-xs font-black text-[#00ff41]">
+                        {formatDashboardAmount(inv.total_earned)} <span className="text-[9px] font-normal text-gray-500">ETB</span>
+                      </p>
                     </div>
                   </div>
                 </div>
