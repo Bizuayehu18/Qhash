@@ -68,17 +68,17 @@ function CompactMetric({
   return (
     <div
       className={[
-        "min-w-0 rounded-xl border px-3 py-2.5",
+        "min-w-0 rounded-xl border px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]",
         accent
-          ? "border-[rgba(0,255,65,0.22)] bg-[rgba(0,255,65,0.07)] shadow-[0_0_18px_rgba(0,255,65,0.05)]"
-          : "border-[#1a1a1a] bg-[#111]",
+          ? "border-[rgba(0,255,65,0.15)] bg-[rgba(0,255,65,0.035)]"
+          : "border-[rgba(255,255,255,0.07)] bg-[#121212]",
       ].join(" ")}
     >
       <div className="grid grid-cols-[14px_minmax(0,1fr)] gap-x-1.5">
         <p
           className={[
             "col-start-2 truncate text-[9px] uppercase tracking-[0.14em]",
-            accent ? "text-[#00ff41]/70" : "text-gray-600",
+            accent ? "text-[#00ff41]/65" : "text-gray-500",
           ].join(" ")}
         >
           {label}
@@ -86,7 +86,7 @@ function CompactMetric({
         <span
           className={[
             "col-start-1 row-start-2 mt-0.5 flex h-4 items-center justify-center",
-            accent ? "text-[#00ff41]" : "text-gray-500",
+            accent ? "text-[#00ff41]" : "text-[#00ff41]/65",
           ].join(" ")}
         >
           {!loading && icon}
@@ -99,7 +99,16 @@ function CompactMetric({
         >
           {loading ? <span className="skeleton inline-block h-4 w-14 rounded" /> : value}
         </div>
-        {caption && <p className="col-start-2 row-start-3 mt-0.5 truncate text-[9px] text-gray-700">{caption}</p>}
+        {caption && (
+          <p
+            className={[
+              "col-start-2 row-start-3 mt-0.5 truncate text-[9px]",
+              accent ? "text-[#00ff41]/45" : "text-gray-700",
+            ].join(" ")}
+          >
+            {caption}
+          </p>
+        )}
       </div>
     </div>
   );
