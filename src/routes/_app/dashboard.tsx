@@ -61,18 +61,16 @@ function CompactMetric({
 }) {
   return (
     <div className="min-w-0 rounded-xl border border-[#1a1a1a] bg-[#111] px-3 py-2.5">
-      <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">{label}</p>
-      <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-sm font-black leading-tight text-[#00ff41]">
-        {loading ? (
-          <span className="skeleton inline-block h-4 w-14 rounded" />
-        ) : (
-          <>
-            {icon && <span className="shrink-0 text-[#00ff41]">{icon}</span>}
-            <span className="min-w-0 truncate">{value}</span>
-          </>
-        )}
+      <div className="grid grid-cols-[14px_minmax(0,1fr)] gap-x-1.5">
+        <p className="col-start-2 truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">{label}</p>
+        <span className="col-start-1 row-start-2 mt-0.5 flex h-4 items-center justify-center text-[#00ff41]">
+          {!loading && icon}
+        </span>
+        <div className="col-start-2 row-start-2 mt-0.5 min-w-0 truncate text-sm font-black leading-tight text-[#00ff41]">
+          {loading ? <span className="skeleton inline-block h-4 w-14 rounded" /> : value}
+        </div>
+        {caption && <p className="col-start-2 row-start-3 mt-0.5 truncate text-[9px] text-gray-700">{caption}</p>}
       </div>
-      {caption && <p className="mt-0.5 truncate text-[9px] text-gray-700">{caption}</p>}
     </div>
   );
 }
