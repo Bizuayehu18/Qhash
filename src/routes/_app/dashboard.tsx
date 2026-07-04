@@ -238,18 +238,9 @@ function DashboardPage() {
   const wallet = data?.wallet ?? null;
   const activeInvestments = data?.activeInvestments ?? [];
   const completedInvestments = data?.completedInvestments ?? [];
-  const dailyEarningRate = hasDashboardData ? data.dailyEarningRate : null;
   const incomeSummary = data?.incomeSummary ?? null;
   const recentTransactions = data?.recentTransactions ?? [];
   const balance = walletBalance ?? wallet?.balance ?? null;
-
-  const dailyEarningText =
-    dailyEarningRate === null
-      ? "0.00"
-      : dailyEarningRate.toLocaleString("en-US", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        });
 
   const getPlanName = (planId: string) => {
     const plan = plans.find((p) => p.id === planId);
@@ -301,14 +292,14 @@ function DashboardPage() {
               }`}
             />
             <span className="text-[10px] text-gray-600">
-              {activeInvestments.length > 0 ? `${activeInvestments.length} active · ${dailyEarningText}/day` : "Wallet Ready"}
+              {activeInvestments.length > 0 ? "Mining active" : "Wallet ready"}
             </span>
           </div>
         </div>
 
         <div className="grid grid-cols-3 gap-2">
           <Link to="/deposit" className="min-w-0">
-            <button className="flex w-full items-center justify-center gap-1 rounded-xl bg-[#00ff41] px-2 py-2.5 text-[11px] font-bold text-black card-press">
+            <button className="flex w-full items-center justify-center gap-1 rounded-xl border border-[rgba(0,255,65,0.28)] bg-[rgba(0,255,65,0.88)] px-2 py-2.5 text-[11px] font-bold text-black card-press">
               <ArrowDownCircle size={13} />
               Deposit
             </button>
@@ -333,7 +324,7 @@ function DashboardPage() {
       {/* Stats Row */}
       <div className="grid grid-cols-3 gap-2.5 lg:col-span-12">
         <CompactMetric
-          label="Today"
+          label="Today's"
           value={formatDashboardAmount(incomeSummary?.todayTotalIncome ?? 0)}
           caption="Income"
           loading={!hasDashboardData}
@@ -346,7 +337,7 @@ function DashboardPage() {
         />
         <CompactMetric
           label="Plans"
-          value={<span className="font-mono text-sm font-black text-[#00ff41]">{activeInvestments.length}</span>}
+          value={activeInvestments.length}
           caption="Active"
           loading={!hasDashboardData}
         />
@@ -435,7 +426,7 @@ function DashboardPage() {
                       <div className="min-w-0">
                         <p className="truncate text-sm font-bold leading-tight text-gray-100">{getPlanName(inv.plan_id)}</p>
                         <p className="mt-0.5 truncate text-[10px] text-gray-600">
-                          {formatDashboardAmount(inv.daily_earning)} ETB/day · {roundedProgress}% progress
+                          {formatDashboardAmount(inv.daily_earning)} ETB/day · {roundedProgress}% complete
                         </p>
                       </div>
                     </div>
