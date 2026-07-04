@@ -56,21 +56,47 @@ function CompactMetric({
   caption,
   loading,
   icon,
+  accent,
 }: {
   label: string;
   value: ReactNode;
   caption?: string;
   loading?: boolean;
   icon?: ReactNode;
+  accent?: boolean;
 }) {
   return (
-    <div className="min-w-0 rounded-xl border border-[#1a1a1a] bg-[#111] px-3 py-2.5">
+    <div
+      className={[
+        "min-w-0 rounded-xl border px-3 py-2.5",
+        accent
+          ? "border-[rgba(0,255,65,0.22)] bg-[rgba(0,255,65,0.07)] shadow-[0_0_18px_rgba(0,255,65,0.05)]"
+          : "border-[#1a1a1a] bg-[#111]",
+      ].join(" ")}
+    >
       <div className="grid grid-cols-[14px_minmax(0,1fr)] gap-x-1.5">
-        <p className="col-start-2 truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">{label}</p>
-        <span className="col-start-1 row-start-2 mt-0.5 flex h-4 items-center justify-center text-[#00ff41]">
+        <p
+          className={[
+            "col-start-2 truncate text-[9px] uppercase tracking-[0.14em]",
+            accent ? "text-[#00ff41]/70" : "text-gray-600",
+          ].join(" ")}
+        >
+          {label}
+        </p>
+        <span
+          className={[
+            "col-start-1 row-start-2 mt-0.5 flex h-4 items-center justify-center",
+            accent ? "text-[#00ff41]" : "text-gray-500",
+          ].join(" ")}
+        >
           {!loading && icon}
         </span>
-        <div className="col-start-2 row-start-2 mt-0.5 min-w-0 truncate text-sm font-black leading-tight text-[#00ff41]">
+        <div
+          className={[
+            "col-start-2 row-start-2 mt-0.5 min-w-0 truncate text-sm font-black leading-tight",
+            accent ? "text-[#00ff41]" : "text-gray-100",
+          ].join(" ")}
+        >
           {loading ? <span className="skeleton inline-block h-4 w-14 rounded" /> : value}
         </div>
         {caption && <p className="col-start-2 row-start-3 mt-0.5 truncate text-[9px] text-gray-700">{caption}</p>}
@@ -341,6 +367,7 @@ function DashboardPage() {
           caption="Income"
           loading={!hasDashboardData}
           icon={<TrendingUp size={13} />}
+          accent
         />
         <CompactMetric
           label="Total"
