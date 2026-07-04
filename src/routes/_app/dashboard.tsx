@@ -364,15 +364,15 @@ function DashboardPage() {
         <CompactMetric
           label="Today's"
           value={formatDashboardEtb(incomeSummary?.todayTotalIncome ?? 0)}
-          caption="Income"
+          caption="Total Income"
           loading={!hasDashboardData}
           icon={<TrendingUp size={13} />}
           accent
         />
         <CompactMetric
-          label="Total"
+          label="All Time"
           value={formatDashboardEtb(incomeSummary?.totalIncome ?? 0)}
-          caption="Income"
+          caption="Total Income"
           loading={!hasDashboardData}
           icon={<TrendingUp size={13} />}
         />
