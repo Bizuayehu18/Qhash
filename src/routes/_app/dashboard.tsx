@@ -9,6 +9,7 @@ import {
   Server,
   UserPlus,
   LifeBuoy,
+  TrendingUp,
 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
@@ -50,17 +51,26 @@ function CompactMetric({
   value,
   caption,
   loading,
+  icon,
 }: {
   label: string;
   value: ReactNode;
   caption?: string;
   loading?: boolean;
+  icon?: ReactNode;
 }) {
   return (
     <div className="min-w-0 rounded-xl border border-[#1a1a1a] bg-[#111] px-3 py-2.5">
       <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">{label}</p>
-      <div className="mt-0.5 truncate text-sm font-black leading-tight text-[#00ff41]">
-        {loading ? <span className="skeleton inline-block h-4 w-14 rounded" /> : value}
+      <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-sm font-black leading-tight text-[#00ff41]">
+        {loading ? (
+          <span className="skeleton inline-block h-4 w-14 rounded" />
+        ) : (
+          <>
+            {icon && <span className="shrink-0 text-[#00ff41]">{icon}</span>}
+            <span className="min-w-0 truncate">{value}</span>
+          </>
+        )}
       </div>
       {caption && <p className="mt-0.5 truncate text-[9px] text-gray-700">{caption}</p>}
     </div>
@@ -328,18 +338,21 @@ function DashboardPage() {
           value={formatDashboardAmount(incomeSummary?.todayTotalIncome ?? 0)}
           caption="Income"
           loading={!hasDashboardData}
+          icon={<TrendingUp size={13} />}
         />
         <CompactMetric
           label="Total"
           value={formatDashboardAmount(incomeSummary?.totalIncome ?? 0)}
           caption="Income"
           loading={!hasDashboardData}
+          icon={<TrendingUp size={13} />}
         />
         <CompactMetric
           label="Plans"
           value={activeInvestments.length}
           caption="Active"
           loading={!hasDashboardData}
+          icon={<Layers size={13} />}
         />
       </div>
 
