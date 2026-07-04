@@ -46,6 +46,10 @@ function formatDashboardAmount(value: number) {
   });
 }
 
+function formatDashboardEtb(value: number) {
+  return `${formatDashboardAmount(value)} ETB`;
+}
+
 function CompactMetric({
   label,
   value,
@@ -330,27 +334,20 @@ function DashboardPage() {
       </div>
 
       {/* Stats Row */}
-      <div className="grid grid-cols-3 gap-2.5 lg:col-span-12">
+      <div className="grid grid-cols-2 gap-2.5 lg:col-span-12">
         <CompactMetric
           label="Today's"
-          value={formatDashboardAmount(incomeSummary?.todayTotalIncome ?? 0)}
+          value={formatDashboardEtb(incomeSummary?.todayTotalIncome ?? 0)}
           caption="Income"
           loading={!hasDashboardData}
           icon={<TrendingUp size={13} />}
         />
         <CompactMetric
           label="Total"
-          value={formatDashboardAmount(incomeSummary?.totalIncome ?? 0)}
+          value={formatDashboardEtb(incomeSummary?.totalIncome ?? 0)}
           caption="Income"
           loading={!hasDashboardData}
           icon={<TrendingUp size={13} />}
-        />
-        <CompactMetric
-          label="Plans"
-          value={activeInvestments.length}
-          caption="Active"
-          loading={!hasDashboardData}
-          icon={<Layers size={13} />}
         />
       </div>
 
