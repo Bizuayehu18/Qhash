@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Users,
   Copy,
@@ -271,27 +271,23 @@ function ReferralsPage() {
         )}
       </Card>
 
-      <div className="space-y-3 lg:col-span-4">
-        <TodaysRewardsCard stats={stats} loading={!statsLoaded} />
+      <ReferralStatsTiles stats={stats} loading={!statsLoaded} />
+
+      <div className="lg:col-span-8">
+        <MyTeamCard
+          members={filteredMembers}
+          totalMembers={stats.members.length}
+          levelCounts={levelCounts}
+          activeFilter={teamLevelFilter}
+          onFilterChange={setTeamLevelFilter}
+          loading={!statsLoaded}
+        />
       </div>
 
-      <div className="flex flex-col gap-3 lg:col-span-8">
-        <div className="order-0 lg:order-none">
-          <MyTeamCard
-            members={filteredMembers}
-            totalMembers={stats.members.length}
-            levelCounts={levelCounts}
-            activeFilter={teamLevelFilter}
-            onFilterChange={setTeamLevelFilter}
-            loading={!statsLoaded}
-          />
-        </div>
+      <div className="space-y-3 lg:col-span-4">
+        <HowRewardsCard />
 
-        <div className="order-1 lg:order-none">
-          <HowRewardsCard />
-        </div>
-
-        <Card className="order-2 lg:order-none">
+        <Card>
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-semibold text-gray-100">Reward History</p>
@@ -312,7 +308,7 @@ function ReferralsPage() {
   );
 }
 
-function TodaysRewardsCard({
+function ReferralStatsTiles({
   stats,
   loading,
 }: {
@@ -320,92 +316,81 @@ function TodaysRewardsCard({
   loading: boolean;
 }) {
   return (
-    <Card neon padding="sm">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <TrendingUp size={15} className="text-[#00ff41]" />
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#00ff41]">
-              Team Rewards
-            </p>
-          </div>
-          <p className="mt-1 text-[10px] leading-relaxed text-gray-600">
-            Today&apos;s referral income
-          </p>
-        </div>
-
-        <div className="shrink-0 text-right">
-          {loading ? (
-            <span
-              className="skeleton inline-block h-6 w-24 rounded"
-              aria-label="Loading today's rewards"
-            />
-          ) : (
-            <span className="font-mono text-xl font-black leading-none text-[#00ff41]">
-              {formatEtb(stats.todayRewards)}
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <RewardMetricTile
-          label="Total"
-          value={formatEtb(stats.earned)}
-          caption="Earned"
-          loading={loading}
-          accent
-        />
-        <RewardMetricTile
-          label="Team"
-          value={stats.total.toString()}
-          caption="Members"
-          loading={loading}
-        />
-        <RewardMetricTile
-          label="Active"
-          value={stats.active.toString()}
-          caption="Mining"
-          loading={loading}
-        />
-      </div>
-    </Card>
+    <div className="grid grid-cols-2 gap-2.5 lg:col-span-12 lg:grid-cols-4">
+      <ReferralStatTile
+        label="Today's"
+        value={formatEtb(stats.todayRewards)}
+        caption="Referral income"
+        icon={<TrendingUp size={13} />}
+        loading={loading}
+        accent
+      />
+      <ReferralStatTile
+        label="Total"
+        value={formatEtb(stats.earned)}
+        caption="Referral income"
+        icon={<TrendingUp size={13} />}
+        loading={loading}
+      />
+      <ReferralStatTile
+        label="Team"
+        value={stats.total.toString()}
+        caption="Members"
+        icon={<Users size={13} />}
+        loading={loading}
+      />
+      <ReferralStatTile
+        label="Active"
+        value={stats.active.toString()}
+        caption="Members"
+        icon={<Check size={13} />}
+        loading={loading}
+      />
+    </div>
   );
 }
 
-function RewardMetricTile({
+function ReferralStatTile({
   label,
   value,
   caption,
+  icon,
   loading,
   accent,
 }: {
   label: string;
   value: string;
   caption: string;
+  icon: ReactNode;
   loading: boolean;
   accent?: boolean;
 }) {
   return (
-    <div className="min-w-0 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] px-2.5 py-2">
-      <p className="truncate text-[9px] uppercase tracking-[0.12em] text-gray-600">
-        {label}
-      </p>
-      {loading ? (
-        <span
-          className="mt-1 inline-block h-4 w-12 rounded skeleton"
-          aria-label={`Loading ${label}`}
-        />
-      ) : (
-        <p
-          className={`mt-0.5 truncate font-mono text-xs font-black ${
-            accent ? "text-[#00ff41]" : "text-gray-100"
-          }`}
-        >
-          {value}
+    <div
+      className={[
+        "min-w-0 rounded-xl border bg-[#111] px-3 py-2.5",
+        accent ? "border-[rgba(0,255,65,0.18)]" : "border-[#1a1a1a]",
+      ].join(" ")}
+    >
+      <div className="grid grid-cols-[14px_minmax(0,1fr)] gap-x-1.5">
+        <p className="col-start-2 truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">
+          {label}
         </p>
-      )}
-      <p className="mt-0.5 truncate text-[9px] text-gray-700">{caption}</p>
+        <span className="col-start-1 row-start-2 mt-0.5 flex h-4 items-center justify-center text-[#00ff41]">
+          {!loading && icon}
+        </span>
+        <div
+          className={[
+            "col-start-2 row-start-2 mt-0.5 min-w-0 truncate font-mono text-sm font-black leading-tight",
+            accent ? "text-[#00ff41]" : "text-gray-100",
+          ].join(" ")}
+        >
+          {loading ? <span className="skeleton inline-block h-4 w-14 rounded" /> : value}
+        </div>
+        <p className="col-start-2 row-start-3 mt-0.5 truncate text-[9px] text-gray-700">
+          {caption}
+        </p>
+      </div>
     </div>
   );
 }
