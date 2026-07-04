@@ -7,6 +7,9 @@ import {
   Link2,
   TrendingUp,
   ChevronRight,
+  Gift,
+  Activity,
+  ShieldCheck,
 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore.js";
 import { Card } from "@/components/ui/Card.js";
@@ -63,7 +66,7 @@ const TEAM_FILTERS: Array<{ label: string; value: ReferralLevelFilter }> = [
 const REFERRAL_LOAD_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
 const MAX_AUTO_RETRIES = 2;
-const TEAM_PREVIEW_LIMIT = 6;
+const TEAM_PREVIEW_LIMIT = 4;
 
 function useReferralData() {
   const user = useAuthStore((s) => s.user);
@@ -194,17 +197,23 @@ function ReferralsPage() {
 
   function handleCopy() {
     if (!referralLink) return;
-    navigator.clipboard.writeText(referralLink).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+
+    navigator.clipboard
+      .writeText(referralLink)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch((err) => {
+        console.error("[QHash] Failed to copy referral link:", err);
+      });
   }
 
   const levelCounts = getLevelCounts(stats.members);
   const filteredMembers = filterMembersByLevel(stats.members, teamLevelFilter);
 
   return (
-    <div className="space-y-5 lg:mx-auto lg:grid lg:max-w-5xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
+    <div className="space-y-4 lg:mx-auto lg:grid lg:max-w-5xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
       <div className="lg:col-span-12">
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
           Affiliate Program
@@ -217,88 +226,36 @@ function ReferralsPage() {
         </p>
       </div>
 
-      <Card neon padding="sm" className="lg:col-span-12">
-        <div className="mb-2 flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <Link2 size={15} className="text-[#00ff41]" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-[#00ff41]">
-                Your Referral Link
-              </span>
-            </div>
-            <p className="mt-1 text-[10px] leading-relaxed text-gray-500">
-              Share your link to grow your team.
-            </p>
-          </div>
-        </div>
+      <RewardsOverviewCard stats={stats} loading={!statsLoaded} />
 
-        {username ? (
-          <>
-            <div className="mb-2 flex items-center gap-2">
-              <div className="flex-1 truncate rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2 font-mono text-[11px] text-gray-300">
-                {referralLink}
-              </div>
-              <button
-                type="button"
-                onClick={handleCopy}
-                className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-[#00ff41] transition-all active:scale-95"
-                aria-label="Copy referral link"
-              >
-                {copied ? (
-                  <Check size={15} className="text-black" />
-                ) : (
-                  <Copy size={15} className="text-black" />
-                )}
-              </button>
-            </div>
+      <ReferralLinkCard
+        username={username}
+        referralLink={referralLink}
+        copied={copied}
+        onCopy={handleCopy}
+      />
 
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[10px] text-gray-600">Code:</span>
-              <span className="rounded-md border border-[#1f1f1f] bg-[#0a0a0a] px-2 py-0.5 font-mono text-[11px] text-gray-400">
-                {username}
-              </span>
-              {copied && (
-                <span className="text-[10px] font-semibold text-[#00ff41]">
-                  Copied
-                </span>
-              )}
-            </div>
-          </>
-        ) : (
-          <p className="text-xs text-gray-500">
-            Your referral code is being set up. Please try again shortly.
-          </p>
-        )}
-      </Card>
-
-      <div className="space-y-3 lg:col-span-4">
-        <TodaysRewardsCard stats={stats} loading={!statsLoaded} />
-        <RewardHistoryCard className="hidden lg:block" />
+      <div className="lg:col-span-7">
+        <MyTeamCard
+          members={filteredMembers}
+          totalMembers={stats.members.length}
+          activeMembers={stats.active}
+          levelCounts={levelCounts}
+          activeFilter={teamLevelFilter}
+          onFilterChange={setTeamLevelFilter}
+          loading={!statsLoaded}
+        />
       </div>
 
-      <div className="flex flex-col gap-3 lg:col-span-8">
-        <div className="order-0 lg:order-none">
-          <MyTeamCard
-            members={filteredMembers}
-            totalMembers={stats.members.length}
-            levelCounts={levelCounts}
-            activeFilter={teamLevelFilter}
-            onFilterChange={setTeamLevelFilter}
-            loading={!statsLoaded}
-          />
-        </div>
-
-        <div className="order-1 lg:order-none">
-          <HowRewardsCard />
-        </div>
-
-        <RewardHistoryCard className="order-2 lg:hidden" />
+      <div className="space-y-4 lg:col-span-5">
+        <RewardRatesCard />
+        <RewardHistoryCard />
       </div>
     </div>
   );
 }
 
-function TodaysRewardsCard({
+function RewardsOverviewCard({
   stats,
   loading,
 }: {
@@ -306,43 +263,52 @@ function TodaysRewardsCard({
   loading: boolean;
 }) {
   return (
-    <Card padding="sm">
+    <Card neon padding="sm" className="lg:col-span-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#00ff41]">
-            Today&apos;s Rewards
-          </p>
+          <div className="flex items-center gap-2">
+            <TrendingUp size={15} className="text-[#00ff41]" />
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#00ff41]">
+              Team Rewards
+            </p>
+          </div>
           <p className="mt-1 text-[10px] leading-relaxed text-gray-600">
-            From your team today
+            Today&apos;s referral income
           </p>
         </div>
 
         <div className="shrink-0 text-right">
           {loading ? (
-            <span className="skeleton inline-block h-5 w-24 rounded" aria-label="Loading today's rewards" />
+            <span
+              className="skeleton inline-block h-6 w-24 rounded"
+              aria-label="Loading today's rewards"
+            />
           ) : (
-            <span className="font-mono text-lg font-black leading-none text-[#00ff41]">
+            <span className="font-mono text-xl font-black leading-none text-[#00ff41]">
               {formatEtb(stats.todayRewards)}
             </span>
           )}
         </div>
       </div>
 
-      <div className="mt-2 border-t border-[#1a1a1a] pt-2">
-        <CompactMetricRow
-          label="Total Earned"
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <RewardMetricTile
+          label="Total"
           value={formatEtb(stats.earned)}
+          caption="Earned"
           loading={loading}
           accent
         />
-        <CompactMetricRow
+        <RewardMetricTile
           label="Team"
           value={stats.total.toString()}
+          caption="Members"
           loading={loading}
         />
-        <CompactMetricRow
+        <RewardMetricTile
           label="Active"
           value={stats.active.toString()}
+          caption="Mining"
           loading={loading}
         />
       </div>
@@ -350,83 +316,118 @@ function TodaysRewardsCard({
   );
 }
 
-function CompactMetricRow({
+function RewardMetricTile({
   label,
   value,
+  caption,
   loading,
   accent,
 }: {
   label: string;
   value: string;
+  caption: string;
   loading: boolean;
   accent?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 py-1">
-      <span className="text-[11px] text-gray-500">{label}</span>
+    <div className="min-w-0 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] px-2.5 py-2">
+      <p className="truncate text-[9px] uppercase tracking-[0.12em] text-gray-600">
+        {label}
+      </p>
       {loading ? (
-        <span className="skeleton h-3.5 w-16 rounded" aria-label={`Loading ${label}`} />
+        <span
+          className="mt-1 inline-block h-4 w-12 rounded skeleton"
+          aria-label={`Loading ${label}`}
+        />
       ) : (
-        <span className={`shrink-0 font-mono text-xs font-semibold ${accent ? "text-[#00ff41]" : "text-gray-200"}`}>
+        <p
+          className={`mt-0.5 truncate font-mono text-xs font-black ${
+            accent ? "text-[#00ff41]" : "text-gray-100"
+          }`}
+        >
           {value}
-        </span>
-      )}
-    </div>
-  );
-}
-
-function HowRewardsCard() {
-  return (
-    <Card padding="sm">
-      <SectionHeader
-        title="How Team Rewards Work"
-        description="Both reward types use L1 5%, L2 3%, and L3 2%."
-        className="mb-3"
-      />
-
-      <div className="space-y-2">
-        <RewardSourceRow
-          title="Plan Purchase Reward"
-          description="Earn when someone in your team buys a mining plan."
-        />
-        <RewardSourceRow
-          title="Daily Mining Reward"
-          description="Earn when someone in your team receives daily mining income."
-        />
-      </div>
-
-      <div className="mt-3 space-y-2">
-        <TierRow level={1} label="Direct referrals" rate="5%" />
-        <TierRow level={2} label="Level 2 team" rate="3%" />
-        <TierRow level={3} label="Level 3 team" rate="2%" />
-      </div>
-
-      <div className="mt-3 rounded-lg border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.05)] px-3 py-2">
-        <p className="text-[10px] leading-relaxed text-gray-400">
-          Keep an active mining plan to receive eligible team rewards.
         </p>
-      </div>
-    </Card>
+      )}
+      <p className="mt-0.5 truncate text-[9px] text-gray-700">{caption}</p>
+    </div>
   );
 }
 
-function RewardSourceRow({ title, description }: { title: string; description: string }) {
+function ReferralLinkCard({
+  username,
+  referralLink,
+  copied,
+  onCopy,
+}: {
+  username: string | null;
+  referralLink: string | null;
+  copied: boolean;
+  onCopy: () => void;
+}) {
   return (
-    <div className="flex items-start gap-2.5 rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5">
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.06)] text-[#00ff41]">
-        <TrendingUp size={13} />
+    <Card padding="sm" className="lg:col-span-7">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Link2 size={15} className="text-[#00ff41]" />
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#00ff41]">
+              Referral Link
+            </p>
+          </div>
+          <p className="mt-1 text-[10px] leading-relaxed text-gray-600">
+            Share your invite link and grow your team.
+          </p>
+        </div>
+
+        {username && (
+          <div className="flex shrink-0 items-center gap-1.5 rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-2 py-1">
+            <span className="text-[9px] text-gray-700">Code</span>
+            <span className="font-mono text-[10px] text-gray-300">{username}</span>
+          </div>
+        )}
       </div>
-      <div className="min-w-0">
-        <p className="text-xs font-semibold text-gray-100">{title}</p>
-        <p className="mt-0.5 text-[10px] leading-relaxed text-gray-500">{description}</p>
-      </div>
-    </div>
+
+      {username ? (
+        <>
+          <div className="mt-3 flex items-center gap-2">
+            <div className="min-w-0 flex-1 truncate rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5 font-mono text-[11px] text-gray-300">
+              {referralLink}
+            </div>
+            <button
+              type="button"
+              onClick={onCopy}
+              className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-[rgba(0,255,65,0.28)] bg-[#00ff41] transition-all active:scale-95"
+              aria-label="Copy referral link"
+            >
+              {copied ? (
+                <Check size={16} className="text-black" />
+              ) : (
+                <Copy size={16} className="text-black" />
+              )}
+            </button>
+          </div>
+
+          <div className="mt-2 flex min-h-4 items-center">
+            {copied && (
+              <p className="text-[10px] font-semibold text-[#00ff41]">
+                Referral link copied
+              </p>
+            )}
+          </div>
+        </>
+      ) : (
+        <p className="mt-3 text-xs text-gray-500">
+          Your referral code is being set up. Please try again shortly.
+        </p>
+      )}
+    </Card>
   );
 }
 
 function MyTeamCard({
   members,
   totalMembers,
+  activeMembers,
   levelCounts,
   activeFilter,
   onFilterChange,
@@ -434,6 +435,7 @@ function MyTeamCard({
 }: {
   members: ReferralMember[];
   totalMembers: number;
+  activeMembers: number;
   levelCounts: LevelCounts;
   activeFilter: ReferralLevelFilter;
   onFilterChange: (value: ReferralLevelFilter) => void;
@@ -453,6 +455,11 @@ function MyTeamCard({
       <SectionHeader
         title="My Team"
         description="Filter team members by level."
+        action={
+          <span className="rounded-full border border-[#1f1f1f] bg-[#0a0a0a] px-2 py-0.5 text-[10px] text-gray-500">
+            {loading ? "Loading" : `${totalMembers} total · ${activeMembers} active`}
+          </span>
+        }
         className="mb-3"
       />
 
@@ -464,19 +471,26 @@ function MyTeamCard({
       />
 
       <p className="mb-3 text-[10px] leading-relaxed text-gray-600">
-        <span className="font-semibold text-gray-400">Active</span> = member has a running mining contract.
+        <span className="font-semibold text-gray-400">Active</span> means the
+        member has a running mining contract.
       </p>
 
       {loading ? (
         <div className="space-y-2">
           {Array.from({ length: 4 }).map((_, index) => (
-            <div key={index} className="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2">
+            <div
+              key={index}
+              className="rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5"
+            >
               <div className="flex items-center justify-between gap-3">
-                <div className="space-y-2">
-                  <div className="skeleton h-4 w-24 rounded" />
-                  <div className="skeleton h-3 w-32 rounded" />
+                <div className="flex items-center gap-2.5">
+                  <div className="skeleton h-7 w-7 rounded-lg" />
+                  <div className="space-y-2">
+                    <div className="skeleton h-3.5 w-24 rounded" />
+                    <div className="skeleton h-3 w-28 rounded" />
+                  </div>
                 </div>
-                <div className="skeleton h-6 w-16 rounded-full" />
+                <div className="skeleton h-5 w-14 rounded-full" />
               </div>
             </div>
           ))}
@@ -538,6 +552,7 @@ function TeamLevelFilters({
             key={filter.label}
             type="button"
             disabled={disabled}
+            aria-pressed={active}
             onClick={() => onFilterChange(filter.value)}
             className={[
               "flex items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[10px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
@@ -561,22 +576,28 @@ function TeamMemberRow({ member }: { member: ReferralMember }) {
   const displayName = member.name ? `@${member.name}` : "Team member";
 
   return (
-    <div className="rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5">
+    <div className="rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.06)]">
-            <span className="text-[10px] font-bold text-[#00ff41]">L{member.level}</span>
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.06)]">
+            <span className="text-[9px] font-bold text-[#00ff41]">
+              L{member.level}
+            </span>
           </div>
+
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-gray-100">{displayName}</p>
-            <p className="mt-0.5 text-[10px] text-gray-600">
+            <p className="truncate text-xs font-semibold text-gray-100">
+              {displayName}
+            </p>
+            <p className="mt-0.5 truncate text-[10px] text-gray-600">
               Joined {formatJoinedDate(member.joinedAt)}
             </p>
           </div>
         </div>
+
         <span
           className={[
-            "shrink-0 rounded-full border px-2 py-1 text-[10px] font-semibold",
+            "shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-semibold",
             member.isActive
               ? "border-[rgba(0,255,65,0.25)] bg-[rgba(0,255,65,0.08)] text-[#00ff41]"
               : "border-[#2a2a2a] bg-[#111] text-gray-500",
@@ -589,7 +610,67 @@ function TeamMemberRow({ member }: { member: ReferralMember }) {
   );
 }
 
-function TierRow({
+function RewardRatesCard() {
+  return (
+    <Card padding="sm">
+      <SectionHeader
+        title="Reward Rates"
+        description="Earn from plan purchases and daily mining rewards."
+        className="mb-3"
+      />
+
+      <div className="grid grid-cols-2 gap-2">
+        <RewardTypeCard
+          icon={<Gift size={13} />}
+          title="Plan Purchase"
+          description="When your team buys a plan"
+        />
+        <RewardTypeCard
+          icon={<Activity size={13} />}
+          title="Daily Mining"
+          description="When your team earns daily"
+        />
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <RateTile level={1} label="Direct" rate="5%" />
+        <RateTile level={2} label="Level 2" rate="3%" />
+        <RateTile level={3} label="Level 3" rate="2%" />
+      </div>
+
+      <div className="mt-3 flex items-start gap-2 rounded-xl border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.05)] px-3 py-2">
+        <ShieldCheck size={13} className="mt-0.5 shrink-0 text-[#00ff41]" />
+        <p className="text-[10px] leading-relaxed text-gray-400">
+          Keep an active mining plan to receive eligible team rewards.
+        </p>
+      </div>
+    </Card>
+  );
+}
+
+function RewardTypeCard({
+  icon,
+  title,
+  description,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5">
+      <div className="flex items-center gap-2 text-[#00ff41]">
+        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.06)]">
+          {icon}
+        </span>
+        <p className="truncate text-[11px] font-semibold text-gray-100">{title}</p>
+      </div>
+      <p className="mt-1 text-[9px] leading-relaxed text-gray-600">{description}</p>
+    </div>
+  );
+}
+
+function RateTile({
   level,
   label,
   rate,
@@ -599,19 +680,21 @@ function TierRow({
   rate: string;
 }) {
   return (
-    <div className="flex items-center gap-2.5 rounded-lg bg-[#0a0a0a] px-3 py-2">
-      <div className="flex h-6 w-6 items-center justify-center rounded-full border border-[rgba(0,255,65,0.2)] bg-[rgba(0,255,65,0.08)]">
-        <span className="text-[10px] font-bold text-[#00ff41]">L{level}</span>
+    <div className="min-w-0 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] px-2.5 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[rgba(0,255,65,0.2)] bg-[rgba(0,255,65,0.08)] text-[9px] font-bold text-[#00ff41]">
+          L{level}
+        </span>
+        <span className="font-mono text-sm font-black text-[#00ff41]">{rate}</span>
       </div>
-      <span className="flex-1 text-xs text-gray-300">{label}</span>
-      <span className="text-sm font-bold text-[#00ff41]">{rate}</span>
+      <p className="mt-1 truncate text-[9px] text-gray-500">{label}</p>
     </div>
   );
 }
 
-function RewardHistoryCard({ className = "" }: { className?: string }) {
+function RewardHistoryCard() {
   return (
-    <Card className={className}>
+    <Card padding="sm">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-gray-100">Reward History</p>
@@ -619,6 +702,7 @@ function RewardHistoryCard({ className = "" }: { className?: string }) {
             Referral bonuses also appear in your transaction history.
           </p>
         </div>
+
         <Link
           to="/transactions"
           className="flex shrink-0 items-center gap-0.5 rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-2.5 py-1.5 text-[10px] font-semibold text-gray-400 card-press hover:text-white"
@@ -662,7 +746,11 @@ function filterMembersByLevel(
 
 function formatEtb(value: number): string {
   const amount = Number.isFinite(value) ? value : 0;
-  return `${amount.toFixed(2)} ETB`;
+
+  return `${amount.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} ETB`;
 }
 
 function formatJoinedDate(value: string): string {
