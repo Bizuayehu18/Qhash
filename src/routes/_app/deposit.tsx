@@ -11,8 +11,6 @@ import {
   ChevronRight,
   Clock,
   Info,
-  ReceiptText,
-  ShieldCheck,
   Smartphone,
   XCircle,
 } from "lucide-react";
