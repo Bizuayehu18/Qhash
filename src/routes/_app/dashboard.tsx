@@ -46,30 +46,69 @@ function formatDashboardAmount(value: number) {
   });
 }
 
+function formatDashboardEtb(value: number) {
+  return `${formatDashboardAmount(value)} ETB`;
+}
+
 function CompactMetric({
   label,
   value,
   caption,
   loading,
   icon,
+  accent,
 }: {
   label: string;
   value: ReactNode;
   caption?: string;
   loading?: boolean;
   icon?: ReactNode;
+  accent?: boolean;
 }) {
   return (
-    <div className="min-w-0 rounded-xl border border-[#1a1a1a] bg-[#111] px-3 py-2.5">
+    <div
+      className={[
+        "min-w-0 rounded-xl border px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]",
+        accent
+          ? "border-[rgba(0,255,65,0.15)] bg-[rgba(0,255,65,0.035)]"
+          : "border-[rgba(255,255,255,0.07)] bg-[#121212]",
+      ].join(" ")}
+    >
       <div className="grid grid-cols-[14px_minmax(0,1fr)] gap-x-1.5">
-        <p className="col-start-2 truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">{label}</p>
-        <span className="col-start-1 row-start-2 mt-0.5 flex h-4 items-center justify-center text-[#00ff41]">
+        <p
+          className={[
+            "col-start-2 truncate text-[9px] uppercase tracking-[0.14em]",
+            accent ? "text-[#00ff41]/65" : "text-gray-500",
+          ].join(" ")}
+        >
+          {label}
+        </p>
+        <span
+          className={[
+            "col-start-1 row-start-2 mt-0.5 flex h-4 items-center justify-center",
+            accent ? "text-[#00ff41]" : "text-[#00ff41]/65",
+          ].join(" ")}
+        >
           {!loading && icon}
         </span>
-        <div className="col-start-2 row-start-2 mt-0.5 min-w-0 truncate text-sm font-black leading-tight text-[#00ff41]">
+        <div
+          className={[
+            "col-start-2 row-start-2 mt-0.5 min-w-0 truncate font-mono text-sm font-black leading-tight",
+            accent ? "text-[#00ff41]" : "text-gray-100",
+          ].join(" ")}
+        >
           {loading ? <span className="skeleton inline-block h-4 w-14 rounded" /> : value}
         </div>
-        {caption && <p className="col-start-2 row-start-3 mt-0.5 truncate text-[9px] text-gray-700">{caption}</p>}
+        {caption && (
+          <p
+            className={[
+              "col-start-2 row-start-3 mt-0.5 truncate text-[9px]",
+              accent ? "text-[#00ff41]/45" : "text-gray-700",
+            ].join(" ")}
+          >
+            {caption}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -330,27 +369,21 @@ function DashboardPage() {
       </div>
 
       {/* Stats Row */}
-      <div className="grid grid-cols-3 gap-2.5 lg:col-span-12">
+      <div className="grid grid-cols-2 gap-2.5 lg:col-span-12">
         <CompactMetric
           label="Today's"
-          value={formatDashboardAmount(incomeSummary?.todayTotalIncome ?? 0)}
-          caption="Income"
+          value={formatDashboardEtb(incomeSummary?.todayTotalIncome ?? 0)}
+          caption="Total Income"
           loading={!hasDashboardData}
           icon={<TrendingUp size={13} />}
+          accent
         />
         <CompactMetric
-          label="Total"
-          value={formatDashboardAmount(incomeSummary?.totalIncome ?? 0)}
-          caption="Income"
+          label="All Time"
+          value={formatDashboardEtb(incomeSummary?.totalIncome ?? 0)}
+          caption="Total Income"
           loading={!hasDashboardData}
           icon={<TrendingUp size={13} />}
-        />
-        <CompactMetric
-          label="Plans"
-          value={activeInvestments.length}
-          caption="Active"
-          loading={!hasDashboardData}
-          icon={<Layers size={13} />}
         />
       </div>
 
@@ -455,22 +488,22 @@ function DashboardPage() {
 
                   <div className="mt-2 grid grid-cols-3 gap-2 rounded-lg border border-[#181818] bg-[#0a0a0a] px-2.5 py-2">
                     <div className="min-w-0">
-                      <p className="truncate text-[9px] uppercase tracking-[0.12em] text-gray-600">Invested</p>
-                      <p className="mt-0.5 truncate text-xs font-black text-gray-100">
+                      <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">Invested</p>
+                      <p className="mt-0.5 truncate font-mono text-sm font-black leading-tight text-gray-100">
                         {formatDashboardAmount(inv.invested_amount)} <span className="text-[9px] font-normal text-gray-500">ETB</span>
                       </p>
                     </div>
 
                     <div className="min-w-0 text-center">
-                      <p className="truncate text-[9px] text-gray-600">Daily</p>
-                      <p className="mt-0.5 truncate text-xs font-black text-gray-100">
+                      <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">Daily</p>
+                      <p className="mt-0.5 truncate font-mono text-sm font-black leading-tight text-gray-100">
                         {formatDashboardAmount(inv.daily_earning)} <span className="text-[9px] font-normal text-gray-500">ETB</span>
                       </p>
                     </div>
 
                     <div className="min-w-0 text-right">
-                      <p className="truncate text-[9px] text-gray-600">Earned</p>
-                      <p className="mt-0.5 truncate text-xs font-black text-[#00ff41]">
+                      <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">Earned</p>
+                      <p className="mt-0.5 truncate font-mono text-sm font-black leading-tight text-[#00ff41]">
                         {formatDashboardAmount(inv.total_earned)} <span className="text-[9px] font-normal text-gray-500">ETB</span>
                       </p>
                     </div>
