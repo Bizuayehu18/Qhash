@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Outlet, useRouterState } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/Badge.js";
 import { EmptyState } from "@/components/ui/EmptyState.js";
 import { ListPanel } from "@/components/ui/ListPanel.js";
@@ -23,7 +23,7 @@ import { getPaymentMethodsFn } from "@/lib/server/payment-methods.js";
 import { useAuthStore } from "@/store/authStore.js";
 
 export const Route = createFileRoute("/_app/deposit")({
-  component: DepositPage,
+  component: DepositRoute,
 });
 
 type DepositMethodType = Extract<PaymentMethodType, "cbe" | "telebirr">;
@@ -103,6 +103,17 @@ function shortReference(value: string | null | undefined): string {
   if (!ref) return "Ref unavailable";
   if (ref.length <= 10) return `Ref ${ref}`;
   return `Ref …${ref.slice(-6)}`;
+}
+
+function DepositRoute() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const normalizedPathname = pathname.replace(/\/+$/, "") || "/";
+
+  if (normalizedPathname !== "/deposit") {
+    return <Outlet />;
+  }
+
+  return <DepositPage />;
 }
 
 function DepositPage() {
