@@ -93,7 +93,7 @@ function CompactMetric({
         </span>
         <div
           className={[
-            "col-start-2 row-start-2 mt-0.5 min-w-0 truncate text-sm font-black leading-tight",
+            "col-start-2 row-start-2 mt-0.5 min-w-0 truncate font-mono text-sm font-black leading-tight",
             accent ? "text-[#00ff41]" : "text-gray-100",
           ].join(" ")}
         >
@@ -488,22 +488,22 @@ function DashboardPage() {
 
                   <div className="mt-2 grid grid-cols-3 gap-2 rounded-lg border border-[#181818] bg-[#0a0a0a] px-2.5 py-2">
                     <div className="min-w-0">
-                      <p className="truncate text-[9px] uppercase tracking-[0.12em] text-gray-600">Invested</p>
-                      <p className="mt-0.5 truncate text-xs font-black text-gray-100">
+                      <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">Invested</p>
+                      <p className="mt-0.5 truncate font-mono text-sm font-black leading-tight text-gray-100">
                         {formatDashboardAmount(inv.invested_amount)} <span className="text-[9px] font-normal text-gray-500">ETB</span>
                       </p>
                     </div>
 
                     <div className="min-w-0 text-center">
-                      <p className="truncate text-[9px] text-gray-600">Daily</p>
-                      <p className="mt-0.5 truncate text-xs font-black text-gray-100">
+                      <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">Daily</p>
+                      <p className="mt-0.5 truncate font-mono text-sm font-black leading-tight text-gray-100">
                         {formatDashboardAmount(inv.daily_earning)} <span className="text-[9px] font-normal text-gray-500">ETB</span>
                       </p>
                     </div>
 
                     <div className="min-w-0 text-right">
-                      <p className="truncate text-[9px] text-gray-600">Earned</p>
-                      <p className="mt-0.5 truncate text-xs font-black text-[#00ff41]">
+                      <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">Earned</p>
+                      <p className="mt-0.5 truncate font-mono text-sm font-black leading-tight text-[#00ff41]">
                         {formatDashboardAmount(inv.total_earned)} <span className="text-[9px] font-normal text-gray-500">ETB</span>
                       </p>
                     </div>
