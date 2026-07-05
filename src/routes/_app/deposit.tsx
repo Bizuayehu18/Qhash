@@ -43,22 +43,21 @@ const HISTORY_PREVIEW_LIMIT = 3;
 
 type MethodType = "cbe" | "telebirr";
 
-const METHOD_META: Record
-  MethodType,
-  {
-    label: string;
-    sublabel: string;
-    pageSubtitle: string;
-    accountLabel: string;
-    numberLabel: string;
-    refLabel: string;
-    refPrefix: string;
-    refPlaceholder: string;
-    refHint: string;
-    refError: string;
-    successToast: string;
-  }
-> = {
+type MethodMeta = {
+  label: string;
+  sublabel: string;
+  pageSubtitle: string;
+  accountLabel: string;
+  numberLabel: string;
+  refLabel: string;
+  refPrefix: string;
+  refPlaceholder: string;
+  refHint: string;
+  refError: string;
+  successToast: string;
+};
+
+const METHOD_META: Record<MethodType, MethodMeta> = {
   cbe: {
     label: "CBE",
     sublabel: "Bank Transfer",
