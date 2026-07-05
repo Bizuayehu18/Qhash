@@ -66,35 +66,35 @@ const METHOD_LOAD_TIMEOUT_MS = 10_000;
 const HISTORY_LOAD_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
 const MAX_AUTO_RETRIES = 2;
-const HISTORY_PREVIEW_LIMIT = 3;
+const HISTORY_PREVIEW_LIMIT = 6;
 
 const METHOD_META: Record<MethodType, MethodMeta> = {
   cbe: {
     label: "CBE",
     sublabel: "Bank Transfer",
-    pageSubtitle: "Bank transfer · verified automatically",
-    accountLabel: "Receiving Account",
+    pageSubtitle: "Bank transfer",
+    accountLabel: "Receiver's Name",
     numberLabel: "Account Number",
     refLabel: "CBE Transaction ID",
     refPrefix: "FT",
     refPlaceholder: "e.g. FT24XXXXXXX",
     refHint: 'Starts with "FT" — from your CBE receipt',
     refError: 'CBE transaction IDs start with "FT". Check your receipt and try again.',
-    successToast: "Deposit submitted — verifying your CBE transfer.",
+    successToast: "CBE deposit submitted successfully.",
     icon: <Building2 size={15} />,
   },
   telebirr: {
     label: "TeleBirr",
     sublabel: "Wallet Transfer",
-    pageSubtitle: "Wallet transfer · verified automatically",
-    accountLabel: "Receiving Name",
+    pageSubtitle: "Wallet transfer",
+    accountLabel: "Receiver's Name",
     numberLabel: "TeleBirr Number",
     refLabel: "TeleBirr Transaction ID",
     refPrefix: "D",
     refPlaceholder: "e.g. D8XK2M9QW1",
     refHint: 'Starts with "D" — from your TeleBirr receipt',
     refError: 'TeleBirr transaction IDs start with "D". Check your receipt and try again.',
-    successToast: "Deposit submitted — verifying your TeleBirr transfer.",
+    successToast: "TeleBirr deposit submitted successfully.",
     icon: <Smartphone size={15} />,
   },
 };
@@ -494,7 +494,7 @@ function DepositMethodSelection({
                     </span>
 
                     <Badge variant="neon" className="shrink-0 text-[9px]">
-                      Auto-verify
+                      Add funds
                     </Badge>
 
                     <ChevronRight
@@ -520,7 +520,7 @@ function DepositNoticeLine() {
       <Info size={13} className="mt-0.5 shrink-0 text-[#00ff41]" />
       <p className="text-[10px] leading-relaxed text-gray-500">
         <span className="font-semibold text-[#00ff41]">Fund wallet</span>
-        <span> · Transfer first, then submit your reference for automatic verification.</span>
+        <span> · Transfer first, then submit your reference.</span>
       </p>
     </div>
   );
@@ -577,7 +577,7 @@ function MethodDepositForm({
 
           <div className="min-w-0 flex-1">
             <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-gray-600">
-              Auto-verified deposit
+              Deposit details
             </p>
             <h2 className="truncate text-sm font-bold leading-tight text-gray-100">
               {meta.label} Deposit
@@ -586,7 +586,7 @@ function MethodDepositForm({
           </div>
 
           <Badge variant="neon" className="shrink-0 text-[9px]">
-            Auto-verify
+            Add funds
           </Badge>
         </div>
       </div>
@@ -613,7 +613,7 @@ function MethodDepositForm({
           value={amount}
           onChange={(e) => onAmountChange(e.target.value)}
           inputMode="decimal"
-          hint="Optional — the amount is verified from your receipt"
+          hint="Optional — enter the amount from your receipt"
         />
 
         <Input
@@ -633,7 +633,7 @@ function MethodDepositForm({
           disabled={!txReference.trim() || submitting}
           onClick={onSubmit}
         >
-          Submit for Verification
+          Submit Deposit
         </Button>
       </div>
     </section>
