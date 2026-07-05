@@ -48,6 +48,13 @@ function formatEtb(value: number) {
   return value.toLocaleString("en-US", { maximumFractionDigits: 0 });
 }
 
+function formatWalletAmount(value: number) {
+  return value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 function getEligibilityRows(plan: PlanWithEligibility) {
   const e = plan.eligibility;
   return [
@@ -194,22 +201,22 @@ function PlanCard({ plan, onSelect }: { plan: PlanWithEligibility; onSelect: () 
         </div>
       </div>
 
-      <div className="mt-2 grid grid-cols-[1.05fr_0.8fr_1fr] gap-2 rounded-lg border border-[#181818] bg-[#0a0a0a] px-2.5 py-2">
+      <div className="mt-2 grid grid-cols-3 gap-2 rounded-lg border border-[#181818] bg-[#0a0a0a] px-2.5 py-2">
         <div className="min-w-0">
-          <p className="text-[9px] uppercase tracking-[0.14em] text-gray-600">Invest</p>
-          <p className="mt-0.5 truncate text-sm font-black leading-tight text-gray-100">
-            {formatEtb(plan.investment_amount)} <span className="text-[9px] font-semibold text-gray-500">ETB</span>
+          <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">Invest</p>
+          <p className="mt-0.5 truncate font-mono text-sm font-black leading-tight text-gray-100">
+            {formatEtb(plan.investment_amount)} <span className="text-[9px] font-normal text-gray-500">ETB</span>
           </p>
         </div>
-        <div className="min-w-0 text-right">
-          <p className="text-[9px] text-gray-600">Daily</p>
-          <p className="mt-0.5 truncate text-xs font-black leading-tight text-[#00ff41]">
+        <div className="min-w-0 text-center">
+          <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">Daily</p>
+          <p className="mt-0.5 truncate font-mono text-sm font-black leading-tight text-[#00ff41]">
             {formatEtb(plan.daily_earning)} <span className="text-[9px] font-normal text-gray-500">ETB</span>
           </p>
         </div>
         <div className="min-w-0 text-right">
-          <p className="text-[9px] text-gray-600">Total</p>
-          <p className="mt-0.5 truncate text-xs font-black leading-tight text-gray-100">
+          <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">Total</p>
+          <p className="mt-0.5 truncate font-mono text-sm font-black leading-tight text-gray-100">
             {formatEtb(totalEarnings)} <span className="text-[9px] font-normal text-gray-500">ETB</span>
           </p>
         </div>
@@ -391,8 +398,8 @@ function PlansPage() {
         {!walletBalanceKnown ? (
           <span className="skeleton inline-block h-5 w-24 rounded" aria-label="Loading wallet balance" />
         ) : (
-          <span className="text-sm font-bold text-[#00ff41]">
-            {walletBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ETB
+          <span className="font-mono text-sm font-black tracking-tight text-[#00ff41]">
+            {formatWalletAmount(walletBalance)} <span className="text-[0.8em] font-normal text-gray-500">ETB</span>
           </span>
         )}
         <Link to="/deposit" className="ml-auto text-[10px] text-gray-400 border border-[#2a2a2a] rounded-lg px-2.5 py-1 card-press hover:text-white">
@@ -435,16 +442,16 @@ function PlansPage() {
 
             <div className="mb-3 grid grid-cols-3 gap-2 rounded-xl border border-[#1b1b1b] bg-[#0a0a0a] px-3 py-2.5">
               <div className="min-w-0">
-                <p className="text-[10px] uppercase tracking-[0.14em] text-gray-600">Invest</p>
-                <p className="mt-1 truncate text-sm font-black text-gray-100">{formatEtb(selectedPlan.investment_amount)} <span className="text-[10px] font-normal text-gray-500">ETB</span></p>
+                <p className="truncate text-[10px] uppercase tracking-[0.14em] text-gray-600">Invest</p>
+                <p className="mt-1 truncate font-mono text-sm font-black text-gray-100">{formatEtb(selectedPlan.investment_amount)} <span className="text-[10px] font-normal text-gray-500">ETB</span></p>
               </div>
               <div className="min-w-0 text-center">
-                <p className="text-[10px] text-gray-600">Daily</p>
-                <p className="mt-1 truncate text-sm font-black text-[#00ff41]">{formatEtb(selectedPlan.daily_earning)} <span className="text-[10px] font-normal text-gray-500">ETB</span></p>
+                <p className="truncate text-[10px] uppercase tracking-[0.14em] text-gray-600">Daily</p>
+                <p className="mt-1 truncate font-mono text-sm font-black text-[#00ff41]">{formatEtb(selectedPlan.daily_earning)} <span className="text-[10px] font-normal text-gray-500">ETB</span></p>
               </div>
               <div className="min-w-0 text-right">
-                <p className="text-[10px] text-gray-600">Total</p>
-                <p className="mt-1 truncate text-sm font-black text-gray-100">{formatEtb(selectedPlan.daily_earning * selectedPlan.duration_days)} <span className="text-[10px] font-normal text-gray-500">ETB</span></p>
+                <p className="truncate text-[10px] uppercase tracking-[0.14em] text-gray-600">Total</p>
+                <p className="mt-1 truncate font-mono text-sm font-black text-gray-100">{formatEtb(selectedPlan.daily_earning * selectedPlan.duration_days)} <span className="text-[10px] font-normal text-gray-500">ETB</span></p>
               </div>
             </div>
 
@@ -481,8 +488,15 @@ function PlansPage() {
               {!walletBalanceKnown ? (
                 <span className="skeleton inline-block h-5 w-24 rounded" aria-label="Loading wallet balance" />
               ) : (
-                <span className={!selectedPlan.eligibility.isEligible ? "font-semibold text-gray-200" : walletBalance >= selectedPlan.investment_amount ? "font-semibold text-[#00ff41]" : "font-semibold text-red-400"}>
-                  {walletBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ETB
+                <span className={[
+                  "font-mono font-semibold",
+                  !selectedPlan.eligibility.isEligible
+                    ? "text-gray-200"
+                    : walletBalance >= selectedPlan.investment_amount
+                      ? "text-[#00ff41]"
+                      : "text-red-400",
+                ].join(" ")}>
+                  {formatWalletAmount(walletBalance)} <span className="text-[0.8em] font-normal text-gray-500">ETB</span>
                 </span>
               )}
             </div>
