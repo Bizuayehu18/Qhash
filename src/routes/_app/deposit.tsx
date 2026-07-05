@@ -1,130 +1,137 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ArrowDownCircle,
+  Building2,
+  Check,
+  CheckCircle,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Copy,
+  Info,
+  Smartphone,
+  XCircle,
+} from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
-import { EmptyState } from "@/components/ui/EmptyState.js";
-import { ListPanel } from "@/components/ui/ListPanel.js";
-import { ListRow } from "@/components/ui/ListRow.js";
-import { SectionHeader } from "@/components/ui/SectionHeader.js";
-import {
-  ArrowDownCircle,
-  Info,
-  CheckCircle,
-  Clock,
-  XCircle,
-  Copy,
-  Building2,
-  Smartphone,
-  ChevronLeft,
-  ChevronRight,
-} from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
-import { getSafeErrorMessage } from "@/lib/errors.js";
-import { formatDateTime } from "@/lib/format.js";
 import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
-import { getPaymentMethodsFn } from "@/lib/server/payment-methods.js";
-import { submitDepositFn, getUserDepositsFn } from "@/lib/server/deposits.js";
+import {
+  getPaymentMethodsFn,
+  submitDepositFn,
+  getUserDepositsFn,
+} from "@/lib/server/deposits.js";
 import { withTimeout } from "@/lib/async.js";
-import type { PaymentMethodType } from "@/lib/database.types.js";
+import { getSafeErrorMessage } from "@/lib/errors.js";
+import { formatDateTime } from "@/lib/format.js";
 
 export const Route = createFileRoute("/_app/deposit")({
   component: DepositPage,
 });
 
-type PaymentMethod = {
-  id: string;
-  type: PaymentMethodType;
-  account_name: string;
-  account_number: string;
-  instructions: string | null;
-  is_active: boolean;
-};
-
+type PaymentMethod = Awaited<ReturnType<typeof getPaymentMethodsFn>>[number];
 type UserDeposit = Awaited<ReturnType<typeof getUserDepositsFn>>[number];
-type DepositStep = "select" | "pay" | "confirm";
 
-const METHOD_LOAD_TIMEOUT_MS = 10_000;
-const HISTORY_LOAD_TIMEOUT_MS = 10_000;
+const METHODS_TIMEOUT_MS = 10_000;
+const HISTORY_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
 const MAX_AUTO_RETRIES = 2;
+const HISTORY_PREVIEW_LIMIT = 3;
 
-const METHOD_ICONS: Record<string, React.ReactNode> = {
-  cbe: <Building2 size={16} />,
-  telebirr: <Smartphone size={16} />,
+type MethodType = "cbe" | "telebirr";
+
+const METHOD_META: Record
+  MethodType,
+  {
+    label: string;
+    sublabel: string;
+    pageSubtitle: string;
+    accountLabel: string;
+    numberLabel: string;
+    refLabel: string;
+    refPrefix: string;
+    refPlaceholder: string;
+    refHint: string;
+    refError: string;
+    successToast: string;
+  }
+> = {
+  cbe: {
+    label: "CBE",
+    sublabel: "Bank Transfer",
+    pageSubtitle: "Bank transfer · verified automatically",
+    accountLabel: "Receiving Account",
+    numberLabel: "Account Number",
+    refLabel: "CBE Transaction ID",
+    refPrefix: "FT",
+    refPlaceholder: "e.g. FT24XXXXXXX",
+    refHint: 'Starts with "FT" — from your CBE receipt',
+    refError: 'CBE transaction IDs start with "FT". Check your receipt and try again.',
+    successToast: "Deposit submitted — verifying your CBE transfer.",
+  },
+  telebirr: {
+    label: "TeleBirr",
+    sublabel: "Wallet Transfer",
+    pageSubtitle: "Wallet transfer · verified automatically",
+    accountLabel: "Receiving Name",
+    numberLabel: "TeleBirr Number",
+    refLabel: "TeleBirr Transaction ID",
+    refPrefix: "D",
+    refPlaceholder: "e.g. D8XK2M9QW1",
+    refHint: 'Starts with "D" — from your TeleBirr receipt',
+    refError: 'TeleBirr transaction IDs start with "D". Check your receipt and try again.',
+    successToast: "Deposit submitted — verifying your TeleBirr transfer.",
+  },
 };
-
-const METHOD_LABELS: Record<string, string> = {
-  cbe: "CBE",
-  telebirr: "TeleBirr",
-};
-
-const METHOD_SUBLABELS: Record<string, string> = {
-  cbe: "Bank Transfer",
-  telebirr: "Wallet Transfer",
-};
-
-const METHOD_ORDER: Record<string, number> = {
-  cbe: 0,
-  telebirr: 1,
-};
-
-function parseOptionalAmount(input: string): number {
-  const trimmed = input.trim();
-  if (!trimmed) return 0;
-
-  const value = Number(trimmed);
-  return Number.isFinite(value) ? value : Number.NaN;
-}
-
-function getMethodLabel(type: string): string {
-  return METHOD_LABELS[type] ?? type.toUpperCase();
-}
-
-function getMethodSublabel(type: string): string {
-  return METHOD_SUBLABELS[type] ?? "Funding channel";
-}
-
-function getMethodIcon(type: string): React.ReactNode {
-  return METHOD_ICONS[type] ?? <ArrowDownCircle size={16} />;
-}
 
 function getMethodOrder(type: string): number {
-  return METHOD_ORDER[type] ?? 99;
+  if (type === "cbe") return 0;
+  if (type === "telebirr") return 1;
+  return 2;
 }
 
-function shortReference(value: string | null | undefined): string {
-  const ref = value?.trim();
-  if (!ref) return "Ref unavailable";
-  if (ref.length <= 10) return `Ref ${ref}`;
-  return `Ref …${ref.slice(-6)}`;
+function getMethodMeta(type: string) {
+  return METHOD_META[(type as MethodType) in METHOD_META ? (type as MethodType) : "cbe"];
 }
 
-function formatAmount(value: number): string {
-  return value.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+/**
+ * Amount is optional. Empty input is valid (server verifies the real amount
+ * from the payment reference). Returns:
+ *  - { ok: true, value: null }   for blank input
+ *  - { ok: true, value: number } for a valid positive amount
+ *  - { ok: false }               for anything invalid
+ */
+function parseOptionalAmount(raw: string): { ok: true; value: number | null } | { ok: false } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { ok: true, value: null };
+  const value = Number(trimmed);
+  if (!Number.isFinite(value) || value <= 0) return { ok: false };
+  return { ok: true, value };
 }
 
 function DepositPage() {
-  const user = useAuthStore((s) => s.user);
+  const { user } = useAuthStore();
   const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const fetchWallet = useWalletStore((s) => s.fetchWallet);
 
-  const [methods, setMethods] = useState<PaymentMethod[]>([]);
-  const [methodsLoaded, setMethodsLoaded] = useState(false);
+  const [step, setStep] = useState<"select" | "form">("select");
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | null>(null);
   const [amount, setAmount] = useState("");
   const [txReference, setTxReference] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  const [methods, setMethods] = useState<PaymentMethod[]>([]);
+  const [methodsLoaded, setMethodsLoaded] = useState(false);
   const [deposits, setDeposits] = useState<UserDeposit[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
-  const [step, setStep] = useState<DepositStep>("select");
 
   const mountedRef = useRef(true);
 
+  // Two deliberately independent retry systems: one for payment methods,
+  // one for deposit history. Do not merge or cross-wire them.
   const methodsLoadingRef = useRef(false);
   const methodsRetryCountRef = useRef(0);
   const methodsRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -150,9 +157,7 @@ function DepositPage() {
   const scheduleMethodsRetry = useCallback(
     (loadFn: () => void) => {
       clearMethodsRetryTimer();
-
       if (methodsRetryCountRef.current >= MAX_AUTO_RETRIES) return;
-
       methodsRetryCountRef.current += 1;
       methodsRetryTimerRef.current = setTimeout(loadFn, AUTO_RETRY_DELAY_MS);
     },
@@ -162,9 +167,7 @@ function DepositPage() {
   const scheduleHistoryRetry = useCallback(
     (loadFn: () => void) => {
       clearHistoryRetryTimer();
-
       if (historyRetryCountRef.current >= MAX_AUTO_RETRIES) return;
-
       historyRetryCountRef.current += 1;
       historyRetryTimerRef.current = setTimeout(loadFn, AUTO_RETRY_DELAY_MS);
     },
@@ -174,10 +177,7 @@ function DepositPage() {
   const loadMethods = useCallback(
     async (options?: { resetRetryCount?: boolean }) => {
       if (methodsLoadingRef.current) return;
-
-      if (options?.resetRetryCount) {
-        methodsRetryCountRef.current = 0;
-      }
+      if (options?.resetRetryCount) methodsRetryCountRef.current = 0;
 
       clearMethodsRetryTimer();
       methodsLoadingRef.current = true;
@@ -185,20 +185,16 @@ function DepositPage() {
       try {
         const result = await withTimeout(
           getPaymentMethodsFn({ data: { activeOnly: true } }),
-          METHOD_LOAD_TIMEOUT_MS,
+          METHODS_TIMEOUT_MS,
           "Payment methods request timed out.",
         );
-
         if (!mountedRef.current) return;
-
-        setMethods(result as PaymentMethod[]);
+        setMethods(result);
         setMethodsLoaded(true);
         methodsRetryCountRef.current = 0;
       } catch (err) {
-        console.error("[QHash] Deposit payment methods background refresh failed:", err);
-
+        console.error("[QHash] Deposit methods load failed:", err);
         if (!mountedRef.current) return;
-
         scheduleMethodsRetry(() => {
           void loadMethods();
         });
@@ -212,12 +208,12 @@ function DepositPage() {
   const loadHistory = useCallback(
     async (options?: { resetRetryCount?: boolean }) => {
       if (historyLoadingRef.current) return;
-
-      if (options?.resetRetryCount) {
-        historyRetryCountRef.current = 0;
+      if (options?.resetRetryCount) historyRetryCountRef.current = 0;
+      if (!accessToken) {
+        setDeposits([]);
+        setHistoryLoaded(false);
+        return;
       }
-
-      if (!user?.id || !accessToken) return;
 
       clearHistoryRetryTimer();
       historyLoadingRef.current = true;
@@ -225,20 +221,16 @@ function DepositPage() {
       try {
         const result = await withTimeout(
           getUserDepositsFn({ data: { accessToken } }),
-          HISTORY_LOAD_TIMEOUT_MS,
+          HISTORY_TIMEOUT_MS,
           "Deposit history request timed out.",
         );
-
         if (!mountedRef.current) return;
-
         setDeposits(result);
         setHistoryLoaded(true);
         historyRetryCountRef.current = 0;
       } catch (err) {
-        console.error("[QHash] Deposit history background refresh failed:", err);
-
+        console.error("[QHash] Deposit history load failed:", err);
         if (!mountedRef.current) return;
-
         scheduleHistoryRetry(() => {
           void loadHistory();
         });
@@ -246,7 +238,7 @@ function DepositPage() {
         historyLoadingRef.current = false;
       }
     },
-    [accessToken, clearHistoryRetryTimer, scheduleHistoryRetry, user?.id],
+    [accessToken, clearHistoryRetryTimer, scheduleHistoryRetry],
   );
 
   useEffect(() => {
@@ -262,60 +254,63 @@ function DepositPage() {
   }, [clearHistoryRetryTimer, clearMethodsRetryTimer, loadHistory, loadMethods]);
 
   useEffect(() => {
-    const handleVisible = () => {
-      if (document.visibilityState === "visible") {
-        void loadMethods({ resetRetryCount: true });
-        void loadHistory({ resetRetryCount: true });
-      }
-    };
-
-    const handleOnline = () => {
+    const refresh = () => {
       void loadMethods({ resetRetryCount: true });
       void loadHistory({ resetRetryCount: true });
     };
 
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+
     document.addEventListener("visibilitychange", handleVisible);
-    window.addEventListener("online", handleOnline);
+    window.addEventListener("online", refresh);
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisible);
-      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("online", refresh);
     };
   }, [loadHistory, loadMethods]);
 
-  const resetForm = () => {
-    setStep("select");
-    setSelectedMethod(null);
+  const resetForm = useCallback(() => {
     setAmount("");
     setTxReference("");
-  };
+  }, []);
 
-  const getTxPrefix = () => selectedMethod?.type === "telebirr" ? "D" : "FT";
-  const getTxPlaceholder = () =>
-    selectedMethod?.type === "telebirr" ? "e.g. DXXXXXXXXX" : "e.g. FTXXXXXXXXXX";
+  const selectMethod = useCallback((method: PaymentMethod) => {
+    setSelectedMethod(method);
+    setStep("form");
+  }, []);
 
-  const handleSubmit = async () => {
-    if (!user?.id || !selectedMethod || !txReference.trim()) return;
+  const backToSelect = useCallback(() => {
+    setSelectedMethod(null);
+    setStep("select");
+    resetForm();
+  }, [resetForm]);
 
-    const ref = txReference.trim().toUpperCase();
-    const prefix = getTxPrefix();
+  const handleSubmit = useCallback(async () => {
+    if (!selectedMethod || submitting) return;
 
-    if (!ref.startsWith(prefix)) {
-      toast.error(
-        `Please enter a valid ${METHOD_LABELS[selectedMethod.type]} transaction ID starting with "${prefix}".`
-      );
+    const meta = getMethodMeta(selectedMethod.type);
+    const normalizedRef = txReference.trim().toUpperCase();
+
+    if (!normalizedRef) {
+      toast.error("Enter your transaction ID.");
       return;
     }
 
-    const amountInput = amount.trim();
-    const numAmount = parseOptionalAmount(amountInput);
-
-    if (amountInput && (!Number.isFinite(numAmount) || numAmount <= 0)) {
-      toast.error("Enter a deposit amount above 0 ETB, or leave it blank.");
+    if (!normalizedRef.startsWith(meta.refPrefix)) {
+      toast.error(meta.refError);
       return;
     }
 
-    if (!accessToken) {
+    const parsedAmount = parseOptionalAmount(amount);
+    if (!parsedAmount.ok) {
+      toast.error("Enter a valid amount or leave it blank.");
+      return;
+    }
+
+    if (!user?.id || !accessToken) {
       toast.error("Session expired. Please sign in again.");
       return;
     }
@@ -325,575 +320,413 @@ function DepositPage() {
       await submitDepositFn({
         data: {
           accessToken,
-          amount: numAmount,
           paymentMethodId: selectedMethod.id,
-          transactionReference: ref,
+          transactionReference: normalizedRef,
+          amount: parsedAmount.value,
         },
       });
 
-      toast.success("Deposit submitted. It will be verified shortly.");
+      toast.success(meta.successToast);
       resetForm();
+      backToSelect();
       void loadHistory({ resetRetryCount: true });
-      fetchWallet(user.id);
+      void fetchWallet(user.id);
     } catch (err) {
-      toast.error(getSafeErrorMessage(err, "DEPOSIT").message);
+      console.error("[QHash] Deposit submit failed:", err);
+      toast.error(getSafeErrorMessage(err, "Failed to submit deposit. Please try again."));
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [
+    accessToken,
+    amount,
+    backToSelect,
+    fetchWallet,
+    loadHistory,
+    resetForm,
+    selectedMethod,
+    submitting,
+    txReference,
+    user?.id,
+  ]);
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => toast.success("Copied!"));
-  };
-
-  const groupedMethods = useMemo(
-    () => methods.reduce(
-      (acc, method) => {
-        if (!acc[method.type]) acc[method.type] = [];
-        acc[method.type].push(method);
-        return acc;
-      },
-      {} as Record<string, PaymentMethod[]>,
-    ),
-    [methods],
-  );
-
-  const confirmAmount = parseOptionalAmount(amount);
+  // Group active accounts by method type so multiple receiving accounts of
+  // the same type remain individually selectable ("· Account 2" etc.).
+  const methodOptions = (() => {
+    const grouped: Record<string, PaymentMethod[]> = {};
+    for (const method of methods) {
+      (grouped[method.type] ??= []).push(method);
+    }
+    return Object.entries(grouped)
+      .sort(([a], [b]) => getMethodOrder(a) - getMethodOrder(b))
+      .flatMap(([, accounts]) =>
+        accounts.map((method, index) => ({ method, index, total: accounts.length })),
+      );
+  })();
 
   return (
-    <div className="space-y-3 pb-20 lg:mx-auto lg:grid lg:max-w-5xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
-      <div className="lg:col-span-12">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
-          Deposit Center
-        </p>
-        <h1 className="mt-1 text-lg font-bold leading-tight text-gray-100">Deposit</h1>
-        <p className="mt-1 text-xs text-gray-500">Add funds via CBE or TeleBirr</p>
-      </div>
+    <div className="space-y-5 pb-20 lg:grid lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0 lg:pb-0">
+      <div className="space-y-5 lg:col-span-7 xl:col-span-8">
+        {step === "select" || !selectedMethod ? (
+          <>
+            {/* Header */}
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#00ff41]">
+                Deposit Center
+              </p>
+              <h1 className="mt-1 text-xl font-bold leading-tight text-gray-100">Deposit</h1>
+              <p className="mt-1 text-xs text-gray-500">Add funds via CBE or TeleBirr</p>
+            </div>
 
-      <div className="space-y-3 lg:col-span-7 xl:col-span-8">
-        {step === "select" && (
-          <MethodSelection
-            groupedMethods={groupedMethods}
-            methodsLoaded={methodsLoaded}
-            methodsCount={methods.length}
-            onSelect={(method) => {
-              setSelectedMethod(method);
-              setStep("pay");
-            }}
-          />
-        )}
+            {/* Method selection */}
+            <div>
+              <p className="mb-2 text-sm font-bold text-gray-100">Choose Deposit Method</p>
 
-        {step === "pay" && selectedMethod && (
-          <TransferDetails
-            selectedMethod={selectedMethod}
+              {!methodsLoaded ? (
+                <div className="space-y-2">
+                  <div className="skeleton h-14 rounded-xl" aria-label="Loading payment methods" />
+                  <div className="skeleton h-14 rounded-xl" />
+                </div>
+              ) : methodOptions.length === 0 ? (
+                <div className="rounded-xl border border-[#1a1a1a] bg-[#111] px-4 py-8 text-center">
+                  <p className="text-xs font-medium text-gray-500">
+                    No deposit methods are available right now.
+                  </p>
+                  <p className="mx-auto mt-1 max-w-xs text-[11px] leading-relaxed text-gray-600">
+                    Please check back shortly or contact support.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#111]">
+                  {methodOptions.map(({ method, index, total }, rowIndex) => {
+                    const meta = getMethodMeta(method.type);
+                    const accountSuffix = total > 1 ? ` · Account ${index + 1}` : "";
+
+                    return (
+                      <button
+                        key={method.id}
+                        type="button"
+                        onClick={() => selectMethod(method)}
+                        className={[
+                          "flex w-full items-center justify-between gap-3 px-3.5 py-3 text-left card-press",
+                          rowIndex > 0 ? "border-t border-[#1a1a1a]" : "",
+                        ].join(" ")}
+                      >
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[rgba(0,255,65,0.08)] text-[#00ff41]">
+                            {method.type === "telebirr" ? (
+                              <Smartphone size={15} />
+                            ) : (
+                              <Building2 size={15} />
+                            )}
+                          </div>
+
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-gray-100">
+                              {meta.label}
+                            </p>
+                            <p className="mt-0.5 truncate text-[11px] text-gray-500">
+                              {meta.sublabel}
+                              {accountSuffix}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex shrink-0 items-center gap-2">
+                          <Badge variant="neon">Auto-verify</Badge>
+                          <ChevronRight size={14} className="text-gray-600" />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-relaxed text-gray-600">
+                <Info size={12} className="mt-0.5 shrink-0" />
+                Transfer first, then submit your transaction ID.
+              </p>
+            </div>
+          </>
+        ) : (
+          <MethodDepositForm
+            method={selectedMethod}
             amount={amount}
-            onAmountChange={setAmount}
-            onCopy={copyToClipboard}
-            onBack={resetForm}
-            onContinue={() => setStep("confirm")}
-          />
-        )}
-
-        {step === "confirm" && selectedMethod && (
-          <ConfirmDeposit
-            selectedMethod={selectedMethod}
-            confirmAmount={confirmAmount}
             txReference={txReference}
-            txPlaceholder={getTxPlaceholder()}
             submitting={submitting}
-            onTxReferenceChange={setTxReference}
-            onBack={() => setStep("pay")}
+            onAmountChange={setAmount}
+            onReferenceChange={setTxReference}
+            onBack={backToSelect}
             onSubmit={handleSubmit}
           />
         )}
       </div>
 
+      {/* Deposit history */}
       <div className="lg:col-span-5 xl:col-span-4">
-        <DepositHistory deposits={deposits} historyLoaded={historyLoaded} />
+        <DepositHistory deposits={deposits} loaded={historyLoaded} />
       </div>
     </div>
   );
 }
 
-function MethodSelection({
-  groupedMethods,
-  methodsLoaded,
-  methodsCount,
-  onSelect,
-}: {
-  groupedMethods: Record<string, PaymentMethod[]>;
-  methodsLoaded: boolean;
-  methodsCount: number;
-  onSelect: (method: PaymentMethod) => void;
-}) {
-  const methodOptions = Object.entries(groupedMethods)
-    .sort(([a], [b]) => getMethodOrder(a) - getMethodOrder(b))
-    .flatMap(([, accounts]) =>
-      accounts.map((method, index) => ({ method, index, total: accounts.length })),
-    );
-
-  return (
-    <section className="space-y-2.5">
-      <div className="space-y-1">
-        <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-gray-600">
-          Step 1 of 3
-        </p>
-
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-bold text-gray-100">Choose Deposit Method</h2>
-          {methodsCount > 0 && (
-            <Badge variant="default" className="shrink-0 text-[9px]">
-              {methodsCount} option{methodsCount === 1 ? "" : "s"}
-            </Badge>
-          )}
-        </div>
-      </div>
-
-      {!methodsLoaded && methodsCount === 0 ? (
-        <div className="space-y-2">
-          {[1, 2].map((i) => (
-            <div key={i} className="skeleton h-16 rounded-xl" />
-          ))}
-        </div>
-      ) : methodsLoaded && methodsCount === 0 ? (
-        <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-6 text-center">
-          <div className="mx-auto grid h-10 w-10 place-items-center rounded-xl border border-[#1a1a1a] bg-[#0b0b0b]">
-            <ArrowDownCircle size={17} className="text-gray-600" />
-          </div>
-          <p className="mt-3 text-sm font-semibold text-gray-300">No payment methods</p>
-          <p className="mt-1 text-xs text-gray-600">Please try again later.</p>
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111] shadow-[0_0_0_1px_rgba(0,255,65,0.02)]">
-          {methodOptions.map(({ method, index, total }, rowIndex) => (
-            <DepositChannelRow
-              key={method.id}
-              method={method}
-              accountIndex={index}
-              accountCount={total}
-              isLast={rowIndex === methodOptions.length - 1}
-              onSelect={() => onSelect(method)}
-            />
-          ))}
-        </div>
-      )}
-
-      <DepositNoticeLine />
-    </section>
-  );
-}
-
-function DepositChannelRow({
+function MethodDepositForm({
   method,
-  accountIndex,
-  accountCount,
-  isLast,
-  onSelect,
+  amount,
+  txReference,
+  submitting,
+  onAmountChange,
+  onReferenceChange,
+  onBack,
+  onSubmit,
 }: {
   method: PaymentMethod;
-  accountIndex: number;
-  accountCount: number;
-  isLast: boolean;
-  onSelect: () => void;
-}) {
-  const accountSuffix = accountCount > 1 ? ` · Account ${accountIndex + 1}` : "";
-
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={[
-        "group w-full px-3.5 py-3 text-left transition-colors hover:bg-[rgba(0,255,65,0.035)] card-press",
-        isLast ? "" : "border-b border-[#1a1a1a]",
-      ].join(" ")}
-    >
-      <div className="flex items-center gap-3">
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[rgba(0,255,65,0.18)] bg-[linear-gradient(145deg,rgba(0,255,65,0.12),rgba(0,255,65,0.04))] text-[#00ff41]">
-          {getMethodIcon(method.type)}
-        </span>
-
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-black leading-tight text-gray-100">
-            {getMethodLabel(method.type)}
-          </span>
-          <span className="mt-0.5 block truncate text-[11px] text-gray-500">
-            {getMethodSublabel(method.type)}{accountSuffix}
-          </span>
-        </span>
-
-        <span className="inline-flex shrink-0 rounded-full border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.045)] px-2.5 py-1 text-[9px] font-semibold text-[#00ff41]/85">
-          <span className="sm:hidden">Add</span>
-          <span className="hidden sm:inline">Add funds</span>
-        </span>
-
-        <ChevronRight
-          size={15}
-          className="shrink-0 text-gray-600 transition-colors group-hover:text-[#00ff41]"
-        />
-      </div>
-    </button>
-  );
-}
-
-function DepositNoticeLine() {
-  return (
-    <div className="flex items-start gap-2 rounded-xl border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.035)] px-3 py-2.5">
-      <Info size={13} className="mt-0.5 shrink-0 text-[#00ff41]" />
-      <p className="text-[10px] leading-relaxed text-gray-500">
-        <span className="font-semibold text-[#00ff41]">Fund wallet</span>
-        <span> · Transfer first, then submit your reference for verification.</span>
-      </p>
-    </div>
-  );
-}
-
-function TransferDetails({
-  selectedMethod,
-  amount,
-  onAmountChange,
-  onCopy,
-  onBack,
-  onContinue,
-}: {
-  selectedMethod: PaymentMethod;
   amount: string;
+  txReference: string;
+  submitting: boolean;
   onAmountChange: (value: string) => void;
-  onCopy: (text: string) => void;
+  onReferenceChange: (value: string) => void;
   onBack: () => void;
-  onContinue: () => void;
+  onSubmit: () => void;
 }) {
+  const meta = getMethodMeta(method.type);
+  const [copied, setCopied] = useState(false);
+
+  const copyAccountNumber = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(method.account_number);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2_000);
+    } catch {
+      toast.error("Unable to copy. Please copy manually.");
+    }
+  }, [method.account_number]);
+
   return (
-    <section className="overflow-hidden rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111]">
-      <StepHeader
-        title="Transfer Details"
-        stepLabel="Step 2 of 3"
-        badge={getMethodLabel(selectedMethod.type)}
-        icon={getMethodIcon(selectedMethod.type)}
-        onBack={onBack}
-      />
-
-      <div className="space-y-3.5 p-3.5">
-        <PaymentAccountCard selectedMethod={selectedMethod} onCopy={onCopy} />
-
-        <div className="flex items-start gap-2 rounded-xl border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.035)] px-3 py-2.5">
-          <Info size={13} className="mt-0.5 shrink-0 text-[#00ff41]" />
-          <p className="text-[10px] leading-relaxed text-gray-500">
-            Transfer to the account above, then continue and submit your transaction ID.
-          </p>
-        </div>
-
-        <Input
-          label="Amount (ETB) — optional"
-          type="text"
-          placeholder="Enter deposit amount"
-          value={amount}
-          onChange={(e) => onAmountChange(e.target.value)}
-          inputMode="decimal"
-          hint="The actual amount will be verified from the receipt"
-        />
-
-        <Button fullWidth onClick={onContinue}>
-          I've Made the Payment
-        </Button>
-      </div>
-    </section>
-  );
-}
-
-function StepHeader({
-  title,
-  stepLabel,
-  badge,
-  icon,
-  onBack,
-}: {
-  title: string;
-  stepLabel: string;
-  badge: string;
-  icon: React.ReactNode;
-  onBack: () => void;
-}) {
-  return (
-    <div className="border-b border-[#1a1a1a] px-3.5 py-3">
-      <div className="flex items-center gap-3">
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center gap-2.5">
         <button
           type="button"
           onClick={onBack}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[#1f1f1f] bg-[#0b0b0b] text-gray-400 transition-colors hover:border-[rgba(0,255,65,0.35)] hover:text-[#00ff41] card-press"
-          aria-label="Go back"
+          aria-label="Back to deposit methods"
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-[#1f1f1f] bg-[#111] text-gray-400 card-press"
         >
           <ChevronLeft size={15} />
         </button>
 
-        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.06)] text-[#00ff41]">
-          {icon}
+        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[rgba(0,255,65,0.08)] text-[#00ff41]">
+          {method.type === "telebirr" ? <Smartphone size={15} /> : <Building2 size={15} />}
         </div>
 
         <div className="min-w-0 flex-1">
-          <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-gray-600">
-            {stepLabel}
-          </p>
-          <h2 className="truncate text-sm font-bold leading-tight text-gray-100">{title}</h2>
+          <div className="flex items-center gap-2">
+            <h1 className="truncate text-base font-bold leading-tight text-gray-100">
+              {meta.label} Deposit
+            </h1>
+            <Badge variant="neon">Auto-verify</Badge>
+          </div>
+          <p className="mt-0.5 truncate text-[11px] text-gray-500">{meta.pageSubtitle}</p>
         </div>
-
-        <Badge variant="neon" className="shrink-0 text-[9px]">
-          {badge}
-        </Badge>
       </div>
-    </div>
-  );
-}
 
-function PaymentAccountCard({
-  selectedMethod,
-  onCopy,
-}: {
-  selectedMethod: PaymentMethod;
-  onCopy: (text: string) => void;
-}) {
-  return (
-    <div className="space-y-2.5 rounded-xl border border-[#1f1f1f] bg-[#0b0b0b] p-3">
-      <AccountDetail label="Receiving Account" value={selectedMethod.account_name} />
-      <div className="flex items-start justify-between gap-3">
-        <span className="shrink-0 text-[11px] text-gray-500">Account Number</span>
-        <div className="flex min-w-0 items-start justify-end gap-2">
-          <span className="min-w-0 break-all text-right font-mono text-sm font-semibold leading-relaxed text-[#00ff41]">
-            {selectedMethod.account_number}
-          </span>
+      {/* Receiving account */}
+      <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-3.5">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-gray-600">
+            {meta.accountLabel}
+          </p>
+        </div>
+        <p className="mt-1 text-sm font-semibold text-gray-100">{method.account_name}</p>
+
+        <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-[#1f1f1f] bg-[#0d0d0d] px-3 py-2.5">
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-gray-600">
+              {meta.numberLabel}
+            </p>
+            <p className="mt-0.5 break-all font-mono text-sm font-bold text-gray-100">
+              {method.account_number}
+            </p>
+          </div>
+
           <button
             type="button"
-            onClick={() => onCopy(selectedMethod.account_number)}
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-[#1f1f1f] bg-[#111] text-gray-500 hover:text-[#00ff41] card-press"
-            aria-label="Copy account number"
+            onClick={copyAccountNumber}
+            aria-label={`Copy ${meta.numberLabel.toLowerCase()}`}
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[rgba(0,255,65,0.25)] bg-[rgba(0,255,65,0.08)] text-[#00ff41] card-press"
           >
-            <Copy size={12} />
+            {copied ? <Check size={14} /> : <Copy size={14} />}
           </button>
         </div>
       </div>
-      {selectedMethod.instructions && (
-        <p className="border-t border-[#1f1f1f] pt-2.5 text-[11px] leading-relaxed text-gray-500">
-          {selectedMethod.instructions}
+
+      <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-gray-600">
+        <Info size={12} className="mt-0.5 shrink-0" />
+        Transfer to this account, then enter your transaction ID below.
+      </p>
+
+      {/* Amount (optional) */}
+      <div>
+        <p className="mb-1.5 text-xs font-semibold text-gray-300">
+          Amount (ETB) <span className="font-normal text-gray-600">— optional</span>
         </p>
-      )}
+        <Input
+          type="number"
+          inputMode="decimal"
+          placeholder="0.00"
+          value={amount}
+          onChange={(e) => onAmountChange(e.target.value)}
+        />
+        <p className="mt-1 text-[11px] text-gray-600">
+          Optional — the amount is verified from your receipt
+        </p>
+      </div>
+
+      {/* Transaction reference */}
+      <div>
+        <p className="mb-1.5 text-xs font-semibold text-gray-300">{meta.refLabel}</p>
+        <Input
+          type="text"
+          placeholder={meta.refPlaceholder}
+          value={txReference}
+          onChange={(e) => onReferenceChange(e.target.value)}
+          autoCapitalize="characters"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <p className="mt-1 text-[11px] text-gray-600">{meta.refHint}</p>
+      </div>
+
+      <Button
+        className="w-full"
+        loading={submitting}
+        disabled={submitting || txReference.trim().length === 0}
+        onClick={onSubmit}
+      >
+        <ArrowDownCircle size={15} />
+        Submit for Verification
+      </Button>
     </div>
   );
 }
 
-function AccountDetail({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="shrink-0 text-[11px] text-gray-500">{label}</span>
-      <span className="truncate text-xs font-semibold text-gray-200">{value}</span>
-    </div>
-  );
-}
+function DepositHistory({ deposits, loaded }: { deposits: UserDeposit[]; loaded: boolean }) {
+  const visible = deposits.slice(0, HISTORY_PREVIEW_LIMIT);
 
-function ConfirmDeposit({
-  selectedMethod,
-  confirmAmount,
-  txReference,
-  txPlaceholder,
-  submitting,
-  onTxReferenceChange,
-  onBack,
-  onSubmit,
-}: {
-  selectedMethod: PaymentMethod;
-  confirmAmount: number;
-  txReference: string;
-  txPlaceholder: string;
-  submitting: boolean;
-  onTxReferenceChange: (value: string) => void;
-  onBack: () => void;
-  onSubmit: () => void;
-}) {
   return (
-    <section className="overflow-hidden rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111]">
-      <StepHeader
-        title="Confirm Deposit"
-        stepLabel="Step 3 of 3"
-        badge={getMethodLabel(selectedMethod.type)}
-        icon={<CheckCircle size={16} />}
-        onBack={onBack}
-      />
-
-      <div className="space-y-3.5 p-3.5">
-        <div className="space-y-2 rounded-xl border border-[#1f1f1f] bg-[#0b0b0b] p-3">
-          <SummaryRow label="Method" value={getMethodLabel(selectedMethod.type)} />
-          <SummaryRow label="Receiving account" value={selectedMethod.account_name} />
-          {Number.isFinite(confirmAmount) && confirmAmount > 0 && (
-            <SummaryRow
-              label="Amount"
-              value={`${formatAmount(confirmAmount)} ETB`}
-              highlight
-            />
+    <div>
+      <div className="mb-3 flex items-end justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-bold text-gray-100">Deposit History</h2>
+          {loaded && deposits.length > 0 && (
+            <Badge variant="default">{deposits.length}</Badge>
           )}
         </div>
 
-        <Input
-          label="Transaction ID / Reference"
-          placeholder={txPlaceholder}
-          value={txReference}
-          onChange={(e) => onTxReferenceChange(e.target.value)}
-          hint={`From your ${getMethodLabel(selectedMethod.type)} payment receipt`}
-        />
-
-        <Button
-          fullWidth
-          loading={submitting}
-          disabled={!txReference.trim() || submitting}
-          onClick={onSubmit}
-        >
-          Submit Deposit
-        </Button>
+        {loaded && deposits.length > HISTORY_PREVIEW_LIMIT && (
+          <Link
+            to="/transactions"
+            className="flex shrink-0 items-center gap-0.5 text-[10px] text-gray-500"
+          >
+            View all <ChevronRight size={12} />
+          </Link>
+        )}
       </div>
-    </section>
-  );
-}
 
-function SummaryRow({
-  label,
-  value,
-  highlight = false,
-}: {
-  label: string;
-  value: string;
-  highlight?: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 text-xs">
-      <span className="text-gray-500">{label}</span>
-      <span className={highlight ? "font-mono font-semibold text-[#00ff41]" : "truncate text-gray-300"}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function DepositHistory({
-  deposits,
-  historyLoaded,
-}: {
-  deposits: UserDeposit[];
-  historyLoaded: boolean;
-}) {
-  return (
-    <section className="mt-1 space-y-2.5 lg:mt-0">
-      <SectionHeader
-        title="Deposit History"
-        action={
-          deposits.length > 0 ? (
-            <Badge variant="default" className="shrink-0 text-[9px]">
-              {deposits.length}
-            </Badge>
-          ) : null
-        }
-      />
-
-      {!historyLoaded && deposits.length === 0 ? (
+      {!loaded ? (
         <div className="space-y-2">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="skeleton h-16 rounded-xl" />
-          ))}
+          <div className="skeleton h-14 rounded-xl" aria-label="Loading deposit history" />
+          <div className="skeleton h-14 rounded-xl" />
         </div>
-      ) : historyLoaded && deposits.length === 0 ? (
-        <ListPanel divided={false}>
-          <EmptyState
-            icon={<Clock size={22} />}
-            title="No deposits yet"
-            description="Submitted deposits will appear here."
-            className="py-10"
-          />
-        </ListPanel>
+      ) : deposits.length === 0 ? (
+        <div className="rounded-xl border border-[#1a1a1a] bg-[#111] px-4 py-8 text-center">
+          <p className="text-xs font-medium text-gray-500">No deposits yet</p>
+          <p className="mx-auto mt-1 max-w-xs text-[11px] leading-relaxed text-gray-600">
+            Your submitted deposits will appear here.
+          </p>
+        </div>
       ) : (
-        <ListPanel>
-          {deposits.map((deposit) => (
+        <div className="divide-y divide-[#1a1a1a] overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#111]">
+          {visible.map((deposit) => (
             <DepositHistoryItem key={deposit.id} deposit={deposit} />
           ))}
-        </ListPanel>
+        </div>
       )}
-    </section>
+    </div>
   );
 }
 
 function DepositHistoryItem({ deposit }: { deposit: UserDeposit }) {
-  const hasAmount = deposit.amount > 0;
-  const isApproved = deposit.status === "approved";
-  const isRejected = deposit.status === "rejected";
-  const isPending = deposit.status === "pending";
-  const amountText = hasAmount
-    ? `+${formatAmount(deposit.amount)} ETB`
+  const meta = getMethodMeta(deposit.method_type);
+  const status = (deposit.status ?? "").toLowerCase();
+  const isApproved = status === "approved";
+  const isRejected = status === "rejected";
+  const isPending = status === "pending";
+  const hasAmount = isApproved && Number(deposit.amount) > 0;
+
+  const formattedAmount = Number(deposit.amount).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+  const refTail = (deposit.transaction_reference ?? "").slice(-6);
+
+  const badge = isApproved
+    ? { label: "Done", className: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20", Icon: CheckCircle }
     : isRejected
-      ? "Rejected"
-      : isPending
-        ? "Pending"
-        : "Reviewing";
-  const amountClass = isApproved
-    ? "text-[#00ff41]"
-    : isRejected
-      ? "text-red-400"
-      : isPending
-        ? "text-amber-300"
-        : "text-gray-300";
-  const iconClass = isApproved
-    ? "text-[#00ff41]"
-    : isRejected
-      ? "text-red-400"
-      : "text-amber-300";
+      ? { label: "Failed", className: "bg-red-500/10 text-red-400 border-red-500/20", Icon: XCircle }
+      : { label: "Pending", className: "bg-amber-500/10 text-amber-400 border-amber-500/20", Icon: Clock };
 
   return (
-    <ListRow
-      icon={<ArrowDownCircle size={15} className={iconClass} />}
-      title={
-        <div className="flex min-w-0 items-center gap-2">
-          <p className="truncate text-sm font-bold text-gray-100">
-            {getMethodLabel(deposit.method_type)} Deposit
-          </p>
-          <DepositStatusBadge status={deposit.status} />
+    <div className="flex items-center justify-between gap-3 px-3.5 py-3">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <div
+          className={[
+            "grid h-8 w-8 shrink-0 place-items-center rounded-full",
+            isApproved
+              ? "bg-emerald-500/10 text-emerald-400"
+              : isRejected
+                ? "bg-red-500/10 text-red-400"
+                : "bg-amber-500/10 text-amber-400",
+          ].join(" ")}
+        >
+          <badge.Icon size={14} />
         </div>
-      }
-      description={`${shortReference(deposit.transaction_reference)} · ${formatDateTime(deposit.created_at)}`}
-      right={
-        <p className={`font-mono text-xs font-semibold ${amountClass}`}>
-          {amountText}
-        </p>
-      }
-    />
-  );
-}
 
-function DepositStatusBadge({ status }: { status: string }) {
-  const config: Record<
-    string,
-    { label: string; variant: "success" | "warning" | "danger" | "default"; icon: React.ReactNode }
-  > = {
-    approved: {
-      label: "Done",
-      variant: "success",
-      icon: <CheckCircle size={10} />,
-    },
-    pending: {
-      label: "Pending",
-      variant: "warning",
-      icon: <Clock size={10} />,
-    },
-    rejected: {
-      label: "Failed",
-      variant: "danger",
-      icon: <XCircle size={10} />,
-    },
-  };
-  const { label, variant, icon } = config[status] ?? {
-    label: status,
-    variant: "default" as const,
-    icon: null,
-  };
-  return (
-    <Badge variant={variant} className="shrink-0 text-[9px]">
-      <span className="flex items-center gap-1">
-        {icon}
-        {label}
-      </span>
-    </Badge>
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <p className="truncate text-xs font-semibold text-gray-100">
+              {meta.label} Deposit
+            </p>
+            <span
+              className={[
+                "inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[9px] font-medium",
+                badge.className,
+              ].join(" ")}
+            >
+              {badge.label}
+            </span>
+          </div>
+          <p className="mt-0.5 truncate text-[10px] text-gray-600">
+            {formatDateTime(deposit.created_at)}
+            {refTail ? ` · Ref …${refTail}` : ""}
+          </p>
+        </div>
+      </div>
+
+      <div className="shrink-0 text-right">
+        {hasAmount ? (
+          <p className="font-mono text-sm font-semibold text-[#00ff41]">
+            +{formattedAmount} ETB
+          </p>
+        ) : isRejected ? (
+          <p className="text-xs font-semibold text-red-400">Rejected</p>
+        ) : isPending ? (
+          <p className="text-xs font-semibold text-amber-400">Pending</p>
+        ) : (
+          <p className="text-xs font-semibold text-gray-500">Reviewing</p>
+        )}
+      </div>
+    </div>
   );
 }
