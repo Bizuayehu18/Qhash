@@ -584,27 +584,16 @@ function MethodDepositForm({
             </h2>
             <p className="mt-0.5 truncate text-[11px] text-gray-500">{meta.pageSubtitle}</p>
           </div>
-
-          <Badge variant="neon" className="shrink-0 text-[9px]">
-            Add funds
-          </Badge>
         </div>
       </div>
 
-      <div className="space-y-3.5 p-3.5">
+      <div className="space-y-3 p-3.5">
         <PaymentAccountCard
           method={method}
           meta={meta}
           copied={copied}
           onCopy={copyAccountNumber}
         />
-
-        <div className="flex items-start gap-2 rounded-xl border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.035)] px-3 py-2.5">
-          <Info size={13} className="mt-0.5 shrink-0 text-[#00ff41]" />
-          <p className="text-[10px] leading-relaxed text-gray-500">
-            Transfer to this {method.type === "telebirr" ? "TeleBirr number" : "account"}, then enter your transaction ID below.
-          </p>
-        </div>
 
         <Input
           label="Amount (ETB) — optional"
@@ -613,7 +602,6 @@ function MethodDepositForm({
           value={amount}
           onChange={(e) => onAmountChange(e.target.value)}
           inputMode="decimal"
-          hint="The actual amount will be verified from the receipt"
         />
 
         <Input
