@@ -387,6 +387,8 @@ function DepositPage() {
   return (
     <div className="space-y-3 pb-20 lg:mx-auto lg:grid lg:max-w-5xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
       <div className="space-y-3 lg:col-span-7 xl:col-span-8">
+        <DepositPageHeader />
+
         {step === "select" || !selectedMethod ? (
           <DepositMethodSelection
             methodsLoaded={methodsLoaded}
@@ -398,7 +400,7 @@ function DepositPage() {
             }}
           />
         ) : (
-          <MethodDepositForm
+          <MethodDepositSection
             method={selectedMethod}
             amount={amount}
             txReference={txReference}
@@ -418,6 +420,18 @@ function DepositPage() {
   );
 }
 
+function DepositPageHeader() {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
+        Deposit Center
+      </p>
+      <h1 className="mt-1 text-lg font-bold leading-tight text-gray-100">Deposit</h1>
+      <p className="mt-1 text-xs text-gray-500">Add funds via CBE or TeleBirr</p>
+    </div>
+  );
+}
+
 function DepositMethodSelection({
   methodsLoaded,
   methodsCount,
@@ -430,87 +444,77 @@ function DepositMethodSelection({
   onSelect: (method: PaymentMethod) => void;
 }) {
   return (
-    <>
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
-          Deposit Center
-        </p>
-        <h1 className="mt-1 text-lg font-bold leading-tight text-gray-100">Deposit</h1>
-        <p className="mt-1 text-xs text-gray-500">Add funds via CBE or TeleBirr</p>
+    <section className="space-y-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-bold text-gray-100">Choose Deposit Method</h2>
+        {methodsCount > 0 && (
+          <Badge variant="default" className="shrink-0 text-[9px]">
+            {methodsCount} option{methodsCount === 1 ? "" : "s"}
+          </Badge>
+        )}
       </div>
 
-      <section className="space-y-2.5">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-bold text-gray-100">Choose Deposit Method</h2>
-          {methodsCount > 0 && (
-            <Badge variant="default" className="shrink-0 text-[9px]">
-              {methodsCount} option{methodsCount === 1 ? "" : "s"}
-            </Badge>
-          )}
+      {!methodsLoaded && methodsCount === 0 ? (
+        <div className="space-y-2">
+          {[1, 2].map((i) => (
+            <div key={i} className="skeleton h-16 rounded-xl" />
+          ))}
         </div>
-
-        {!methodsLoaded && methodsCount === 0 ? (
-          <div className="space-y-2">
-            {[1, 2].map((i) => (
-              <div key={i} className="skeleton h-16 rounded-xl" />
-            ))}
+      ) : methodsLoaded && methodsCount === 0 ? (
+        <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-6 text-center">
+          <div className="mx-auto grid h-10 w-10 place-items-center rounded-xl border border-[#1a1a1a] bg-[#0b0b0b]">
+            <ArrowDownCircle size={17} className="text-gray-600" />
           </div>
-        ) : methodsLoaded && methodsCount === 0 ? (
-          <div className="rounded-xl border border-[#1a1a1a] bg-[#111] p-6 text-center">
-            <div className="mx-auto grid h-10 w-10 place-items-center rounded-xl border border-[#1a1a1a] bg-[#0b0b0b]">
-              <ArrowDownCircle size={17} className="text-gray-600" />
-            </div>
-            <p className="mt-3 text-sm font-semibold text-gray-300">No payment methods</p>
-            <p className="mt-1 text-xs text-gray-600">Please try again later.</p>
-          </div>
-        ) : (
-          <div className="overflow-hidden rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111] shadow-[0_0_0_1px_rgba(0,255,65,0.02)]">
-            {methodOptions.map(({ method, index, total }, rowIndex) => {
-              const meta = getMethodMeta(method.type);
-              const accountSuffix = total > 1 ? ` · Account ${index + 1}` : "";
+          <p className="mt-3 text-sm font-semibold text-gray-300">No payment methods</p>
+          <p className="mt-1 text-xs text-gray-600">Please try again later.</p>
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111] shadow-[0_0_0_1px_rgba(0,255,65,0.02)]">
+          {methodOptions.map(({ method, index, total }, rowIndex) => {
+            const meta = getMethodMeta(method.type);
+            const accountSuffix = total > 1 ? ` · Account ${index + 1}` : "";
 
-              return (
-                <button
-                  key={method.id}
-                  type="button"
-                  onClick={() => onSelect(method)}
-                  className={[
-                    "group w-full px-3.5 py-3 text-left transition-colors hover:bg-[rgba(0,255,65,0.035)] card-press",
-                    rowIndex === methodOptions.length - 1 ? "" : "border-b border-[#1a1a1a]",
-                  ].join(" ")}
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[rgba(0,255,65,0.18)] bg-[linear-gradient(145deg,rgba(0,255,65,0.12),rgba(0,255,65,0.04))] text-[#00ff41]">
-                      {meta.icon}
+            return (
+              <button
+                key={method.id}
+                type="button"
+                onClick={() => onSelect(method)}
+                className={[
+                  "group w-full px-3.5 py-3 text-left transition-colors hover:bg-[rgba(0,255,65,0.035)] card-press",
+                  rowIndex === methodOptions.length - 1 ? "" : "border-b border-[#1a1a1a]",
+                ].join(" ")}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[rgba(0,255,65,0.18)] bg-[linear-gradient(145deg,rgba(0,255,65,0.12),rgba(0,255,65,0.04))] text-[#00ff41]">
+                    {meta.icon}
+                  </span>
+
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-black leading-tight text-gray-100">
+                      {meta.label}
                     </span>
-
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-black leading-tight text-gray-100">
-                        {meta.label}
-                      </span>
-                      <span className="mt-0.5 block truncate text-[11px] text-gray-500">
-                        {meta.sublabel}{accountSuffix}
-                      </span>
+                    <span className="mt-0.5 block truncate text-[11px] text-gray-500">
+                      {meta.sublabel}{accountSuffix}
                     </span>
+                  </span>
 
-                    <Badge variant="neon" className="shrink-0 text-[9px]">
-                      Add funds
-                    </Badge>
+                  <Badge variant="neon" className="shrink-0 text-[9px]">
+                    Add funds
+                  </Badge>
 
-                    <ChevronRight
-                      size={15}
-                      className="shrink-0 text-gray-600 transition-colors group-hover:text-[#00ff41]"
-                    />
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
+                  <ChevronRight
+                    size={15}
+                    className="shrink-0 text-gray-600 transition-colors group-hover:text-[#00ff41]"
+                  />
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
-        <DepositNoticeLine />
-      </section>
-    </>
+      <DepositNoticeLine />
+    </section>
   );
 }
 
@@ -523,6 +527,50 @@ function DepositNoticeLine() {
         <span> · Transfer first, then submit your reference.</span>
       </p>
     </div>
+  );
+}
+
+function MethodDepositSection({
+  method,
+  amount,
+  txReference,
+  submitting,
+  onAmountChange,
+  onReferenceChange,
+  onBack,
+  onSubmit,
+}: {
+  method: PaymentMethod;
+  amount: string;
+  txReference: string;
+  submitting: boolean;
+  onAmountChange: (value: string) => void;
+  onReferenceChange: (value: string) => void;
+  onBack: () => void;
+  onSubmit: () => void;
+}) {
+  const meta = getMethodMeta(method.type);
+
+  return (
+    <section className="space-y-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-bold text-gray-100">Deposit Details</h2>
+        <Badge variant="default" className="shrink-0 text-[9px]">
+          {meta.label}
+        </Badge>
+      </div>
+
+      <MethodDepositForm
+        method={method}
+        amount={amount}
+        txReference={txReference}
+        submitting={submitting}
+        onAmountChange={onAmountChange}
+        onReferenceChange={onReferenceChange}
+        onBack={onBack}
+        onSubmit={onSubmit}
+      />
+    </section>
   );
 }
 
@@ -576,9 +624,6 @@ function MethodDepositForm({
           </div>
 
           <div className="min-w-0 flex-1">
-            <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-gray-600">
-              Deposit details
-            </p>
             <h2 className="truncate text-sm font-bold leading-tight text-gray-100">
               {meta.label} Deposit
             </h2>
@@ -741,6 +786,7 @@ function DepositHistoryItem({ deposit }: { deposit: UserDeposit }) {
   const isApproved = deposit.status === "approved";
   const isRejected = deposit.status === "rejected";
   const isPending = deposit.status === "pending";
+
   const amountText = isRejected
     ? "Rejected"
     : isApproved && hasAmount
@@ -750,6 +796,7 @@ function DepositHistoryItem({ deposit }: { deposit: UserDeposit }) {
         : hasAmount
           ? `${formatAmount(deposit.amount)} ETB`
           : "Reviewing";
+
   const amountClass = isApproved && hasAmount
     ? "text-[#00ff41]"
     : isRejected
@@ -757,6 +804,7 @@ function DepositHistoryItem({ deposit }: { deposit: UserDeposit }) {
       : isPending
         ? "text-amber-300"
         : "text-gray-300";
+
   const iconClass = isApproved
     ? "text-[#00ff41]"
     : isRejected
@@ -790,6 +838,7 @@ function DepositStatusBadge({ status }: { status: string }) {
     pending: { label: "Pending", variant: "warning", icon: <Clock size={10} /> },
     rejected: { label: "Failed", variant: "danger", icon: <XCircle size={10} /> },
   };
+
   const { label, variant, icon } = config[status] ?? {
     label: status,
     variant: "default" as const,
