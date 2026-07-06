@@ -385,7 +385,7 @@ function DepositPage() {
   );
 
   return (
-    <div className="space-y-3 pb-20 lg:mx-auto lg:grid lg:max-w-5xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
+    <div className="space-y-3 pb-16 lg:mx-auto lg:grid lg:max-w-5xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
       <div className="space-y-3 lg:col-span-7 xl:col-span-8">
         <DepositPageHeader />
 
@@ -729,28 +729,18 @@ function DepositHistory({
   historyLoaded: boolean;
 }) {
   const visibleDeposits = deposits.slice(0, HISTORY_PREVIEW_LIMIT);
+  const hasMoreDeposits = deposits.length > HISTORY_PREVIEW_LIMIT;
 
   return (
     <section className="mt-1 space-y-2.5 lg:mt-0">
       <SectionHeader
         title="Deposit History"
         action={
-          <div className="flex items-center gap-2">
-            {deposits.length > HISTORY_PREVIEW_LIMIT && (
-              <Link
-                to="/transactions"
-                className="inline-flex items-center gap-0.5 text-[10px] font-medium text-gray-500 hover:text-[#00ff41]"
-              >
-                View all
-                <ChevronRight size={12} />
-              </Link>
-            )}
-            {deposits.length > 0 ? (
-              <Badge variant="default" className="shrink-0 text-[9px]">
-                {deposits.length}
-              </Badge>
-            ) : null}
-          </div>
+          deposits.length > 0 ? (
+            <Badge variant="default" className="shrink-0 text-[9px]">
+              {deposits.length}
+            </Badge>
+          ) : null
         }
       />
 
@@ -774,6 +764,16 @@ function DepositHistory({
           {visibleDeposits.map((deposit) => (
             <DepositHistoryItem key={deposit.id} deposit={deposit} />
           ))}
+
+          {hasMoreDeposits && (
+            <Link
+              to="/transactions"
+              className="flex w-full items-center justify-center gap-1 bg-[#0a0a0a] px-3 py-2.5 text-[10px] font-semibold text-gray-400 transition hover:text-gray-100 active:scale-[0.99]"
+            >
+              View all history
+              <ChevronRight size={12} />
+            </Link>
+          )}
         </ListPanel>
       )}
     </section>
