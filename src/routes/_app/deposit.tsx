@@ -712,7 +712,7 @@ function DepositHistory({
       {!historyLoaded && deposits.length === 0 ? (
         <div className="space-y-2">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="skeleton h-16 rounded-xl" />
+            <div key={i} className="skeleton h-14 rounded-xl" />
           ))}
         </div>
       ) : historyLoaded && deposits.length === 0 ? (
@@ -741,14 +741,16 @@ function DepositHistoryItem({ deposit }: { deposit: UserDeposit }) {
   const isApproved = deposit.status === "approved";
   const isRejected = deposit.status === "rejected";
   const isPending = deposit.status === "pending";
-  const amountText = hasAmount
-    ? `+${formatAmount(deposit.amount)} ETB`
-    : isRejected
-      ? "Rejected"
+  const amountText = isRejected
+    ? "Rejected"
+    : isApproved && hasAmount
+      ? `+${formatAmount(deposit.amount)} ETB`
       : isPending
         ? "Pending"
-        : "Reviewing";
-  const amountClass = isApproved
+        : hasAmount
+          ? `${formatAmount(deposit.amount)} ETB`
+          : "Reviewing";
+  const amountClass = isApproved && hasAmount
     ? "text-[#00ff41]"
     : isRejected
       ? "text-red-400"
@@ -763,10 +765,11 @@ function DepositHistoryItem({ deposit }: { deposit: UserDeposit }) {
 
   return (
     <ListRow
-      icon={<ArrowDownCircle size={15} className={iconClass} />}
+      className="!gap-2.5 !px-3 !py-2.5"
+      icon={<ArrowDownCircle size={14} className={iconClass} />}
       title={
         <div className="flex min-w-0 items-center gap-2">
-          <p className="truncate text-sm font-bold text-gray-100">
+          <p className="truncate text-[13px] font-bold text-gray-100">
             {meta.label} Deposit
           </p>
           <DepositStatusBadge status={deposit.status} />
