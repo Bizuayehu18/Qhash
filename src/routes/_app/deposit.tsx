@@ -91,7 +91,7 @@ const METHOD_META: Record<MethodType, MethodMeta> = {
     numberLabel: "TeleBirr Number",
     refLabel: "TeleBirr Transaction ID",
     refPrefix: "D",
-    refPlaceholder: "e.g. D8XK2M9QW1",
+    refPlaceholder: "e.g. DXXXXXXXXX",
     refHint: 'Starts with "D" — from your TeleBirr receipt',
     refError: 'TeleBirr transaction IDs start with "D". Check your receipt and try again.',
     successToast: "TeleBirr deposit submitted successfully.",
