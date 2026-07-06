@@ -613,7 +613,7 @@ function MethodDepositForm({
           value={amount}
           onChange={(e) => onAmountChange(e.target.value)}
           inputMode="decimal"
-          hint="Optional — enter the amount from your receipt"
+          hint="The actual amount will be verified from the receipt"
         />
 
         <Input
