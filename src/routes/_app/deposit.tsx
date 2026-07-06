@@ -385,7 +385,7 @@ function DepositPage() {
   );
 
   return (
-    <div className="space-y-3 pb-16 lg:mx-auto lg:grid lg:max-w-5xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
+    <div className="space-y-3 lg:mx-auto lg:grid lg:max-w-5xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
       <div className="space-y-3 lg:col-span-7 xl:col-span-8">
         <DepositPageHeader />
 
