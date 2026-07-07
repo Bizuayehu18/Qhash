@@ -387,9 +387,17 @@ function DepositPage() {
     [methods],
   );
 
+  const isFormView = step === "form" && selectedMethod !== null;
+
   return (
-    <div className="space-y-3 lg:mx-auto lg:grid lg:max-w-5xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
-      <div className="space-y-3 lg:col-span-7 xl:col-span-8">
+    <div
+      className={
+        isFormView
+          ? "space-y-3 lg:mx-auto lg:max-w-3xl"
+          : "space-y-3 lg:mx-auto lg:grid lg:max-w-5xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0"
+      }
+    >
+      <div className={isFormView ? "space-y-3" : "space-y-3 lg:col-span-7 xl:col-span-8"}>
         <DepositPageHeader />
 
         {step === "select" || !selectedMethod ? (
@@ -416,9 +424,11 @@ function DepositPage() {
         )}
       </div>
 
-      <div className="lg:col-span-5 xl:col-span-4">
-        <DepositHistory deposits={deposits} historyLoaded={historyLoaded} />
-      </div>
+      {!isFormView && (
+        <div className="lg:col-span-5 xl:col-span-4">
+          <DepositHistory deposits={deposits} historyLoaded={historyLoaded} />
+        </div>
+      )}
     </div>
   );
 }
@@ -497,7 +507,8 @@ function DepositMethodSelection({
                       {meta.label}
                     </span>
                     <span className="mt-0.5 block truncate text-[11px] text-gray-500">
-                      {meta.sublabel}{accountSuffix}
+                      {meta.sublabel}
+                      {accountSuffix}
                     </span>
                   </span>
 
@@ -617,7 +628,7 @@ function MethodDepositForm({
             type="button"
             onClick={onBack}
             className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[#1f1f1f] bg-[#0b0b0b] text-gray-400 transition-colors hover:border-[rgba(0,255,65,0.35)] hover:text-[#00ff41] card-press"
-            aria-label="Back to deposit methods"
+            aria-label="Back to deposit method selection"
           >
             <ChevronLeft size={15} />
           </button>
@@ -690,6 +701,7 @@ function PaymentAccountCard({
   return (
     <div className="space-y-2.5 rounded-xl border border-[#1f1f1f] bg-[#0b0b0b] p-3">
       <AccountDetail label={meta.accountLabel} value={method.account_name} />
+
       <div className="flex items-start justify-between gap-3">
         <span className="shrink-0 text-[11px] text-gray-500">{meta.numberLabel}</span>
         <div className="flex min-w-0 items-start justify-end gap-2">
@@ -706,6 +718,7 @@ function PaymentAccountCard({
           </button>
         </div>
       </div>
+
       {method.instructions && (
         <p className="border-t border-[#1f1f1f] pt-2.5 text-[11px] leading-relaxed text-gray-500">
           {method.instructions}
