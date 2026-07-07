@@ -259,23 +259,3 @@ input:-webkit-autofill:focus {
   border: 1px solid rgba(255, 255, 255, 0.04);
   position: relative;
 }
-
-/* Deposit form focus mode */
-.app-content .page-enter > div:has(button[aria-label="Back to deposit methods"]) > div:last-child {
-  display: none;
-}
-
-@media (min-width: 1024px) {
-  .app-content .page-enter > div:has(button[aria-label="Back to deposit methods"]) {
-    display: block !important;
-    max-width: 48rem !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
-  }
-
-  .app-content .page-enter > div:has(button[aria-label="Back to deposit methods"]) > div:first-child {
-    max-width: 48rem;
-    margin-left: auto;
-    margin-right: auto;
-  }
-}
