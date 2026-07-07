@@ -855,7 +855,7 @@ function WithdrawalHistory({
               onClick={() => setExpanded((value) => !value)}
               className="w-full px-3.5 py-3 text-center text-[11px] font-semibold text-[#00ff41] transition-colors hover:bg-[rgba(0,255,65,0.035)] card-press"
             >
-              {expanded ? "Show less" : `See more (${withdrawals.length - visibleWithdrawals.length} more)`}
+              {expanded ? "Show less" : `See more (${withdrawals.length - visibleWithdrawals.length})`}
             </button>
           )}
         </div>
