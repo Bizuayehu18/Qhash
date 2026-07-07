@@ -48,6 +48,7 @@ const HISTORY_LOAD_TIMEOUT_MS = 10_000;
 const SECURITY_STATUS_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
 const MAX_AUTO_RETRIES = 2;
+const HISTORY_PREVIEW_LIMIT = 6;
 const DAILY_WITHDRAWAL_LIMIT_MESSAGE = "You can only submit one withdrawal request per day. Please try again tomorrow.";
 
 const METHOD_LABELS: Record<WithdrawalMethod, string> = {
@@ -410,13 +411,13 @@ function WithdrawPage() {
     <div
       className={
         isFormView
-          ? "space-y-3 lg:mx-auto lg:max-w-3xl"
-          : "space-y-3 lg:mx-auto lg:grid lg:max-w-5xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0"
+          ? "space-y-2.5 pb-28 lg:mx-auto lg:max-w-2xl lg:pb-0"
+          : "space-y-3 pb-24 lg:mx-auto lg:grid lg:max-w-5xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0 lg:pb-0"
       }
     >
-      <div className={isFormView ? "space-y-3" : "space-y-3 lg:col-span-7 xl:col-span-8"}>
-        <WithdrawalPageHeader />
-        <BalanceStrip walletBalance={walletBalance} />
+      <div className={isFormView ? "space-y-2.5" : "space-y-3 lg:col-span-7 xl:col-span-8"}>
+        {!isFormView && <WithdrawalPageHeader />}
+        <BalanceStrip walletBalance={walletBalance} compact={isFormView} />
 
         {!method ? (
           <>
@@ -474,18 +475,28 @@ function WithdrawalPageHeader() {
   );
 }
 
-function BalanceStrip({ walletBalance }: { walletBalance: number | null }) {
+function BalanceStrip({ walletBalance, compact = false }: { walletBalance: number | null; compact?: boolean }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-[rgba(0,255,65,0.16)] bg-[#111] px-3.5 py-3">
+    <div
+      className={[
+        "flex items-center justify-between gap-3 rounded-xl border border-[rgba(0,255,65,0.16)] bg-[#111]",
+        compact ? "px-3 py-2.5" : "px-3.5 py-3",
+      ].join(" ")}
+    >
       <div className="flex min-w-0 items-center gap-2.5">
-        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.07)]">
-          <Wallet size={15} className="text-[#00ff41]" />
+        <div
+          className={[
+            "grid shrink-0 place-items-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.07)]",
+            compact ? "h-7 w-7" : "h-8 w-8",
+          ].join(" ")}
+        >
+          <Wallet size={compact ? 14 : 15} className="text-[#00ff41]" />
         </div>
         <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#00ff41]/70">
             Available
           </p>
-          <p className="text-[10px] text-gray-600">Wallet balance</p>
+          {!compact && <p className="text-[10px] text-gray-600">Wallet balance</p>}
         </div>
       </div>
 
@@ -493,7 +504,7 @@ function BalanceStrip({ walletBalance }: { walletBalance: number | null }) {
         <span className="skeleton inline-block h-5 w-24 rounded" aria-label="Loading available balance" />
       ) : (
         <div className="shrink-0 text-right">
-          <span className="text-base font-black leading-none text-[#00ff41]">
+          <span className={compact ? "text-sm font-black leading-none text-[#00ff41]" : "text-base font-black leading-none text-[#00ff41]"}>
             {formatMoney(walletBalance)}
           </span>
           <span className="ml-1 text-[10px] font-semibold text-gray-500">ETB</span>
@@ -755,12 +766,12 @@ function MethodSelectorRow({
       type="button"
       onClick={onClick}
       className={[
-        "group w-full px-3.5 py-2.5 text-left transition-colors hover:bg-[rgba(255,77,77,0.035)] card-press",
+        "group w-full px-3.5 py-2.5 text-left transition-colors hover:bg-[rgba(0,255,65,0.035)] card-press",
         isLast ? "" : "border-b border-[#1a1a1a]",
       ].join(" ")}
     >
       <div className="flex items-center gap-3">
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-red-400/15 bg-red-500/5 text-red-300">
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.045)] text-[#00ff41]">
           {meta.icon}
         </span>
 
@@ -773,13 +784,13 @@ function MethodSelectorRow({
           </span>
         </span>
 
-        <span className="inline-flex shrink-0 rounded-full border border-red-400/15 bg-red-500/5 px-2.5 py-1 text-[9px] font-semibold text-red-300">
+        <span className="inline-flex shrink-0 rounded-full border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.045)] px-2.5 py-1 text-[9px] font-semibold text-[#00ff41]">
           Payout
         </span>
 
         <ChevronRight
           size={15}
-          className="shrink-0 text-gray-600 transition-colors group-hover:text-red-300"
+          className="shrink-0 text-gray-600 transition-colors group-hover:text-[#00ff41]"
         />
       </div>
     </button>
@@ -810,6 +821,10 @@ function WithdrawalHistory({
   withdrawals: UserWithdrawal[];
   historyLoaded: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const visibleWithdrawals = expanded ? withdrawals : withdrawals.slice(0, HISTORY_PREVIEW_LIMIT);
+  const hasMore = withdrawals.length > HISTORY_PREVIEW_LIMIT;
+
   return (
     <section className="mt-1 space-y-2.5 lg:mt-0">
       <div className="flex items-center justify-between gap-3">
@@ -840,9 +855,19 @@ function WithdrawalHistory({
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#111] divide-y divide-[#1a1a1a]">
-          {withdrawals.map((withdrawal) => (
+          {visibleWithdrawals.map((withdrawal) => (
             <WithdrawalHistoryItem key={withdrawal.id} withdrawal={withdrawal} />
           ))}
+
+          {hasMore && (
+            <button
+              type="button"
+              onClick={() => setExpanded((value) => !value)}
+              className="w-full px-3.5 py-3 text-center text-[11px] font-semibold text-[#00ff41] transition-colors hover:bg-[rgba(0,255,65,0.035)] card-press"
+            >
+              {expanded ? "Show less" : `See more (${withdrawals.length - visibleWithdrawals.length} more)`}
+            </button>
+          )}
         </div>
       )}
     </section>
@@ -871,14 +896,16 @@ function WithdrawalHistoryItem({ withdrawal }: { withdrawal: UserWithdrawal }) {
         </p>
       </div>
 
-      <p
-        className={[
-          "shrink-0 text-right font-mono text-xs font-semibold",
-          isRejected ? "text-gray-500" : "text-red-400",
-        ].join(" ")}
-      >
-        {isRejected ? "Rejected" : `-${formatMoney(withdrawal.amount)} ETB`}
-      </p>
+      {isRejected ? (
+        <div className="shrink-0 text-right">
+          <p className="text-[11px] font-semibold text-gray-500">Rejected</p>
+          <p className="mt-0.5 text-[9px] text-gray-700">No debit</p>
+        </div>
+      ) : (
+        <p className="shrink-0 text-right font-mono text-xs font-semibold text-red-400">
+          -{formatMoney(withdrawal.amount)} ETB
+        </p>
+      )}
     </div>
   );
 }
