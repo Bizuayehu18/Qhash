@@ -258,24 +258,157 @@ input:-webkit-autofill:focus {
   background: linear-gradient(145deg, #111 0%, #0d0d0d 100%);
   border: 1px solid rgba(255, 255, 255, 0.04);
   position: relative;
+  overflow: hidden;
 }
 
-/* Deposit form focus mode */
-.app-content .page-enter > div:has(button[aria-label="Back to deposit methods"]) > div:last-child {
-  display: none;
+.mining-stat-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0, 255, 65, 0.2), transparent);
 }
 
-@media (min-width: 1024px) {
-  .app-content .page-enter > div:has(button[aria-label="Back to deposit methods"]) {
-    display: block !important;
-    max-width: 48rem !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
-  }
+/* Hash rate animation */
+@keyframes hashScroll {
+  0% { transform: translateY(0); opacity: 0.5; }
+  50% { opacity: 1; }
+  100% { transform: translateY(-100%); opacity: 0; }
+}
 
-  .app-content .page-enter > div:has(button[aria-label="Back to deposit methods"]) > div:first-child {
-    max-width: 48rem;
-    margin-left: auto;
-    margin-right: auto;
+.hash-stream {
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 8px;
+  line-height: 1.2;
+  color: rgba(0, 255, 65, 0.15);
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.hash-line {
+  animation: hashScroll var(--duration, 4s) linear infinite;
+  animation-delay: var(--delay, 0s);
+  white-space: nowrap;
+}
+
+/* Mining node pulse */
+@keyframes nodePulse {
+  0%, 100% {
+    box-shadow: 0 0 4px rgba(0, 255, 65, 0.2), 0 0 8px rgba(0, 255, 65, 0.1);
+    opacity: 0.7;
   }
+  50% {
+    box-shadow: 0 0 8px rgba(0, 255, 65, 0.4), 0 0 16px rgba(0, 255, 65, 0.2);
+    opacity: 1;
+  }
+}
+
+.node-dot {
+  animation: nodePulse var(--speed, 2s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+/* Connection line animation */
+@keyframes dataFlow {
+  0% { stroke-dashoffset: 20; }
+  100% { stroke-dashoffset: 0; }
+}
+
+.data-line {
+  stroke-dasharray: 4 4;
+  animation: dataFlow 1.5s linear infinite;
+}
+
+/* Activity feed */
+@keyframes feedSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.feed-item-enter {
+  animation: feedSlideIn 0.3s ease-out;
+}
+
+/* Counter tick animation */
+@keyframes counterTick {
+  0% { transform: translateY(0); opacity: 1; }
+  50% { transform: translateY(-4px); opacity: 0; }
+  51% { transform: translateY(4px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.counter-tick {
+  display: inline-block;
+  animation: counterTick 0.3s ease-in-out;
+}
+
+/* Gradient text for stats */
+.stat-value-glow {
+  color: #fff;
+  text-shadow: 0 0 12px rgba(0, 255, 65, 0.3);
+}
+
+/* Enhanced transaction row */
+.tx-row {
+  transition: background-color 0.15s ease;
+}
+
+.tx-row:active {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+/* Status indicator bar */
+@keyframes barScan {
+  0% { transform: scaleX(0); transform-origin: left; opacity: 0.6; }
+  50% { transform: scaleX(1); transform-origin: left; opacity: 1; }
+  51% { transform-origin: right; }
+  100% { transform: scaleX(0); transform-origin: right; opacity: 0.6; }
+}
+
+.scan-bar {
+  animation: barScan 3s ease-in-out infinite;
+}
+
+/* Stagger children animation */
+.stagger-children > * {
+  animation: pageEnter 0.3s ease-out backwards;
+}
+.stagger-children > *:nth-child(1) { animation-delay: 0s; }
+.stagger-children > *:nth-child(2) { animation-delay: 0.05s; }
+.stagger-children > *:nth-child(3) { animation-delay: 0.1s; }
+.stagger-children > *:nth-child(4) { animation-delay: 0.15s; }
+.stagger-children > *:nth-child(5) { animation-delay: 0.2s; }
+.stagger-children > *:nth-child(6) { animation-delay: 0.25s; }
+.stagger-children > *:nth-child(7) { animation-delay: 0.3s; }
+.stagger-children > *:nth-child(8) { animation-delay: 0.35s; }
+
+/* Number count-up glow */
+@keyframes valueFlash {
+  0% { text-shadow: 0 0 8px rgba(0, 255, 65, 0.6); }
+  100% { text-shadow: 0 0 8px rgba(0, 255, 65, 0); }
+}
+
+.value-update {
+  animation: valueFlash 0.8s ease-out;
+}
+
+/* Premium card hover/active */
+.premium-card {
+  background: #111;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.premium-card:active {
+  border-color: rgba(0, 255, 65, 0.15);
+  box-shadow: 0 0 20px rgba(0, 255, 65, 0.05);
 }
