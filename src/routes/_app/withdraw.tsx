@@ -175,6 +175,7 @@ function WithdrawPage() {
   const netAmount = useMemo(() => Math.max(parsedAmount - feeAmount, 0), [parsedAmount, feeAmount]);
   const hasEnoughBalance = walletBalance === null || parsedAmount <= walletBalance;
   const selectedMeta = method ? METHOD_META[method] : null;
+  const isFormView = method !== null;
 
   const clearRetryTimer = useCallback(() => {
     if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
@@ -392,7 +393,7 @@ function WithdrawPage() {
       resetForm();
       void loadWithdrawals({ resetRetryCount: true });
       void loadSecurityStatus();
-      void fetchWallet(user.id);
+      void fetchWallet(user.id, { force: true });
     } catch (err) {
       if (isDailyWithdrawalLimitError(err)) {
         return toast.error(DAILY_WITHDRAWAL_LIMIT_MESSAGE);
@@ -406,18 +407,15 @@ function WithdrawPage() {
   };
 
   return (
-    <div className="space-y-3 pb-20 lg:mx-auto lg:grid lg:max-w-5xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
-      <div className="lg:col-span-12">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
-          Withdrawal Center
-        </p>
-        <h1 className="mt-1 text-lg font-bold leading-tight text-gray-100">Withdraw</h1>
-        <p className="mt-1 text-xs text-gray-500">
-          Request a withdrawal to your CBE or TeleBirr account.
-        </p>
-      </div>
-
-      <div className="space-y-3 lg:col-span-7 xl:col-span-8">
+    <div
+      className={
+        isFormView
+          ? "space-y-3 lg:mx-auto lg:max-w-3xl"
+          : "space-y-3 lg:mx-auto lg:grid lg:max-w-5xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0"
+      }
+    >
+      <div className={isFormView ? "space-y-3" : "space-y-3 lg:col-span-7 xl:col-span-8"}>
+        <WithdrawalPageHeader />
         <BalanceStrip walletBalance={walletBalance} />
 
         {!method ? (
@@ -453,9 +451,25 @@ function WithdrawPage() {
         )}
       </div>
 
-      <div className="lg:col-span-5 xl:col-span-4">
-        <WithdrawalHistory withdrawals={withdrawals} historyLoaded={historyLoaded} />
-      </div>
+      {!isFormView && (
+        <div className="lg:col-span-5 xl:col-span-4">
+          <WithdrawalHistory withdrawals={withdrawals} historyLoaded={historyLoaded} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WithdrawalPageHeader() {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
+        Withdrawal Center
+      </p>
+      <h1 className="mt-1 text-lg font-bold leading-tight text-gray-100">Withdraw</h1>
+      <p className="mt-1 text-xs text-gray-500">
+        Request a withdrawal to your CBE or TeleBirr account.
+      </p>
     </div>
   );
 }
@@ -838,6 +852,7 @@ function WithdrawalHistory({
 function WithdrawalHistoryItem({ withdrawal }: { withdrawal: UserWithdrawal }) {
   const methodLabel = METHOD_LABELS[withdrawal.method] ?? withdrawal.method;
   const accountLine = `${withdrawal.account_name}${withdrawal.account_last4 ? ` • ${withdrawal.account_last4}` : ""}`;
+  const isRejected = withdrawal.status === "rejected";
 
   return (
     <div className="flex items-center gap-3 px-3.5 py-3">
@@ -856,8 +871,13 @@ function WithdrawalHistoryItem({ withdrawal }: { withdrawal: UserWithdrawal }) {
         </p>
       </div>
 
-      <p className="shrink-0 text-right font-mono text-xs font-semibold text-red-400">
-        -{formatMoney(withdrawal.amount)} ETB
+      <p
+        className={[
+          "shrink-0 text-right font-mono text-xs font-semibold",
+          isRejected ? "text-gray-500" : "text-red-400",
+        ].join(" ")}
+      >
+        {isRejected ? "Rejected" : `-${formatMoney(withdrawal.amount)} ETB`}
       </p>
     </div>
   );
