@@ -5,10 +5,8 @@ import {
   Building2,
   Check,
   CheckCircle,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ChevronUp,
   Clock,
   Copy,
   Info,
@@ -69,7 +67,6 @@ const HISTORY_LOAD_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
 const MAX_AUTO_RETRIES = 2;
 const HISTORY_PREVIEW_LIMIT = 6;
-const HISTORY_EXPANDED_LIMIT = 12;
 
 const METHOD_META: Record<MethodType, MethodMeta> = {
   cbe: {
@@ -744,10 +741,9 @@ function DepositHistory({
   deposits: UserDeposit[];
   historyLoaded: boolean;
 }) {
-  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const visibleDeposits = expanded ? deposits : deposits.slice(0, HISTORY_PREVIEW_LIMIT);
   const hasMoreDeposits = deposits.length > HISTORY_PREVIEW_LIMIT;
-  const visibleLimit = historyExpanded ? HISTORY_EXPANDED_LIMIT : HISTORY_PREVIEW_LIMIT;
-  const visibleDeposits = deposits.slice(0, visibleLimit);
 
   return (
     <section className="mt-1 space-y-2.5 lg:mt-0">
@@ -786,20 +782,10 @@ function DepositHistory({
           {hasMoreDeposits && (
             <button
               type="button"
-              onClick={() => setHistoryExpanded((expanded) => !expanded)}
-              className="flex w-full items-center justify-center gap-1 bg-[#0a0a0a] px-3 py-2.5 text-[10px] font-semibold text-gray-400 transition hover:text-gray-100 active:scale-[0.99]"
+              onClick={() => setExpanded((value) => !value)}
+              className="w-full px-3.5 py-3 text-center text-[11px] font-semibold text-[#00ff41] transition-colors hover:bg-[rgba(0,255,65,0.035)] card-press"
             >
-              {historyExpanded ? (
-                <>
-                  Show less
-                  <ChevronUp size={12} />
-                </>
-              ) : (
-                <>
-                  See more
-                  <ChevronDown size={12} />
-                </>
-              )}
+              {expanded ? "Show less" : `See more (${deposits.length - visibleDeposits.length})`}
             </button>
           )}
         </ListPanel>

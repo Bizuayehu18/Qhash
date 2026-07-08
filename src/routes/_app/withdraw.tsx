@@ -30,6 +30,7 @@ import { useWalletStore } from "@/store/walletStore.js";
 export const Route = createFileRoute("/_app/withdraw")({ component: WithdrawPage });
 
 type WithdrawalMethod = "cbe" | "telebirr";
+type WithdrawalStep = "details" | "confirm";
 type UserWithdrawal = Awaited<ReturnType<typeof getUserWithdrawalsFn>>[number];
 
 type MethodMeta = {
@@ -48,6 +49,7 @@ const HISTORY_LOAD_TIMEOUT_MS = 10_000;
 const SECURITY_STATUS_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
 const MAX_AUTO_RETRIES = 2;
+const HISTORY_PREVIEW_LIMIT = 6;
 const DAILY_WITHDRAWAL_LIMIT_MESSAGE = "You can only submit one withdrawal request per day. Please try again tomorrow.";
 
 const METHOD_LABELS: Record<WithdrawalMethod, string> = {
@@ -139,6 +141,13 @@ function onlyFourDigits(value: string): string {
   return value.replace(/\D/g, "").slice(0, 4);
 }
 
+function maskAccountNumber(value: string): string {
+  const digits = value.trim();
+  if (digits.length <= 4) return digits;
+
+  return `•••• ${digits.slice(-4)}`;
+}
+
 function WithdrawPage() {
   const user = useAuthStore((s) => s.user);
   const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
@@ -148,6 +157,7 @@ function WithdrawPage() {
 
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<WithdrawalMethod | null>(null);
+  const [withdrawalStep, setWithdrawalStep] = useState<WithdrawalStep>("details");
   const [accountName, setAccountName] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
   const [fundPassword, setFundPassword] = useState("");
@@ -175,6 +185,7 @@ function WithdrawPage() {
   const netAmount = useMemo(() => Math.max(parsedAmount - feeAmount, 0), [parsedAmount, feeAmount]);
   const hasEnoughBalance = walletBalance === null || parsedAmount <= walletBalance;
   const selectedMeta = method ? METHOD_META[method] : null;
+  const isFormView = method !== null;
 
   const clearRetryTimer = useCallback(() => {
     if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
@@ -304,6 +315,7 @@ function WithdrawPage() {
   const resetForm = () => {
     setAmount("");
     setMethod(null);
+    setWithdrawalStep("details");
     setAccountName("");
     setAccountNumber("");
     setFundPassword("");
@@ -311,6 +323,7 @@ function WithdrawPage() {
 
   const changeMethod = () => {
     setMethod(null);
+    setWithdrawalStep("details");
     setAccountName("");
     setAccountNumber("");
     setFundPassword("");
@@ -345,9 +358,32 @@ function WithdrawPage() {
       }
 
       setMethod(nextMethod);
+      setWithdrawalStep("details");
+      setFundPassword("");
     },
     [goToFundPasswordSetup, loadSecurityStatus, loadingSecurityStatus, securityStatus],
   );
+
+  const handleContinueToConfirm = () => {
+    const trimmedAccountName = accountName.trim();
+    const trimmedAccountNumber = accountNumber.trim();
+
+    if (!method) return toast.error("Please choose a withdrawal method.");
+    if (!user?.id) return toast.error("Please log in again.");
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) return toast.error("Please enter a valid withdrawal amount.");
+    if (parsedAmount < MIN_WITHDRAWAL_AMOUNT) return toast.error(`Minimum withdrawal amount is ${MIN_WITHDRAWAL_AMOUNT} ETB.`);
+    if (!hasEnoughBalance) return toast.error("Insufficient wallet balance.");
+    if (trimmedAccountName.length < 2) return toast.error("Please enter a valid account name.");
+    if (trimmedAccountNumber.length < 5) return toast.error("Please enter a valid account number.");
+
+    setFundPassword("");
+    setWithdrawalStep("confirm");
+  };
+
+  const handleBackToDetails = () => {
+    setFundPassword("");
+    setWithdrawalStep("details");
+  };
 
   const handleSubmit = async () => {
     if (submitting) return;
@@ -392,7 +428,7 @@ function WithdrawPage() {
       resetForm();
       void loadWithdrawals({ resetRetryCount: true });
       void loadSecurityStatus();
-      void fetchWallet(user.id);
+      void fetchWallet(user.id, { force: true });
     } catch (err) {
       if (isDailyWithdrawalLimitError(err)) {
         return toast.error(DAILY_WITHDRAWAL_LIMIT_MESSAGE);
@@ -406,18 +442,15 @@ function WithdrawPage() {
   };
 
   return (
-    <div className="space-y-3 pb-20 lg:mx-auto lg:grid lg:max-w-5xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
-      <div className="lg:col-span-12">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
-          Withdrawal Center
-        </p>
-        <h1 className="mt-1 text-lg font-bold leading-tight text-gray-100">Withdraw</h1>
-        <p className="mt-1 text-xs text-gray-500">
-          Request a withdrawal to your CBE or TeleBirr account.
-        </p>
-      </div>
-
-      <div className="space-y-3 lg:col-span-7 xl:col-span-8">
+    <div
+      className={
+        isFormView
+          ? "space-y-3 lg:mx-auto lg:max-w-3xl"
+          : "space-y-3 lg:mx-auto lg:grid lg:max-w-5xl lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0"
+      }
+    >
+      <div className={isFormView ? "space-y-3" : "space-y-3 lg:col-span-7 xl:col-span-8"}>
+        <WithdrawalPageHeader />
         <BalanceStrip walletBalance={walletBalance} />
 
         {!method ? (
@@ -430,32 +463,60 @@ function WithdrawPage() {
             />
             <NoticeLine />
           </>
-        ) : (
-          <WithdrawalForm
+        ) : withdrawalStep === "confirm" ? (
+          <WithdrawalConfirmForm
             method={method}
             selectedMeta={selectedMeta}
-            amount={amount}
             accountName={accountName}
             accountNumber={accountNumber}
             fundPassword={fundPassword}
             parsedAmount={parsedAmount}
             feeAmount={feeAmount}
             netAmount={netAmount}
-            hasEnoughBalance={hasEnoughBalance}
             submitting={submitting}
+            onFundPasswordChange={(value) => setFundPassword(onlyFourDigits(value))}
+            onBackToDetails={handleBackToDetails}
+            onSubmit={handleSubmit}
+          />
+        ) : (
+          <WithdrawalDetailsForm
+            method={method}
+            selectedMeta={selectedMeta}
+            amount={amount}
+            accountName={accountName}
+            accountNumber={accountNumber}
+            parsedAmount={parsedAmount}
+            feeAmount={feeAmount}
+            netAmount={netAmount}
+            hasEnoughBalance={hasEnoughBalance}
             onAmountChange={setAmount}
             onAccountNameChange={setAccountName}
             onAccountNumberChange={setAccountNumber}
-            onFundPasswordChange={(value) => setFundPassword(onlyFourDigits(value))}
             onChangeMethod={changeMethod}
-            onSubmit={handleSubmit}
+            onContinue={handleContinueToConfirm}
           />
         )}
       </div>
 
-      <div className="lg:col-span-5 xl:col-span-4">
-        <WithdrawalHistory withdrawals={withdrawals} historyLoaded={historyLoaded} />
-      </div>
+      {!isFormView && (
+        <div className="lg:col-span-5 xl:col-span-4">
+          <WithdrawalHistory withdrawals={withdrawals} historyLoaded={historyLoaded} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WithdrawalPageHeader() {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#00ff41]/70">
+        Withdrawal Center
+      </p>
+      <h1 className="mt-1 text-lg font-bold leading-tight text-gray-100">Withdraw</h1>
+      <p className="mt-1 text-xs text-gray-500">
+        Request a withdrawal to your CBE or TeleBirr account.
+      </p>
     </div>
   );
 }
@@ -589,50 +650,42 @@ function NoticeLine() {
   );
 }
 
-function WithdrawalForm({
+function WithdrawalDetailsForm({
   method,
   selectedMeta,
   amount,
   accountName,
   accountNumber,
-  fundPassword,
   parsedAmount,
   feeAmount,
   netAmount,
   hasEnoughBalance,
-  submitting,
   onAmountChange,
   onAccountNameChange,
   onAccountNumberChange,
-  onFundPasswordChange,
   onChangeMethod,
-  onSubmit,
+  onContinue,
 }: {
   method: WithdrawalMethod;
   selectedMeta: MethodMeta | null;
   amount: string;
   accountName: string;
   accountNumber: string;
-  fundPassword: string;
   parsedAmount: number;
   feeAmount: number;
   netAmount: number;
   hasEnoughBalance: boolean;
-  submitting: boolean;
   onAmountChange: (value: string) => void;
   onAccountNameChange: (value: string) => void;
   onAccountNumberChange: (value: string) => void;
-  onFundPasswordChange: (value: string) => void;
   onChangeMethod: () => void;
-  onSubmit: () => void;
+  onContinue: () => void;
 }) {
-  const canSubmit =
-    !submitting &&
+  const canContinue =
     parsedAmount >= MIN_WITHDRAWAL_AMOUNT &&
     hasEnoughBalance &&
     accountName.trim().length >= 2 &&
-    accountNumber.trim().length >= 5 &&
-    fundPassword.length === 4;
+    accountNumber.trim().length >= 5;
 
   return (
     <section className="overflow-hidden rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111]">
@@ -658,7 +711,7 @@ function WithdrawalForm({
           </div>
 
           <Badge variant="neon" className="shrink-0 text-[9px]">
-            {METHOD_LABELS[method]}
+            Step 1 of 2
           </Badge>
         </div>
       </div>
@@ -690,18 +743,6 @@ function WithdrawalForm({
           onChange={(e) => onAccountNumberChange(e.target.value)}
         />
 
-        <Input
-          label="Fund Password"
-          type="password"
-          placeholder="Enter 4-digit fund password"
-          value={fundPassword}
-          onChange={(e) => onFundPasswordChange(e.target.value)}
-          inputMode="numeric"
-          maxLength={4}
-          autoComplete="current-password"
-          hint="Required for every withdrawal."
-        />
-
         {parsedAmount > 0 && (
           <SummaryCard amount={parsedAmount} fee={feeAmount} net={netAmount} />
         )}
@@ -714,11 +755,110 @@ function WithdrawalForm({
 
         <Button
           fullWidth
+          disabled={!canContinue}
+          className="disabled:bg-[#0b3f19] disabled:text-black/50 disabled:shadow-none disabled:hover:bg-[#0b3f19]"
+          onClick={onContinue}
+        >
+          Continue
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function WithdrawalConfirmForm({
+  method,
+  selectedMeta,
+  accountName,
+  accountNumber,
+  fundPassword,
+  parsedAmount,
+  feeAmount,
+  netAmount,
+  submitting,
+  onFundPasswordChange,
+  onBackToDetails,
+  onSubmit,
+}: {
+  method: WithdrawalMethod;
+  selectedMeta: MethodMeta | null;
+  accountName: string;
+  accountNumber: string;
+  fundPassword: string;
+  parsedAmount: number;
+  feeAmount: number;
+  netAmount: number;
+  submitting: boolean;
+  onFundPasswordChange: (value: string) => void;
+  onBackToDetails: () => void;
+  onSubmit: () => void;
+}) {
+  const canConfirm = !submitting && fundPassword.length === 4;
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111]">
+      <div className="border-b border-[#1a1a1a] px-3.5 py-3">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onBackToDetails}
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[#1f1f1f] bg-[#0b0b0b] text-gray-400 transition-colors hover:border-[rgba(0,255,65,0.35)] hover:text-[#00ff41] card-press"
+            aria-label="Back to withdrawal details"
+          >
+            <ArrowLeft size={14} />
+          </button>
+
+          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.06)] text-[#00ff41]">
+            {selectedMeta?.icon}
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-sm font-bold leading-tight text-gray-100">
+              Confirm Withdrawal
+            </h2>
+            <p className="mt-0.5 truncate text-[11px] text-gray-500">
+              Review and authorize
+            </p>
+          </div>
+
+          <Badge variant="neon" className="shrink-0 text-[9px]">
+            Step 2 of 2
+          </Badge>
+        </div>
+      </div>
+
+      <div className="space-y-3.5 p-3.5">
+        <div className="space-y-2 rounded-xl border border-[#1f1f1f] bg-[#0b0b0b] p-3">
+          <SummaryRow label="Method" value={METHOD_LABELS[method]} />
+          <SummaryRow label="Account name" value={accountName.trim()} />
+          <SummaryRow label="Account" value={maskAccountNumber(accountNumber)} />
+          <div className="border-t border-[#1a1a1a] pt-2">
+            <SummaryRow label="Amount" value={`${formatMoney(parsedAmount)} ETB`} />
+            <SummaryRow label="Fee" value={`${formatMoney(feeAmount)} ETB`} />
+            <SummaryRow label="You receive" value={`${formatMoney(netAmount)} ETB`} highlight />
+          </div>
+        </div>
+
+        <Input
+          label="Fund Password"
+          type="password"
+          placeholder="Enter 4-digit fund password"
+          value={fundPassword}
+          onChange={(e) => onFundPasswordChange(e.target.value)}
+          inputMode="numeric"
+          maxLength={4}
+          autoComplete="current-password"
+          hint="Required to confirm this withdrawal."
+        />
+
+        <Button
+          fullWidth
           loading={submitting}
-          disabled={!canSubmit}
+          disabled={!canConfirm}
+          className="disabled:bg-[#0b3f19] disabled:text-black/50 disabled:shadow-none disabled:hover:bg-[#0b3f19]"
           onClick={onSubmit}
         >
-          {selectedMeta?.submitLabel ?? "Submit Withdrawal"}
+          Confirm Withdrawal
         </Button>
       </div>
     </section>
@@ -796,6 +936,10 @@ function WithdrawalHistory({
   withdrawals: UserWithdrawal[];
   historyLoaded: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const visibleWithdrawals = expanded ? withdrawals : withdrawals.slice(0, HISTORY_PREVIEW_LIMIT);
+  const hasMore = withdrawals.length > HISTORY_PREVIEW_LIMIT;
+
   return (
     <section className="mt-1 space-y-2.5 lg:mt-0">
       <div className="flex items-center justify-between gap-3">
@@ -826,9 +970,19 @@ function WithdrawalHistory({
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#111] divide-y divide-[#1a1a1a]">
-          {withdrawals.map((withdrawal) => (
+          {visibleWithdrawals.map((withdrawal) => (
             <WithdrawalHistoryItem key={withdrawal.id} withdrawal={withdrawal} />
           ))}
+
+          {hasMore && (
+            <button
+              type="button"
+              onClick={() => setExpanded((value) => !value)}
+              className="w-full px-3.5 py-3 text-center text-[11px] font-semibold text-[#00ff41] transition-colors hover:bg-[rgba(0,255,65,0.035)] card-press"
+            >
+              {expanded ? "Show less" : `See more (${withdrawals.length - visibleWithdrawals.length})`}
+            </button>
+          )}
         </div>
       )}
     </section>
@@ -838,6 +992,7 @@ function WithdrawalHistory({
 function WithdrawalHistoryItem({ withdrawal }: { withdrawal: UserWithdrawal }) {
   const methodLabel = METHOD_LABELS[withdrawal.method] ?? withdrawal.method;
   const accountLine = `${withdrawal.account_name}${withdrawal.account_last4 ? ` • ${withdrawal.account_last4}` : ""}`;
+  const isRejected = withdrawal.status === "rejected";
 
   return (
     <div className="flex items-center gap-3 px-3.5 py-3">
@@ -856,8 +1011,14 @@ function WithdrawalHistoryItem({ withdrawal }: { withdrawal: UserWithdrawal }) {
         </p>
       </div>
 
-      <p className="shrink-0 text-right font-mono text-xs font-semibold text-red-400">
-        -{formatMoney(withdrawal.amount)} ETB
+      <p
+        className={
+          isRejected
+            ? "shrink-0 text-right text-[11px] font-semibold text-gray-500"
+            : "shrink-0 text-right font-mono text-xs font-semibold text-red-400"
+        }
+      >
+        {isRejected ? "Rejected" : `-${formatMoney(withdrawal.amount)} ETB`}
       </p>
     </div>
   );
