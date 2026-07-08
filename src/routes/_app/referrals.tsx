@@ -12,6 +12,7 @@ import { useAuthStore } from "@/store/authStore.js";
 import { Card } from "@/components/ui/Card.js";
 import { EmptyState } from "@/components/ui/EmptyState.js";
 import { SectionHeader } from "@/components/ui/SectionHeader.js";
+import { CurrencyUnit } from "@/components/ui/AmountText.js";
 import { loadReferralStatsFn } from "@/lib/server/referrals.js";
 import { withTimeout } from "@/lib/async.js";
 
