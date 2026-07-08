@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { ArrowDownCircle, ArrowUpCircle, Zap, Award } from "lucide-react";
+import { CurrencyUnit } from "@/components/ui/AmountText.js";
 
 type ActivityType = "deposit" | "withdrawal" | "mining" | "earning";
 
@@ -103,7 +104,7 @@ export function ActivityFeed() {
                     {" "}{config.label}{" "}
                     {item.type !== "mining" && (
                       <span className="font-mono text-gray-200">
-                        {item.amount.toLocaleString()} ETB
+                        {item.amount.toLocaleString()}<CurrencyUnit />
                       </span>
                     )}
                   </p>
