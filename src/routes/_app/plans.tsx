@@ -206,19 +206,19 @@ function PlanCard({ plan, onSelect }: { plan: PlanWithEligibility; onSelect: () 
         <div className="min-w-0">
           <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">Invest</p>
           <p className="mt-0.5 truncate font-mono text-sm font-black leading-tight text-gray-100">
-            {formatEtb(plan.investment_amount)} <CurrencyUnit />
+            {formatEtb(plan.investment_amount)}<CurrencyUnit />
           </p>
         </div>
         <div className="min-w-0 text-center">
           <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">Daily</p>
           <p className="mt-0.5 truncate font-mono text-sm font-black leading-tight text-[#00ff41]">
-            {formatEtb(plan.daily_earning)} <CurrencyUnit />
+            {formatEtb(plan.daily_earning)}<CurrencyUnit />
           </p>
         </div>
         <div className="min-w-0 text-right">
           <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">Total</p>
           <p className="mt-0.5 truncate font-mono text-sm font-black leading-tight text-gray-100">
-            {formatEtb(totalEarnings)} <CurrencyUnit />
+            {formatEtb(totalEarnings)}<CurrencyUnit />
           </p>
         </div>
       </div>
@@ -400,7 +400,7 @@ function PlansPage() {
           <span className="skeleton inline-block h-5 w-24 rounded" aria-label="Loading wallet balance" />
         ) : (
           <span className="font-mono text-sm font-black tracking-tight text-[#00ff41]">
-            {formatWalletAmount(walletBalance)} <CurrencyUnit />
+            {formatWalletAmount(walletBalance)}<CurrencyUnit />
           </span>
         )}
         <Link to="/deposit" className="ml-auto text-[10px] text-gray-400 border border-[#2a2a2a] rounded-lg px-2.5 py-1 card-press hover:text-white">
@@ -444,15 +444,15 @@ function PlansPage() {
             <div className="mb-3 grid grid-cols-3 gap-2 rounded-xl border border-[#1b1b1b] bg-[#0a0a0a] px-3 py-2.5">
               <div className="min-w-0">
                 <p className="truncate text-[10px] uppercase tracking-[0.14em] text-gray-600">Invest</p>
-                <p className="mt-1 truncate font-mono text-sm font-black text-gray-100">{formatEtb(selectedPlan.investment_amount)} <CurrencyUnit /></p>
+                <p className="mt-1 truncate font-mono text-sm font-black text-gray-100">{formatEtb(selectedPlan.investment_amount)}<CurrencyUnit /></p>
               </div>
               <div className="min-w-0 text-center">
                 <p className="truncate text-[10px] uppercase tracking-[0.14em] text-gray-600">Daily</p>
-                <p className="mt-1 truncate font-mono text-sm font-black text-[#00ff41]">{formatEtb(selectedPlan.daily_earning)} <CurrencyUnit /></p>
+                <p className="mt-1 truncate font-mono text-sm font-black text-[#00ff41]">{formatEtb(selectedPlan.daily_earning)}<CurrencyUnit /></p>
               </div>
               <div className="min-w-0 text-right">
                 <p className="truncate text-[10px] uppercase tracking-[0.14em] text-gray-600">Total</p>
-                <p className="mt-1 truncate font-mono text-sm font-black text-gray-100">{formatEtb(selectedPlan.daily_earning * selectedPlan.duration_days)} <CurrencyUnit /></p>
+                <p className="mt-1 truncate font-mono text-sm font-black text-gray-100">{formatEtb(selectedPlan.daily_earning * selectedPlan.duration_days)}<CurrencyUnit /></p>
               </div>
             </div>
 
@@ -497,7 +497,7 @@ function PlansPage() {
                       ? "text-[#00ff41]"
                       : "text-red-400",
                 ].join(" ")}>
-                  {formatWalletAmount(walletBalance)} <CurrencyUnit />
+                  {formatWalletAmount(walletBalance)}<CurrencyUnit />
                 </span>
               )}
             </div>

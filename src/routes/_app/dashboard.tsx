@@ -475,7 +475,7 @@ function DashboardPage() {
                       <div className="min-w-0">
                         <p className="truncate text-sm font-bold leading-tight text-gray-100">{getPlanName(inv.plan_id)}</p>
                         <p className="mt-0.5 truncate text-[10px] text-gray-600">
-                          {formatDashboardAmount(inv.daily_earning)} <CurrencyUnit className="text-gray-600" />/day · {roundedProgress}% complete
+                          {formatDashboardAmount(inv.daily_earning)}<CurrencyUnit className="text-gray-600" />/day · {roundedProgress}% complete
                         </p>
                       </div>
                     </div>
@@ -495,21 +495,21 @@ function DashboardPage() {
                     <div className="min-w-0">
                       <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">Invested</p>
                       <p className="mt-0.5 truncate font-mono text-sm font-black leading-tight text-gray-100">
-                        {formatDashboardAmount(inv.invested_amount)} <CurrencyUnit />
+                        {formatDashboardAmount(inv.invested_amount)}<CurrencyUnit />
                       </p>
                     </div>
 
                     <div className="min-w-0 text-center">
                       <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">Daily</p>
                       <p className="mt-0.5 truncate font-mono text-sm font-black leading-tight text-gray-100">
-                        {formatDashboardAmount(inv.daily_earning)} <CurrencyUnit />
+                        {formatDashboardAmount(inv.daily_earning)}<CurrencyUnit />
                       </p>
                     </div>
 
                     <div className="min-w-0 text-right">
                       <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">Earned</p>
                       <p className="mt-0.5 truncate font-mono text-sm font-black leading-tight text-[#00ff41]">
-                        {formatDashboardAmount(inv.total_earned)} <CurrencyUnit />
+                        {formatDashboardAmount(inv.total_earned)}<CurrencyUnit />
                       </p>
                     </div>
                   </div>
