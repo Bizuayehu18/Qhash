@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
+import { CurrencyUnit } from "@/components/ui/AmountText.js";
 import {
   ArrowLeft,
   ArrowUpCircle,
