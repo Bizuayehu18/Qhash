@@ -1,0 +1,58 @@
+name: Tighten ETB unit spacing
+
+on:
+  push:
+    branches:
+      - standardize-etb-unit-style
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply tighter proportional ETB styling
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          amount_path = Path('src/components/ui/AmountText.tsx')
+          text = amount_path.read_text()
+          old = 'export function CurrencyUnit({ value = "ETB", className = "" }: { value?: string; className?: string }) {\n  return <span className={["ml-1 text-[0.8em] font-normal text-gray-500", className].join(" ")}>{value}</span>;\n}\n'
+          new = '''export function CurrencyUnit({ value = "ETB", className = "" }: { value?: string; className?: string }) {
+  return (
+    <span
+      className={[
+        "ml-[0.08em] text-[0.56em] font-semibold leading-none tracking-tight text-gray-500",
+        className,
+      ].join(" ")}
+    >
+      {value}
+    </span>
+  );
+}
+'''
+          if old not in text:
+              raise SystemExit('CurrencyUnit block not found')
+          amount_path.write_text(text.replace(old, new))
+
+          dashboard_path = Path('src/routes/_app/dashboard.tsx')
+          text = dashboard_path.read_text()
+          text = text.replace('<CurrencyUnit className="ml-1.5 text-[0.48em]" />', '<CurrencyUnit className="ml-[0.06em] text-[0.42em] font-semibold" />')
+          dashboard_path.write_text(text)
+
+          Path('.github/workflows/tighten-etb-unit.yml').unlink(missing_ok=True)
+          PY
+          git config user.name "qhash-etb-bot"
+          git config user.email "qhash-etb-bot@users.noreply.github.com"
+          git add src/components/ui/AmountText.tsx src/routes/_app/dashboard.tsx .github/workflows/tighten-etb-unit.yml
+          if git diff --cached --quiet; then
+            echo "No ETB spacing changes."
+            exit 0
+          fi
+          git commit -m "Tighten proportional ETB unit styling"
+          git push
