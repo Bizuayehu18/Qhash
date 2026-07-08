@@ -814,7 +814,7 @@ function WithdrawalConfirmForm({
 
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-sm font-bold leading-tight text-gray-100">
-              Confirm {METHOD_LABELS[method]} Withdrawal
+              Confirm Withdrawal
             </h2>
             <p className="mt-0.5 truncate text-[11px] text-gray-500">
               Review and authorize
