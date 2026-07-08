@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { Hash, Zap, TrendingUp, Shield, Users, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/Button.js'
+import { CurrencyUnit } from '@/components/ui/AmountText.js'
 
 export const Route = createFileRoute('/')({
   component: Landing,
@@ -67,7 +68,7 @@ function Landing() {
         <div className="mt-10 grid grid-cols-2 gap-4 w-full max-w-xs">
           {[
             { label: 'Active Miners', value: '12,400+' },
-            { label: 'Total Paid', value: '4.2M+ ETB' },
+            { label: 'Total Paid', value: <>4.2M+<CurrencyUnit /></> },
             { label: 'Uptime', value: '99.97%' },
             { label: 'Countries', value: '1 — ET' },
           ].map((stat) => (
