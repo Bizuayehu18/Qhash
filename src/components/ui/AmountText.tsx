@@ -24,7 +24,11 @@ function getToneClass(value: number, tone: NonNullable<AmountTextProps["tone"]>)
 }
 
 export function CurrencyUnit({ value = "ETB", className = "" }: { value?: string; className?: string }) {
-  return <span className={["ml-1 text-[0.8em] font-normal text-gray-500", className].join(" ")}>{value}</span>;
+  return (
+    <span className={["!ml-px !text-[0.5em] font-semibold leading-none tracking-tight text-gray-500", className].join(" ")}>
+      {value}
+    </span>
+  );
 }
 
 export function AmountText({
