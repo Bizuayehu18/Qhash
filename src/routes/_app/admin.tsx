@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/Badge.js";
+import { CurrencyUnit } from "@/components/ui/AmountText.js";
 import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
 import { Spinner } from "@/components/ui/Spinner.js";
@@ -250,7 +251,7 @@ function OverviewTab({ userId }: { userId: string | undefined }) {
           {
             label: "Revenue",
             value: stats?.totalRevenue !== undefined
-              ? `${stats.totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2 })} ETB`
+              ? `${stats.totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2 })} `
               : undefined,
             icon: <Settings size={14} />,
           },
@@ -308,7 +309,7 @@ function OverviewTab({ userId }: { userId: string | undefined }) {
                   <p className="text-xs font-medium text-gray-200">@{w.username}</p>
                   <p className="text-[10px] text-gray-600">{new Date(w.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</p>
                 </div>
-                <span className="text-xs text-red-400 font-mono">{w.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })} ETB</span>
+                <span className="text-xs text-red-400 font-mono">{w.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}<CurrencyUnit /></span>
               </div>
             ))}
           </div>
@@ -576,7 +577,7 @@ function DepositsTab({ userId }: { userId: string | undefined }) {
                 <div className="text-right flex items-center gap-2">
                   <span className="text-xs text-[#00ff41] font-mono">
                     {d.amount > 0
-                      ? `${d.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })} ETB`
+                      ? `${d.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })} `
                       : "—"}
                   </span>
                   <Badge variant={sc?.variant ?? "default"}>{sc?.label ?? d.status}</Badge>
@@ -945,7 +946,7 @@ function WithdrawalStatusBadge({ status }: { status: string }) {
 }
 
 function formatEtb(value: number): string {
-  return `${Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ETB`;
+  return `${Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} `;
 }
 
 function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
@@ -2117,7 +2118,7 @@ function AuditLogsTab({ userId }: { userId: string | undefined }) {
                   <div className="text-right shrink-0">
                     <span className="text-xs text-[#00ff41] font-mono">
                       {typeof logRow.amount === "number" && logRow.amount > 0
-                        ? `${logRow.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })} ETB`
+                        ? `${logRow.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })} `
                         : "—"}
                     </span>
                     {logRow.tx_ref_last4 && (
@@ -2214,7 +2215,7 @@ function DepositDetailPanel({
       <div className="grid grid-cols-2 gap-3 text-xs">
         <DetailRow label="User" value={`@${deposit.username}`} />
         <DetailRow label="Phone" value={deposit.phone} />
-        <DetailRow label="Amount" value={deposit.amount > 0 ? `${deposit.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })} ETB` : "Not specified"} highlight={deposit.amount > 0} />
+        <DetailRow label="Amount" value={deposit.amount > 0 ? `${deposit.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })} ` : "Not specified"} highlight={deposit.amount > 0} />
         <DetailRow label="Method" value={`${METHOD_LABELS[deposit.method_type] ?? deposit.method_type}`} />
         <DetailRow label="Account" value={deposit.method_number} />
         <DetailRow label="Status" value={statusConfig[deposit.status]?.label ?? deposit.status} />
@@ -2272,7 +2273,7 @@ function DepositDetailPanel({
             onChange={(e) => setApprovalAmount(e.target.value)}
             min="100"
             step="0.01"
-            hint={deposit.amount > 0 ? `User entered: ${deposit.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })} ETB` : "User did not specify amount — check receipt"}
+            hint={deposit.amount > 0 ? `User entered: ${deposit.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })} ` : "User did not specify amount — check receipt"}
           />
           <Input
             label="Verification Note (optional)"

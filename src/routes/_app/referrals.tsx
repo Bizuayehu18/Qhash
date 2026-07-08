@@ -319,7 +319,7 @@ function ReferralStatsTiles({
     <div className="grid grid-cols-2 gap-2.5 lg:col-span-12 lg:grid-cols-4">
       <ReferralStatTile
         label="Today's"
-        value={formatEtb(stats.todayRewards)}
+        value={<EtbValue value={stats.todayRewards} />}
         caption="Referral income"
         icon={<TrendingUp size={13} />}
         loading={loading}
@@ -327,7 +327,7 @@ function ReferralStatsTiles({
       />
       <ReferralStatTile
         label="Total"
-        value={formatEtb(stats.earned)}
+        value={<EtbValue value={stats.earned} />}
         caption="Referral income"
         icon={<TrendingUp size={13} />}
         loading={loading}
@@ -359,7 +359,7 @@ function ReferralStatTile({
   accent,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   caption: string;
   icon: ReactNode;
   loading: boolean;
@@ -654,9 +654,15 @@ function filterMembersByLevel(
   return members.filter((member) => member.level === filter);
 }
 
-function formatEtb(value: number): string {
+function EtbValue({ value }: { value: number }) {
   const amount = Number.isFinite(value) ? value : 0;
-  return `${amount.toFixed(2)} ETB`;
+
+  return (
+    <>
+      {amount.toFixed(2)}
+      <CurrencyUnit />
+    </>
+  );
 }
 
 function formatJoinedDate(value: string): string {

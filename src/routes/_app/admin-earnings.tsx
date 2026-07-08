@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Clock, Power, RefreshCcw, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/Badge.js";
+import { CurrencyUnit } from "@/components/ui/AmountText.js";
 import { Button } from "@/components/ui/Button.js";
 import { getSafeErrorMessage } from "@/lib/errors.js";
 import { useAuthStore } from "@/store/authStore.js";
@@ -186,7 +187,7 @@ function RunSummaryGrid({ result }: { result: RunSummary }) {
       <SummaryItem label="Active Plans" value={String(result.activeInvestments)} />
       <SummaryItem label="Plans Processed" value={String(result.investmentsProcessed)} />
       <SummaryItem label="Transactions" value={String(result.transactionsCreated)} />
-      <SummaryItem label="Credited" value={`${formatMoney(result.earningsCredited)} ETB`} highlight />
+      <SummaryItem label="Credited" value={`${formatMoney(result.earningsCredited)} `} highlight />
       <SummaryItem label="Errors" value={String(result.errors)} highlight={result.errors === 0} />
     </div>
   );
@@ -204,7 +205,7 @@ function RunHistoryCard({ run }: { run: RunHistoryRow }) {
           <p className="text-[10px] text-gray-600 mt-1 break-all">{run.run_id}</p>
         </div>
         <div className="text-right shrink-0">
-          <p className="text-xs font-bold text-[#00ff41]">{formatMoney(credited)} ETB</p>
+          <p className="text-xs font-bold text-[#00ff41]">{formatMoney(credited)}<CurrencyUnit /></p>
           <p className="text-[10px] text-gray-600">{transactions} tx</p>
         </div>
       </div>

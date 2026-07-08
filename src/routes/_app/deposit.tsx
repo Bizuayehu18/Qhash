@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowDownCircle,
   Building2,
@@ -21,6 +21,7 @@ import { EmptyState } from "@/components/ui/EmptyState.js";
 import { ListPanel } from "@/components/ui/ListPanel.js";
 import { ListRow } from "@/components/ui/ListRow.js";
 import { SectionHeader } from "@/components/ui/SectionHeader.js";
+import { CurrencyUnit } from "@/components/ui/AmountText.js";
 import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
 import { getPaymentMethodsFn } from "@/lib/server/payment-methods.js";
@@ -130,6 +131,15 @@ function formatAmount(value: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function DepositAmountText({ value, prefix = "" }: { value: number; prefix?: string }) {
+  return (
+    <>
+      {prefix}{formatAmount(value)}
+      <CurrencyUnit />
+    </>
+  );
 }
 
 function DepositPage() {
@@ -801,14 +811,14 @@ function DepositHistoryItem({ deposit }: { deposit: UserDeposit }) {
   const isRejected = deposit.status === "rejected";
   const isPending = deposit.status === "pending";
 
-  const amountText = isRejected
+  const amountText: ReactNode = isRejected
     ? "Rejected"
     : isApproved && hasAmount
-      ? `+${formatAmount(deposit.amount)} ETB`
+      ? <DepositAmountText value={deposit.amount} prefix="+" />
       : isPending
         ? "Pending"
         : hasAmount
-          ? `${formatAmount(deposit.amount)} ETB`
+          ? <DepositAmountText value={deposit.amount} />
           : "Reviewing";
 
   const amountClass = isApproved && hasAmount

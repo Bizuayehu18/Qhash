@@ -17,7 +17,7 @@ import { SectionHeader } from "@/components/ui/SectionHeader.js";
 import { ListPanel } from "@/components/ui/ListPanel.js";
 import { ListRow } from "@/components/ui/ListRow.js";
 import { EmptyState } from "@/components/ui/EmptyState.js";
-import { AmountText } from "@/components/ui/AmountText.js";
+import { AmountText, CurrencyUnit } from "@/components/ui/AmountText.js";
 import { TxIcon, txTitle, txSubtitle, isOutgoingTx } from "@/components/ui/TransactionHelpers.js";
 import { formatDateTime } from "@/lib/format.js";
 import { useAuthStore } from "@/store/authStore.js";
@@ -46,8 +46,13 @@ function formatDashboardAmount(value: number) {
   });
 }
 
-function formatDashboardEtb(value: number) {
-  return `${formatDashboardAmount(value)} ETB`;
+function DashboardEtb({ value }: { value: number }) {
+  return (
+    <>
+      {formatDashboardAmount(value)}
+      <CurrencyUnit />
+    </>
+  );
 }
 
 function CompactMetric({
@@ -328,7 +333,7 @@ function DashboardPage() {
               ) : (
                 formatDashboardAmount(balance)
               )}
-              <span className="ml-1.5 text-sm font-normal text-gray-500">ETB</span>
+              <CurrencyUnit className="ml-1.5 text-[0.48em]" />
             </p>
           </div>
 
@@ -372,7 +377,7 @@ function DashboardPage() {
       <div className="grid grid-cols-2 gap-2.5 lg:col-span-12">
         <CompactMetric
           label="Today's"
-          value={formatDashboardEtb(incomeSummary?.todayTotalIncome ?? 0)}
+          value={<DashboardEtb value={incomeSummary?.todayTotalIncome ?? 0} />}
           caption="Total Income"
           loading={!hasDashboardData}
           icon={<TrendingUp size={13} />}
@@ -380,7 +385,7 @@ function DashboardPage() {
         />
         <CompactMetric
           label="All Time"
-          value={formatDashboardEtb(incomeSummary?.totalIncome ?? 0)}
+          value={<DashboardEtb value={incomeSummary?.totalIncome ?? 0} />}
           caption="Total Income"
           loading={!hasDashboardData}
           icon={<TrendingUp size={13} />}
@@ -470,7 +475,7 @@ function DashboardPage() {
                       <div className="min-w-0">
                         <p className="truncate text-sm font-bold leading-tight text-gray-100">{getPlanName(inv.plan_id)}</p>
                         <p className="mt-0.5 truncate text-[10px] text-gray-600">
-                          {formatDashboardAmount(inv.daily_earning)} ETB/day · {roundedProgress}% complete
+                          {formatDashboardAmount(inv.daily_earning)} <CurrencyUnit className="text-gray-600" />/day · {roundedProgress}% complete
                         </p>
                       </div>
                     </div>
@@ -490,21 +495,21 @@ function DashboardPage() {
                     <div className="min-w-0">
                       <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">Invested</p>
                       <p className="mt-0.5 truncate font-mono text-sm font-black leading-tight text-gray-100">
-                        {formatDashboardAmount(inv.invested_amount)} <span className="text-[9px] font-normal text-gray-500">ETB</span>
+                        {formatDashboardAmount(inv.invested_amount)} <CurrencyUnit />
                       </p>
                     </div>
 
                     <div className="min-w-0 text-center">
                       <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">Daily</p>
                       <p className="mt-0.5 truncate font-mono text-sm font-black leading-tight text-gray-100">
-                        {formatDashboardAmount(inv.daily_earning)} <span className="text-[9px] font-normal text-gray-500">ETB</span>
+                        {formatDashboardAmount(inv.daily_earning)} <CurrencyUnit />
                       </p>
                     </div>
 
                     <div className="min-w-0 text-right">
                       <p className="truncate text-[9px] uppercase tracking-[0.14em] text-gray-600">Earned</p>
                       <p className="mt-0.5 truncate font-mono text-sm font-black leading-tight text-[#00ff41]">
-                        {formatDashboardAmount(inv.total_earned)} <span className="text-[9px] font-normal text-gray-500">ETB</span>
+                        {formatDashboardAmount(inv.total_earned)} <CurrencyUnit />
                       </p>
                     </div>
                   </div>
