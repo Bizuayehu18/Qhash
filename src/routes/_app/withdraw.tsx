@@ -141,6 +141,13 @@ function onlyFourDigits(value: string): string {
   return value.replace(/\D/g, "").slice(0, 4);
 }
 
+function maskAccountNumber(value: string): string {
+  const digits = value.trim();
+  if (digits.length <= 4) return digits;
+
+  return `•••• ${digits.slice(-4)}`;
+}
+
 function WithdrawPage() {
   const user = useAuthStore((s) => s.user);
   const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
@@ -704,7 +711,7 @@ function WithdrawalDetailsForm({
           </div>
 
           <Badge variant="neon" className="shrink-0 text-[9px]">
-            {METHOD_LABELS[method]}
+            Step 1 of 2
           </Badge>
         </div>
       </div>
@@ -749,6 +756,7 @@ function WithdrawalDetailsForm({
         <Button
           fullWidth
           disabled={!canContinue}
+          className="disabled:bg-[#0b3f19] disabled:text-black/50 disabled:shadow-none disabled:hover:bg-[#0b3f19]"
           onClick={onContinue}
         >
           Continue
@@ -809,9 +817,13 @@ function WithdrawalConfirmForm({
               Confirm {METHOD_LABELS[method]} Withdrawal
             </h2>
             <p className="mt-0.5 truncate text-[11px] text-gray-500">
-              Review details, then authorize with fund password.
+              Review and authorize
             </p>
           </div>
+
+          <Badge variant="neon" className="shrink-0 text-[9px]">
+            Step 2 of 2
+          </Badge>
         </div>
       </div>
 
@@ -819,7 +831,7 @@ function WithdrawalConfirmForm({
         <div className="space-y-2 rounded-xl border border-[#1f1f1f] bg-[#0b0b0b] p-3">
           <SummaryRow label="Method" value={METHOD_LABELS[method]} />
           <SummaryRow label="Account name" value={accountName.trim()} />
-          <SummaryRow label="Account" value={accountNumber.trim()} />
+          <SummaryRow label="Account" value={maskAccountNumber(accountNumber)} />
           <div className="border-t border-[#1a1a1a] pt-2">
             <SummaryRow label="Amount" value={`${formatMoney(parsedAmount)} ETB`} />
             <SummaryRow label="Fee" value={`${formatMoney(feeAmount)} ETB`} />
@@ -843,9 +855,10 @@ function WithdrawalConfirmForm({
           fullWidth
           loading={submitting}
           disabled={!canConfirm}
+          className="disabled:bg-[#0b3f19] disabled:text-black/50 disabled:shadow-none disabled:hover:bg-[#0b3f19]"
           onClick={onSubmit}
         >
-          {selectedMeta?.submitLabel ?? "Submit Withdrawal"}
+          Confirm Withdrawal
         </Button>
       </div>
     </section>
@@ -999,10 +1012,11 @@ function WithdrawalHistoryItem({ withdrawal }: { withdrawal: UserWithdrawal }) {
       </div>
 
       <p
-        className={[
-          "shrink-0 text-right font-mono text-xs font-semibold",
-          isRejected ? "text-gray-500" : "text-red-400",
-        ].join(" ")}
+        className={
+          isRejected
+            ? "shrink-0 text-right text-[11px] font-semibold text-gray-500"
+            : "shrink-0 text-right font-mono text-xs font-semibold text-red-400"
+        }
       >
         {isRejected ? "Rejected" : `-${formatMoney(withdrawal.amount)} ETB`}
       </p>
