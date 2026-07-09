@@ -554,7 +554,7 @@ function DashboardPage() {
                   title={txTitle(tx.type)}
                   description={subtitle}
                   meta={formattedCreatedAt}
-                  right={<AmountText value={signedAmount} showSign currency="" size="sm" />}
+                  right={<AmountText value={signedAmount} showSign size="sm" />}
                 />
               );
             })}

@@ -4,7 +4,7 @@ import { Eye, EyeOff } from 'lucide-react'
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string
   error?: string
-  hint?: string
+  hint?: React.ReactNode
   leftAddon?: React.ReactNode
 }
 
