@@ -359,6 +359,177 @@ export interface Database {
         }
         Relationships: []
       }
+      crypto_deposit_addresses: {
+        Row: {
+          id: string
+          user_id: string
+          network: string
+          asset: string
+          address: string
+          derivation_index: number | null
+          activation_status: string
+          status: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          network: string
+          asset?: string
+          address: string
+          derivation_index?: number | null
+          activation_status?: string
+          status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          user_id?: string
+          network?: string
+          asset?: string
+          address?: string
+          derivation_index?: number | null
+          activation_status?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      crypto_deposits: {
+        Row: {
+          id: string
+          user_id: string
+          address_id: string | null
+          network: string
+          asset: string
+          tx_hash: string
+          event_index: number
+          from_address: string
+          to_address: string
+          amount_raw: number
+          amount_usdt: number
+          block_number: number
+          confirmations: number
+          status: string
+          exchange_rate_etb: number | null
+          credited_amount_etb: number | null
+          detected_at: string
+          confirmed_at: string | null
+          credited_at: string | null
+          swept_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          address_id?: string | null
+          network: string
+          asset?: string
+          tx_hash: string
+          event_index?: number
+          from_address: string
+          to_address: string
+          amount_raw: number
+          amount_usdt: number
+          block_number: number
+          confirmations?: number
+          status?: string
+          exchange_rate_etb?: number | null
+          credited_amount_etb?: number | null
+          detected_at?: string
+          confirmed_at?: string | null
+          credited_at?: string | null
+          swept_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          user_id?: string
+          address_id?: string | null
+          network?: string
+          asset?: string
+          tx_hash?: string
+          event_index?: number
+          from_address?: string
+          to_address?: string
+          amount_raw?: number
+          amount_usdt?: number
+          block_number?: number
+          confirmations?: number
+          status?: string
+          exchange_rate_etb?: number | null
+          credited_amount_etb?: number | null
+          detected_at?: string
+          confirmed_at?: string | null
+          credited_at?: string | null
+          swept_at?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      crypto_sweep_jobs: {
+        Row: {
+          id: string
+          crypto_deposit_id: string
+          network: string
+          from_address: string
+          to_treasury_address: string
+          amount_usdt: number
+          status: string
+          gas_topup_tx_hash: string | null
+          sweep_tx_hash: string | null
+          error_message: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          crypto_deposit_id: string
+          network: string
+          from_address: string
+          to_treasury_address: string
+          amount_usdt: number
+          status?: string
+          gas_topup_tx_hash?: string | null
+          sweep_tx_hash?: string | null
+          error_message?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          crypto_deposit_id?: string
+          network?: string
+          from_address?: string
+          to_treasury_address?: string
+          amount_usdt?: number
+          status?: string
+          gas_topup_tx_hash?: string | null
+          sweep_tx_hash?: string | null
+          error_message?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      crypto_watcher_state: {
+        Row: {
+          network: string
+          last_scanned_block: number
+          updated_at: string
+        }
+        Insert: {
+          network: string
+          last_scanned_block?: number
+          updated_at?: string
+        }
+        Update: {
+          network?: string
+          last_scanned_block?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       referral_reward_logs: {
         Row: {
           id: string
@@ -497,6 +668,10 @@ export type Deposit = Database['public']['Tables']['deposits']['Row']
 export type Withdrawal = Database['public']['Tables']['withdrawals']['Row']
 export type Notification = Database['public']['Tables']['notifications']['Row']
 export type AppSetting = Database['public']['Tables']['app_settings']['Row']
+export type CryptoDepositAddress = Database['public']['Tables']['crypto_deposit_addresses']['Row']
+export type CryptoDeposit = Database['public']['Tables']['crypto_deposits']['Row']
+export type CryptoSweepJob = Database['public']['Tables']['crypto_sweep_jobs']['Row']
+export type CryptoWatcherState = Database['public']['Tables']['crypto_watcher_state']['Row']
 export type Referral = Database['public']['Tables']['referrals']['Row']
 export type ReferralRewardLog = Database['public']['Tables']['referral_reward_logs']['Row']
 export type EarningRunLog = Database['public']['Tables']['earning_run_logs']['Row']
