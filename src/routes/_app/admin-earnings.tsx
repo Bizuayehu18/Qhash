@@ -1,9 +1,10 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Clock, Power, RefreshCcw, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
+import { CurrencyUnit } from "@/components/ui/AmountText.js";
 import { getSafeErrorMessage } from "@/lib/errors.js";
 import { useAuthStore } from "@/store/authStore.js";
 
@@ -186,7 +187,7 @@ function RunSummaryGrid({ result }: { result: RunSummary }) {
       <SummaryItem label="Active Plans" value={String(result.activeInvestments)} />
       <SummaryItem label="Plans Processed" value={String(result.investmentsProcessed)} />
       <SummaryItem label="Transactions" value={String(result.transactionsCreated)} />
-      <SummaryItem label="Credited" value={`${formatMoney(result.earningsCredited)} ETB`} highlight />
+      <SummaryItem label="Credited" value={<AdminEarningsEtbAmount value={result.earningsCredited} />} highlight />
       <SummaryItem label="Errors" value={String(result.errors)} highlight={result.errors === 0} />
     </div>
   );
@@ -204,7 +205,7 @@ function RunHistoryCard({ run }: { run: RunHistoryRow }) {
           <p className="text-[10px] text-gray-600 mt-1 break-all">{run.run_id}</p>
         </div>
         <div className="text-right shrink-0">
-          <p className="text-xs font-bold text-[#00ff41]">{formatMoney(credited)} ETB</p>
+          <p className="text-xs font-bold text-[#00ff41]"><AdminEarningsEtbAmount value={credited} /></p>
           <p className="text-[10px] text-gray-600">{transactions} tx</p>
         </div>
       </div>
@@ -224,12 +225,21 @@ function Meta({ label, value, accent, danger }: { label: string; value: string; 
   return <div><span className="text-gray-600">{label}</span><p className={danger ? "text-red-400" : accent ? "text-[#00ff41]" : "text-gray-400"}>{value}</p></div>;
 }
 
-function SummaryItem({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function SummaryItem({ label, value, highlight }: { label: string; value: ReactNode; highlight?: boolean }) {
   return (
     <div className="rounded-xl border border-[#1a1a1a] bg-[#0b0b0b] p-3">
       <p className="text-[10px] text-gray-500 mb-1">{label}</p>
       <p className={`text-xs font-medium break-all ${highlight ? "text-[#00ff41]" : "text-gray-200"}`}>{value}</p>
     </div>
+  );
+}
+
+function AdminEarningsEtbAmount({ value }: { value: number }) {
+  return (
+    <>
+      {formatMoney(value)}
+      <CurrencyUnit />
+    </>
   );
 }
 
