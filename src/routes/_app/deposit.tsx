@@ -26,6 +26,7 @@ import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
 import { getPaymentMethodsFn } from "@/lib/server/payment-methods.js";
 import { submitDepositFn, getUserDepositsFn } from "@/lib/server/deposits.js";
+import { getCryptoDepositOverviewFn } from "@/lib/server/crypto-deposits.js";
 import { withTimeout } from "@/lib/async.js";
 import { getSafeErrorMessage } from "@/lib/errors.js";
 import { formatDateTime } from "@/lib/format.js";
@@ -45,6 +46,8 @@ type PaymentMethod = {
 };
 
 type UserDeposit = Awaited<ReturnType<typeof getUserDepositsFn>>[number];
+type CryptoOverview = Awaited<ReturnType<typeof getCryptoDepositOverviewFn>>;
+type CryptoNetwork = "TRON" | "BSC";
 type DepositStep = "select" | "form";
 type MethodType = Extract<PaymentMethodType, "cbe" | "telebirr">;
 
@@ -60,14 +63,24 @@ type MethodMeta = {
   refHint: string;
   refError: string;
   successToast: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
+};
+
+type CryptoNetworkMeta = {
+  network: CryptoNetwork;
+  label: string;
+  shortLabel: string;
+  chainName: string;
+  minSettingKey: "tronMinUsdt" | "bscMinUsdt";
 };
 
 const METHOD_LOAD_TIMEOUT_MS = 10_000;
 const HISTORY_LOAD_TIMEOUT_MS = 10_000;
+const CRYPTO_LOAD_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
 const MAX_AUTO_RETRIES = 2;
 const HISTORY_PREVIEW_LIMIT = 6;
+const CRYPTO_HISTORY_PREVIEW_LIMIT = 5;
 
 const METHOD_META: Record<MethodType, MethodMeta> = {
   cbe: {
@@ -100,6 +113,23 @@ const METHOD_META: Record<MethodType, MethodMeta> = {
   },
 };
 
+const CRYPTO_NETWORKS: CryptoNetworkMeta[] = [
+  {
+    network: "TRON",
+    label: "USDT TRC20",
+    shortLabel: "TRC20",
+    chainName: "TRON / TRC20",
+    minSettingKey: "tronMinUsdt",
+  },
+  {
+    network: "BSC",
+    label: "USDT BEP20",
+    shortLabel: "BEP20",
+    chainName: "BNB Smart Chain / BEP20",
+    minSettingKey: "bscMinUsdt",
+  },
+];
+
 function getMethodOrder(type: string): number {
   if (type === "cbe") return 0;
   if (type === "telebirr") return 1;
@@ -126,10 +156,24 @@ function shortReference(value: string | null | undefined): string {
   return `Ref …${ref.slice(-6)}`;
 }
 
+function shortHash(value: string | null | undefined): string {
+  const hash = value?.trim();
+  if (!hash) return "Tx unavailable";
+  if (hash.length <= 14) return hash;
+  return `${hash.slice(0, 6)}…${hash.slice(-6)}`;
+}
+
 function formatAmount(value: number): string {
   return value.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
+  });
+}
+
+function formatUsdt(value: number): string {
+  return value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 6,
   });
 }
 
@@ -155,6 +199,9 @@ function DepositPage() {
   const [submitting, setSubmitting] = useState(false);
   const [deposits, setDeposits] = useState<UserDeposit[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [cryptoOverview, setCryptoOverview] = useState<CryptoOverview | null>(null);
+  const [cryptoLoaded, setCryptoLoaded] = useState(false);
+  const [cryptoError, setCryptoError] = useState<string | null>(null);
   const [step, setStep] = useState<DepositStep>("select");
 
   const mountedRef = useRef(true);
@@ -167,6 +214,10 @@ function DepositPage() {
   const historyRetryCountRef = useRef(0);
   const historyRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const cryptoLoadingRef = useRef(false);
+  const cryptoRetryCountRef = useRef(0);
+  const cryptoRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const clearMethodsRetryTimer = useCallback(() => {
     if (methodsRetryTimerRef.current) {
       clearTimeout(methodsRetryTimerRef.current);
@@ -178,6 +229,13 @@ function DepositPage() {
     if (historyRetryTimerRef.current) {
       clearTimeout(historyRetryTimerRef.current);
       historyRetryTimerRef.current = null;
+    }
+  }, []);
+
+  const clearCryptoRetryTimer = useCallback(() => {
+    if (cryptoRetryTimerRef.current) {
+      clearTimeout(cryptoRetryTimerRef.current);
+      cryptoRetryTimerRef.current = null;
     }
   }, []);
 
@@ -203,6 +261,18 @@ function DepositPage() {
       historyRetryTimerRef.current = setTimeout(loadFn, AUTO_RETRY_DELAY_MS);
     },
     [clearHistoryRetryTimer],
+  );
+
+  const scheduleCryptoRetry = useCallback(
+    (loadFn: () => void) => {
+      clearCryptoRetryTimer();
+
+      if (cryptoRetryCountRef.current >= MAX_AUTO_RETRIES) return;
+
+      cryptoRetryCountRef.current += 1;
+      cryptoRetryTimerRef.current = setTimeout(loadFn, AUTO_RETRY_DELAY_MS);
+    },
+    [clearCryptoRetryTimer],
   );
 
   const loadMethods = useCallback(
@@ -283,29 +353,83 @@ function DepositPage() {
     [accessToken, clearHistoryRetryTimer, scheduleHistoryRetry, user?.id],
   );
 
+  const loadCryptoOverview = useCallback(
+    async (options?: { resetRetryCount?: boolean }) => {
+      if (cryptoLoadingRef.current) return;
+
+      if (options?.resetRetryCount) {
+        cryptoRetryCountRef.current = 0;
+      }
+
+      if (!user?.id || !accessToken) return;
+
+      clearCryptoRetryTimer();
+      cryptoLoadingRef.current = true;
+
+      try {
+        const result = await withTimeout(
+          getCryptoDepositOverviewFn({ data: { accessToken } }),
+          CRYPTO_LOAD_TIMEOUT_MS,
+          "Crypto deposit request timed out.",
+        );
+
+        if (!mountedRef.current) return;
+
+        setCryptoOverview(result);
+        setCryptoError(null);
+        setCryptoLoaded(true);
+        cryptoRetryCountRef.current = 0;
+      } catch (err) {
+        console.error("[QHash] Crypto deposit background refresh failed:", err);
+
+        if (!mountedRef.current) return;
+
+        setCryptoError(getSafeErrorMessage(err, "DEPOSIT").message);
+        setCryptoLoaded(true);
+        scheduleCryptoRetry(() => {
+          void loadCryptoOverview();
+        });
+      } finally {
+        cryptoLoadingRef.current = false;
+      }
+    },
+    [accessToken, clearCryptoRetryTimer, scheduleCryptoRetry, user?.id],
+  );
+
   useEffect(() => {
     mountedRef.current = true;
     void loadMethods({ resetRetryCount: true });
     void loadHistory({ resetRetryCount: true });
+    void loadCryptoOverview({ resetRetryCount: true });
 
     return () => {
       mountedRef.current = false;
       clearMethodsRetryTimer();
       clearHistoryRetryTimer();
+      clearCryptoRetryTimer();
     };
-  }, [clearHistoryRetryTimer, clearMethodsRetryTimer, loadHistory, loadMethods]);
+  }, [
+    clearCryptoRetryTimer,
+    clearHistoryRetryTimer,
+    clearMethodsRetryTimer,
+    loadCryptoOverview,
+    loadHistory,
+    loadMethods,
+  ]);
 
   useEffect(() => {
     const handleVisible = () => {
       if (document.visibilityState === "visible") {
         void loadMethods({ resetRetryCount: true });
         void loadHistory({ resetRetryCount: true });
+        void loadCryptoOverview({ resetRetryCount: true });
       }
     };
 
     const handleOnline = () => {
       void loadMethods({ resetRetryCount: true });
       void loadHistory({ resetRetryCount: true });
+      void loadCryptoOverview({ resetRetryCount: true });
     };
 
     document.addEventListener("visibilitychange", handleVisible);
@@ -315,7 +439,7 @@ function DepositPage() {
       document.removeEventListener("visibilitychange", handleVisible);
       window.removeEventListener("online", handleOnline);
     };
-  }, [loadHistory, loadMethods]);
+  }, [loadCryptoOverview, loadHistory, loadMethods]);
 
   const resetForm = () => {
     setStep("select");
@@ -408,15 +532,23 @@ function DepositPage() {
         <DepositPageHeader />
 
         {step === "select" || !selectedMethod ? (
-          <DepositMethodSelection
-            methodsLoaded={methodsLoaded}
-            methodsCount={methods.length}
-            methodOptions={methodOptions}
-            onSelect={(method) => {
-              setSelectedMethod(method);
-              setStep("form");
-            }}
-          />
+          <>
+            <DepositMethodSelection
+              methodsLoaded={methodsLoaded}
+              methodsCount={methods.length}
+              methodOptions={methodOptions}
+              onSelect={(method) => {
+                setSelectedMethod(method);
+                setStep("form");
+              }}
+            />
+
+            <CryptoDepositSection
+              overview={cryptoOverview}
+              loaded={cryptoLoaded}
+              error={cryptoError}
+            />
+          </>
         ) : (
           <MethodDepositSection
             method={selectedMethod}
@@ -447,7 +579,7 @@ function DepositPageHeader() {
         Deposit Center
       </p>
       <h1 className="mt-1 text-lg font-bold leading-tight text-gray-100">Deposit</h1>
-      <p className="mt-1 text-xs text-gray-500">Add funds via CBE or TeleBirr</p>
+      <p className="mt-1 text-xs text-gray-500">Add funds via CBE, TeleBirr, or USDT crypto</p>
     </div>
   );
 }
@@ -548,6 +680,267 @@ function DepositNoticeLine() {
         <span> · Transfer first, then submit your reference.</span>
       </p>
     </div>
+  );
+}
+
+function CryptoDepositSection({
+  overview,
+  loaded,
+  error,
+}: {
+  overview: CryptoOverview | null;
+  loaded: boolean;
+  error: string | null;
+}) {
+  const [selectedNetwork, setSelectedNetwork] = useState<CryptoNetwork>("TRON");
+  const [copied, setCopied] = useState(false);
+
+  const selectedMeta = CRYPTO_NETWORKS.find((meta) => meta.network === selectedNetwork) ?? CRYPTO_NETWORKS[0];
+  const selectedAddress = overview?.addresses.find(
+    (address) => address.network === selectedNetwork && address.status === "active",
+  );
+  const selectedNetworkDeposits = overview?.deposits.filter((deposit) => deposit.network === selectedNetwork) ?? [];
+  const minDeposit = overview?.settings[selectedMeta.minSettingKey] ?? (selectedNetwork === "TRON" ? 10 : 5);
+  const usdtEtbRate = overview?.settings.usdtEtbRate ?? 160;
+
+  const copyAddress = useCallback(async () => {
+    if (!selectedAddress?.address) return;
+
+    try {
+      await navigator.clipboard.writeText(selectedAddress.address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2_000);
+    } catch {
+      toast.error("Unable to copy. Please copy manually.");
+    }
+  }, [selectedAddress?.address]);
+
+  return (
+    <section className="space-y-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-bold text-gray-100">Crypto Deposit</h2>
+          <p className="mt-0.5 text-[11px] text-gray-500">USDT deposits are shown separately from CBE and TeleBirr.</p>
+        </div>
+        <Badge variant="info" className="shrink-0 text-[9px]">
+          USDT
+        </Badge>
+      </div>
+
+      {!loaded ? (
+        <div className="space-y-2">
+          <div className="skeleton h-24 rounded-xl" />
+          <div className="skeleton h-16 rounded-xl" />
+        </div>
+      ) : error ? (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3.5">
+          <p className="text-xs font-semibold text-amber-300">Crypto deposits are being prepared.</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-amber-200/70">{error}</p>
+        </div>
+      ) : (
+        <div className="space-y-3 rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111] p-3.5">
+          <div className="grid grid-cols-2 gap-2">
+            {CRYPTO_NETWORKS.map((meta) => {
+              const address = overview?.addresses.find(
+                (candidate) => candidate.network === meta.network && candidate.status === "active",
+              );
+              const isSelected = selectedNetwork === meta.network;
+
+              return (
+                <button
+                  key={meta.network}
+                  type="button"
+                  onClick={() => {
+                    setSelectedNetwork(meta.network);
+                    setCopied(false);
+                  }}
+                  className={[
+                    "rounded-xl border px-3 py-2.5 text-left transition-colors card-press",
+                    isSelected
+                      ? "border-[rgba(0,255,65,0.35)] bg-[rgba(0,255,65,0.08)]"
+                      : "border-[#1f1f1f] bg-[#0b0b0b] hover:border-[rgba(0,255,65,0.22)]",
+                  ].join(" ")}
+                >
+                  <span className="block text-xs font-black text-gray-100">{meta.label}</span>
+                  <span className="mt-1 flex items-center justify-between gap-2">
+                    <span className="text-[10px] text-gray-500">{meta.chainName}</span>
+                    <Badge variant={address ? "success" : "default"} className="shrink-0 text-[8px]">
+                      {address ? "Available" : "Coming"}
+                    </Badge>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="grid gap-2 rounded-xl border border-[#1f1f1f] bg-[#0b0b0b] p-3 sm:grid-cols-2">
+            <CryptoSettingLine label="Rate" value={`1 USDT = ${formatAmount(usdtEtbRate)} ETB`} />
+            <CryptoSettingLine label="Minimum" value={`${formatUsdt(minDeposit)} USDT`} />
+          </div>
+
+          <CryptoWarnings />
+
+          <div className="rounded-xl border border-[#1f1f1f] bg-[#0b0b0b] p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold text-gray-400">Assigned address</p>
+                <p className="mt-0.5 text-[10px] text-gray-600">{selectedMeta.chainName}</p>
+              </div>
+              <Badge variant={selectedAddress ? "success" : "default"} className="shrink-0 text-[9px]">
+                {selectedAddress ? "Available" : "Not assigned"}
+              </Badge>
+            </div>
+
+            {selectedAddress ? (
+              <div className="mt-3 flex items-start justify-between gap-2 rounded-lg border border-[#1f1f1f] bg-[#111] p-2.5">
+                <span className="min-w-0 break-all font-mono text-xs font-semibold leading-relaxed text-[#00ff41]">
+                  {selectedAddress.address}
+                </span>
+                <button
+                  type="button"
+                  onClick={copyAddress}
+                  className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-[#1f1f1f] bg-[#0b0b0b] text-gray-500 hover:text-[#00ff41] card-press"
+                  aria-label={`Copy ${selectedMeta.label} address`}
+                >
+                  {copied ? <Check size={12} /> : <Copy size={12} />}
+                </button>
+              </div>
+            ) : (
+              <p className="mt-3 rounded-lg border border-[#1f1f1f] bg-[#111] p-2.5 text-[11px] leading-relaxed text-gray-500">
+                No {selectedMeta.label} address is assigned yet. This PR does not generate blockchain addresses; it only displays addresses once they are safely assigned by backend/admin tooling.
+              </p>
+            )}
+          </div>
+
+          <CryptoDepositHistory deposits={selectedNetworkDeposits} networkLabel={selectedMeta.shortLabel} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function CryptoSettingLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-[0.16em] text-gray-600">{label}</p>
+      <p className="mt-0.5 text-xs font-bold text-gray-200">{value}</p>
+    </div>
+  );
+}
+
+function CryptoWarnings() {
+  return (
+    <div className="space-y-1 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-[11px] leading-relaxed text-amber-200/80">
+      <p>Send only USDT on the selected network.</p>
+      <p>Wrong network deposits may be lost.</p>
+      <p>Crypto deposits are credited in ETB using the admin-set USDT/ETB rate.</p>
+    </div>
+  );
+}
+
+function CryptoDepositHistory({
+  deposits,
+  networkLabel,
+}: {
+  deposits: CryptoOverview["deposits"];
+  networkLabel: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const visibleDeposits = expanded ? deposits : deposits.slice(0, CRYPTO_HISTORY_PREVIEW_LIMIT);
+  const hasMoreDeposits = deposits.length > CRYPTO_HISTORY_PREVIEW_LIMIT;
+
+  return (
+    <div className="space-y-2">
+      <SectionHeader
+        title="Crypto Deposit History"
+        action={
+          deposits.length > 0 ? (
+            <Badge variant="default" className="shrink-0 text-[9px]">
+              {deposits.length}
+            </Badge>
+          ) : null
+        }
+      />
+
+      {deposits.length === 0 ? (
+        <ListPanel divided={false}>
+          <EmptyState
+            icon={<Clock size={22} />}
+            title={`No ${networkLabel} deposits yet`}
+            description="Detected crypto deposits will appear here after watcher support is added."
+            className="py-8"
+          />
+        </ListPanel>
+      ) : (
+        <ListPanel>
+          {visibleDeposits.map((deposit) => (
+            <CryptoDepositHistoryItem key={deposit.id} deposit={deposit} />
+          ))}
+
+          {hasMoreDeposits && (
+            <button
+              type="button"
+              onClick={() => setExpanded((value) => !value)}
+              className="w-full px-3.5 py-3 text-center text-[11px] font-semibold text-[#00ff41] transition-colors hover:bg-[rgba(0,255,65,0.035)] card-press"
+            >
+              {expanded ? "Show less" : `See more (${deposits.length - visibleDeposits.length})`}
+            </button>
+          )}
+        </ListPanel>
+      )}
+    </div>
+  );
+}
+
+function CryptoDepositHistoryItem({ deposit }: { deposit: CryptoOverview["deposits"][number] }) {
+  const creditedAmount = deposit.credited_amount_etb;
+  const rightText: ReactNode = creditedAmount && creditedAmount > 0
+    ? <DepositAmountText value={creditedAmount} prefix="+" />
+    : `${formatUsdt(deposit.amount_usdt)} USDT`;
+
+  return (
+    <ListRow
+      className="!gap-2.5 !px-3 !py-2.5"
+      icon={<ArrowDownCircle size={14} className="text-[#00ff41]" />}
+      title={
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="truncate text-[13px] font-bold text-gray-100">
+            {deposit.network === "TRON" ? "TRC20" : "BEP20"} Deposit
+          </p>
+          <CryptoStatusBadge status={deposit.status} />
+        </div>
+      }
+      description={`${shortHash(deposit.tx_hash)} · ${formatDateTime(deposit.detected_at)}`}
+      right={<p className="font-mono text-xs font-semibold text-[#00ff41]">{rightText}</p>}
+    />
+  );
+}
+
+function CryptoStatusBadge({ status }: { status: string }) {
+  const config: Record<
+    string,
+    { label: string; variant: "success" | "warning" | "danger" | "default" | "info"; icon: ReactNode }
+  > = {
+    detected: { label: "Detected", variant: "info", icon: <Clock size={10} /> },
+    confirmed: { label: "Confirmed", variant: "warning", icon: <CheckCircle size={10} /> },
+    credited: { label: "Credited", variant: "success", icon: <CheckCircle size={10} /> },
+    swept: { label: "Swept", variant: "default", icon: <CheckCircle size={10} /> },
+    failed: { label: "Failed", variant: "danger", icon: <XCircle size={10} /> },
+  };
+
+  const { label, variant, icon } = config[status] ?? {
+    label: status,
+    variant: "default" as const,
+    icon: null,
+  };
+
+  return (
+    <Badge variant={variant} className="shrink-0 text-[9px]">
+      <span className="flex items-center gap-1">
+        {icon}
+        {label}
+      </span>
+    </Badge>
   );
 }
 
@@ -856,7 +1249,7 @@ function DepositHistoryItem({ deposit }: { deposit: UserDeposit }) {
 function DepositStatusBadge({ status }: { status: string }) {
   const config: Record<
     string,
-    { label: string; variant: "success" | "warning" | "danger" | "default"; icon: React.ReactNode }
+    { label: string; variant: "success" | "warning" | "danger" | "default"; icon: ReactNode }
   > = {
     approved: { label: "Done", variant: "success", icon: <CheckCircle size={10} /> },
     pending: { label: "Pending", variant: "warning", icon: <Clock size={10} /> },
