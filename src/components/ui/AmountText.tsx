@@ -23,6 +23,14 @@ function getToneClass(value: number, tone: NonNullable<AmountTextProps["tone"]>)
   return "text-gray-300";
 }
 
+export function CurrencyUnit({ value = "ETB", className = "" }: { value?: string; className?: string }) {
+  return (
+    <span className={["ml-px text-[0.5em] font-semibold leading-none tracking-tight text-gray-500", className].join(" ")}>
+      {value}
+    </span>
+  );
+}
+
 export function AmountText({
   value,
   currency = "ETB",
@@ -40,7 +48,7 @@ export function AmountText({
   return (
     <span className={["font-mono font-medium", sizeClasses[size], getToneClass(value, tone), className].join(" ")}>
       {sign}{formatted}
-      {currency && <span className="ml-1 text-[0.8em] font-normal text-gray-500">{currency}</span>}
+      {currency && <CurrencyUnit value={currency} />}
     </span>
   );
 }

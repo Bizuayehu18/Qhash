@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
+import { CurrencyUnit } from "@/components/ui/AmountText.js";
 import {
   ArrowLeft,
   ArrowUpCircle,
@@ -543,7 +544,7 @@ function BalanceStrip({ walletBalance }: { walletBalance: number | null }) {
           <span className="text-base font-black leading-none text-[#00ff41]">
             {formatMoney(walletBalance)}
           </span>
-          <span className="ml-1 text-[10px] font-semibold text-gray-500">ETB</span>
+          <CurrencyUnit className="font-semibold" />
         </div>
       )}
     </div>
@@ -833,9 +834,9 @@ function WithdrawalConfirmForm({
           <SummaryRow label="Account name" value={accountName.trim()} />
           <SummaryRow label="Account" value={maskAccountNumber(accountNumber)} />
           <div className="border-t border-[#1a1a1a] pt-2">
-            <SummaryRow label="Amount" value={`${formatMoney(parsedAmount)} ETB`} />
-            <SummaryRow label="Fee" value={`${formatMoney(feeAmount)} ETB`} />
-            <SummaryRow label="You receive" value={`${formatMoney(netAmount)} ETB`} highlight />
+            <SummaryRow label="Amount" value={<EtbAmount value={parsedAmount} />} />
+            <SummaryRow label="Fee" value={<EtbAmount value={feeAmount} />} />
+            <SummaryRow label="You receive" value={<EtbAmount value={netAmount} />} highlight />
           </div>
         </div>
 
@@ -920,10 +921,10 @@ function SummaryCard({ amount, fee, net }: { amount: number; fee: number; net: n
         <span className="text-[10px] text-gray-600">Fee {WITHDRAWAL_FEE_PERCENT}%</span>
       </div>
 
-      <SummaryRow label="Amount" value={`${formatMoney(amount)} ETB`} />
-      <SummaryRow label="Fee" value={`${formatMoney(fee)} ETB`} />
+      <SummaryRow label="Amount" value={<EtbAmount value={amount} />} />
+      <SummaryRow label="Fee" value={<EtbAmount value={fee} />} />
       <div className="border-t border-[#1a1a1a] pt-2">
-        <SummaryRow label="You receive" value={`${formatMoney(net)} ETB`} highlight />
+        <SummaryRow label="You receive" value={<EtbAmount value={net} />} highlight />
       </div>
     </div>
   );
@@ -1018,7 +1019,7 @@ function WithdrawalHistoryItem({ withdrawal }: { withdrawal: UserWithdrawal }) {
             : "shrink-0 text-right font-mono text-xs font-semibold text-red-400"
         }
       >
-        {isRejected ? "Rejected" : `-${formatMoney(withdrawal.amount)} ETB`}
+        {isRejected ? "Rejected" : <EtbAmount value={withdrawal.amount} prefix="-" />}
       </p>
     </div>
   );
@@ -1041,13 +1042,22 @@ function WithdrawalStatusIcon({ status }: { status: string }) {
   );
 }
 
+function EtbAmount({ value, prefix = "" }: { value: number; prefix?: string }) {
+  return (
+    <>
+      {prefix}{formatMoney(value)}
+      <CurrencyUnit />
+    </>
+  );
+}
+
 function SummaryRow({
   label,
   value,
   highlight = false,
 }: {
   label: string;
-  value: string;
+  value: React.ReactNode;
   highlight?: boolean;
 }) {
   return (
