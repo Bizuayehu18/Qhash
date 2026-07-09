@@ -145,6 +145,26 @@ create table if not exists public.crypto_watcher_state (
     check (last_scanned_block >= 0)
 );
 
+alter table public.crypto_deposit_addresses enable row level security;
+alter table public.crypto_deposits enable row level security;
+alter table public.crypto_sweep_jobs enable row level security;
+alter table public.crypto_watcher_state enable row level security;
+
+create or replace function public.normalize_crypto_deposit_address_activation_status()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.network = 'BSC' then
+    new.activation_status = 'not_required';
+  elsif new.network = 'TRON' and new.activation_status is null then
+    new.activation_status = 'inactive';
+  end if;
+
+  return new;
+end;
+$$;
+
 create or replace function public.set_crypto_updated_at()
 returns trigger
 language plpgsql
@@ -157,6 +177,13 @@ $$;
 
 do $$
 begin
+  if not exists (select 1 from pg_trigger where tgname = 'normalize_crypto_deposit_address_activation_status') then
+    create trigger normalize_crypto_deposit_address_activation_status
+    before insert or update of network, activation_status on public.crypto_deposit_addresses
+    for each row
+    execute function public.normalize_crypto_deposit_address_activation_status();
+  end if;
+
   if not exists (select 1 from pg_trigger where tgname = 'set_crypto_deposit_addresses_updated_at') then
     create trigger set_crypto_deposit_addresses_updated_at
     before update on public.crypto_deposit_addresses
@@ -183,6 +210,30 @@ begin
     before update on public.crypto_watcher_state
     for each row
     execute function public.set_crypto_updated_at();
+  end if;
+end $$;
+
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    revoke all on table public.crypto_deposit_addresses from anon;
+    revoke all on table public.crypto_deposits from anon;
+    revoke all on table public.crypto_sweep_jobs from anon;
+    revoke all on table public.crypto_watcher_state from anon;
+  end if;
+
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then
+    revoke all on table public.crypto_deposit_addresses from authenticated;
+    revoke all on table public.crypto_deposits from authenticated;
+    revoke all on table public.crypto_sweep_jobs from authenticated;
+    revoke all on table public.crypto_watcher_state from authenticated;
+  end if;
+
+  if exists (select 1 from pg_roles where rolname = 'service_role') then
+    grant select, insert, update, delete on table public.crypto_deposit_addresses to service_role;
+    grant select, insert, update, delete on table public.crypto_deposits to service_role;
+    grant select, insert, update, delete on table public.crypto_sweep_jobs to service_role;
+    grant select, insert, update, delete on table public.crypto_watcher_state to service_role;
   end if;
 end $$;
 
