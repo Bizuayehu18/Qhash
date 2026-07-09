@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Receipt, Clock, CheckCircle2, XCircle } from "lucide-react";
 import { TxIcon, txTitle, txSubtitle, isOutgoingTx } from "@/components/ui/TransactionHelpers.js";
+import { AmountText } from "@/components/ui/AmountText.js";
 import { formatDateTime } from "@/lib/format.js";
 import { useAuthStore } from "@/store/authStore.js";
 import { getTransactionsFn } from "@/lib/server/transactions.js";
@@ -203,6 +204,7 @@ function TransactionsPage() {
       ) : (
         <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#111] divide-y divide-[#1a1a1a]">
           {transactions.map((tx) => {
+            const signedAmount = isOutgoingTx(tx.type) ? -Math.abs(tx.amount) : Math.abs(tx.amount);
             const formattedCreatedAt = formatDateTime(tx.created_at);
             const subtitle = txSubtitle(tx, formattedCreatedAt);
 
@@ -231,17 +233,7 @@ function TransactionsPage() {
                 </div>
 
                 <div className="shrink-0 text-right">
-                  <span
-                    className={`font-mono text-xs font-medium ${
-                      isOutgoingTx(tx.type) ? "text-red-400" : "text-[#00ff41]"
-                    }`}
-                  >
-                    {isOutgoingTx(tx.type) ? "-" : "+"}
-                    {Math.abs(tx.amount).toLocaleString("en-US", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </span>
+                  <AmountText value={signedAmount} showSign size="sm" />
 
                   <p className="mt-0.5 text-[10px] text-gray-700">
                     {formattedCreatedAt}
