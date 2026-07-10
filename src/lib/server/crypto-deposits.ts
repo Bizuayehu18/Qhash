@@ -18,6 +18,12 @@ const DEFAULT_SETTINGS = {
 
 type CryptoNetwork = "TRON" | "BSC";
 
+type CryptoAddressWithNetwork = {
+  network: CryptoNetwork;
+  status: string;
+  activation_status: string;
+};
+
 function parseNumberSetting(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -31,6 +37,12 @@ function parseBooleanSetting(value: string | undefined, fallback: boolean): bool
 function normalizeNetwork(value: string): CryptoNetwork | null {
   if (value === "TRON" || value === "BSC") return value;
   return null;
+}
+
+function isUsableDepositAddress(address: CryptoAddressWithNetwork): boolean {
+  if (address.status !== "active") return false;
+  if (address.network === "BSC") return address.activation_status === "not_required";
+  return address.activation_status === "active";
 }
 
 export const getCryptoDepositOverviewFn = createServerFn({ method: "POST" })
@@ -99,12 +111,15 @@ export const getCryptoDepositOverviewFn = createServerFn({ method: "POST" })
       throwSafe("DEPOSIT", "Unable to load crypto addresses.", `DB error: ${addressError.message}`);
     }
 
-    const addresses = (rawAddresses ?? [])
-      .map((address) => ({
-        ...address,
-        network: normalizeNetwork(address.network),
-      }))
-      .filter((address): address is typeof address & { network: CryptoNetwork } => address.network !== null);
+    const addresses = settings.autoCreditEnabled
+      ? (rawAddresses ?? [])
+          .map((address) => ({
+            ...address,
+            network: normalizeNetwork(address.network),
+          }))
+          .filter((address): address is typeof address & { network: CryptoNetwork } => address.network !== null)
+          .filter(isUsableDepositAddress)
+      : [];
 
     const { data: rawDeposits, error: depositError } = await admin
       .from("crypto_deposits")
