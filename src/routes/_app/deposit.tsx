@@ -695,16 +695,17 @@ function CryptoDepositSection({
   const [selectedNetwork, setSelectedNetwork] = useState<CryptoNetwork>("TRON");
   const [copied, setCopied] = useState(false);
 
+  const cryptoReady = overview?.settings.autoCreditEnabled === true;
   const selectedMeta = CRYPTO_NETWORKS.find((meta) => meta.network === selectedNetwork) ?? CRYPTO_NETWORKS[0];
-  const selectedAddress = overview?.addresses.find(
-    (address) => address.network === selectedNetwork && address.status === "active",
-  );
+  const selectedAddress = cryptoReady
+    ? overview?.addresses.find((address) => address.network === selectedNetwork && address.status === "active")
+    : undefined;
   const selectedNetworkDeposits = overview?.deposits.filter((deposit) => deposit.network === selectedNetwork) ?? [];
   const minDeposit = overview?.settings[selectedMeta.minSettingKey] ?? (selectedNetwork === "TRON" ? 10 : 5);
   const usdtEtbRate = overview?.settings.usdtEtbRate ?? 160;
 
   const copyAddress = useCallback(async () => {
-    if (!selectedAddress?.address) return;
+    if (!cryptoReady || !selectedAddress?.address) return;
 
     try {
       await navigator.clipboard.writeText(selectedAddress.address);
@@ -713,7 +714,7 @@ function CryptoDepositSection({
     } catch {
       toast.error("Unable to copy. Please copy manually.");
     }
-  }, [selectedAddress?.address]);
+  }, [cryptoReady, selectedAddress?.address]);
 
   return (
     <section className="space-y-2.5">
@@ -741,9 +742,11 @@ function CryptoDepositSection({
         <div className="space-y-3 rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111] p-3.5">
           <div className="grid grid-cols-2 gap-2">
             {CRYPTO_NETWORKS.map((meta) => {
-              const address = overview?.addresses.find(
-                (candidate) => candidate.network === meta.network && candidate.status === "active",
-              );
+              const address = cryptoReady
+                ? overview?.addresses.find(
+                    (candidate) => candidate.network === meta.network && candidate.status === "active",
+                  )
+                : undefined;
               const isSelected = selectedNetwork === meta.network;
 
               return (
@@ -765,7 +768,7 @@ function CryptoDepositSection({
                   <span className="mt-1 flex items-center justify-between gap-2">
                     <span className="text-[10px] text-gray-500">{meta.chainName}</span>
                     <Badge variant={address ? "success" : "default"} className="shrink-0 text-[8px]">
-                      {address ? "Available" : "Coming"}
+                      {address ? "Available" : cryptoReady ? "Coming" : "Paused"}
                     </Badge>
                   </span>
                 </button>
@@ -780,6 +783,12 @@ function CryptoDepositSection({
 
           <CryptoWarnings />
 
+          {!cryptoReady && (
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-[11px] leading-relaxed text-amber-200/80">
+              Crypto deposits are not accepting funds yet. Address display is disabled until backend watcher and crediting support is enabled by an admin.
+            </div>
+          )}
+
           <div className="rounded-xl border border-[#1f1f1f] bg-[#0b0b0b] p-3">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -787,7 +796,7 @@ function CryptoDepositSection({
                 <p className="mt-0.5 text-[10px] text-gray-600">{selectedMeta.chainName}</p>
               </div>
               <Badge variant={selectedAddress ? "success" : "default"} className="shrink-0 text-[9px]">
-                {selectedAddress ? "Available" : "Not assigned"}
+                {selectedAddress ? "Available" : cryptoReady ? "Not assigned" : "Paused"}
               </Badge>
             </div>
 
@@ -807,7 +816,9 @@ function CryptoDepositSection({
               </div>
             ) : (
               <p className="mt-3 rounded-lg border border-[#1f1f1f] bg-[#111] p-2.5 text-[11px] leading-relaxed text-gray-500">
-                No {selectedMeta.label} address is assigned yet. This PR does not generate blockchain addresses; it only displays addresses once they are safely assigned by backend/admin tooling.
+                {cryptoReady
+                  ? `No ${selectedMeta.label} address is assigned yet. This PR does not generate blockchain addresses; it only displays addresses once they are safely assigned by backend/admin tooling.`
+                  : "Crypto deposit addresses are hidden until backend watcher and crediting support is enabled. Do not send USDT yet."}
               </p>
             )}
           </div>
