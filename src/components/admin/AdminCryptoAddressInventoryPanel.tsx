@@ -119,6 +119,8 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
 
   const mountedRef = useRef(true);
   const loadingRef = useRef(false);
+  const pendingReloadRef = useRef(false);
+  const requestSequenceRef = useRef(0);
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -143,14 +145,18 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
 
   const loadInventory = useCallback(
     async (options?: { resetRetryCount?: boolean; resetLoaded?: boolean }) => {
-      if (loadingRef.current) return;
-
       if (options?.resetRetryCount) {
         retryCountRef.current = 0;
       }
 
       if (options?.resetLoaded) {
         setLoaded(false);
+      }
+
+      if (loadingRef.current) {
+        pendingReloadRef.current = true;
+        requestSequenceRef.current += 1;
+        return;
       }
 
       if (!userId) return;
@@ -164,6 +170,9 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
 
       clearRetryTimer();
       loadingRef.current = true;
+      pendingReloadRef.current = false;
+      const requestId = requestSequenceRef.current + 1;
+      requestSequenceRef.current = requestId;
       setRefreshing(true);
 
       try {
@@ -179,7 +188,7 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
           "Admin crypto address inventory request timed out.",
         );
 
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || requestId !== requestSequenceRef.current) return;
 
         setRows(result.rows);
         setLoaded(true);
@@ -187,16 +196,23 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
       } catch (err) {
         console.error("[QHash] Admin crypto address inventory background refresh failed:", err);
 
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || requestId !== requestSequenceRef.current) return;
 
         scheduleRetry(() => {
           void loadInventory();
         });
       } finally {
         loadingRef.current = false;
-        if (mountedRef.current) {
-          setRefreshing(false);
+
+        if (!mountedRef.current) return;
+
+        if (pendingReloadRef.current) {
+          pendingReloadRef.current = false;
+          void loadInventory({ resetRetryCount: true, resetLoaded: true });
+          return;
         }
+
+        setRefreshing(false);
       }
     },
     [accessToken, clearRetryTimer, networkFilter, scheduleRetry, submittedSearchQuery, userId],
