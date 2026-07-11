@@ -112,6 +112,7 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
   const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const [rows, setRows] = useState<AdminCryptoAddressInventoryRow[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [submittedSearchQuery, setSubmittedSearchQuery] = useState("");
   const [networkFilter, setNetworkFilter] = useState<NetworkFilter>("all");
   const [loaded, setLoaded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -170,7 +171,7 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
           getAdminCryptoAddressInventoryFn({
             data: {
               accessToken,
-              searchQuery,
+              searchQuery: submittedSearchQuery,
               networkFilter,
             },
           }),
@@ -198,7 +199,7 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
         }
       }
     },
-    [accessToken, clearRetryTimer, networkFilter, scheduleRetry, searchQuery, userId],
+    [accessToken, clearRetryTimer, networkFilter, scheduleRetry, submittedSearchQuery, userId],
   );
 
   useEffect(() => {
@@ -232,7 +233,16 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
   }, [loadInventory]);
 
   const handleSearch = () => {
-    void loadInventory({ resetRetryCount: true, resetLoaded: true });
+    const nextSearchQuery = searchQuery.trim();
+
+    if (nextSearchQuery === submittedSearchQuery) {
+      void loadInventory({ resetRetryCount: true, resetLoaded: true });
+      return;
+    }
+
+    retryCountRef.current = 0;
+    setLoaded(false);
+    setSubmittedSearchQuery(nextSearchQuery);
   };
 
   return (
@@ -261,7 +271,7 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
           placeholder="Username, phone, user ID, address, status"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          hint="Read-only search across the latest address inventory rows."
+          hint="Read-only search across the latest address inventory rows. Click Search to apply changes."
         />
         <div className="flex items-end">
           <Button size="sm" loading={refreshing} onClick={handleSearch}>
