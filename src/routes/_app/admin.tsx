@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
+import { AdminCryptoSettingsPanel } from "@/components/admin/AdminCryptoSettingsPanel.js";
 import { CurrencyUnit } from "@/components/ui/AmountText.js";
 import { Spinner } from "@/components/ui/Spinner.js";
 import {
@@ -1785,7 +1786,7 @@ function AdminSecurityTab({ userId }: { userId: string | undefined }) {
 }
 
 function SettingsTab({ userId }: { userId: string | undefined }) {
-  const [activeSettingsTab, setActiveSettingsTab] = useState<"support" | "payment">("support");
+  const [activeSettingsTab, setActiveSettingsTab] = useState<"support" | "payment" | "crypto">("support");
   const [settings, setSettings] = useState<SupportSettings | null>(null);
   const [telegramUsername, setTelegramUsername] = useState("");
   const [loading, setLoading] = useState(true);
@@ -1858,6 +1859,7 @@ function SettingsTab({ userId }: { userId: string | undefined }) {
         {([
           { key: "support", label: "Support" },
           { key: "payment", label: "Payment" },
+          { key: "crypto", label: "Crypto" },
         ] as const).map((tab) => (
           <button
             key={tab.key}
@@ -1923,260 +1925,10 @@ function SettingsTab({ userId }: { userId: string | undefined }) {
             <p>The public Support page builds the link as t.me/username from this setting.</p>
           </div>
         </>
-      ) : (
+      ) : activeSettingsTab === "payment" ? (
         <PaymentMethodsTab userId={userId} />
-      )}
-    </div>
-  );
-}
-
-const AUDIT_LIMIT = 100;
-
-function shortId(id: string | null): string {
-  if (!id) return "—";
-  return id.length <= 8 ? id : id.slice(0, 8);
-}
-
-function AuditLogsTab({ userId }: { userId: string | undefined }) {
-  const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
-  const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [logsLoaded, setLogsLoaded] = useState(false);
-  const [paymentType, setPaymentType] = useState<"all" | "cbe" | "telebirr">("all");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  const mountedRef = useRef(true);
-  const loadingRef = useRef(false);
-  const retryCountRef = useRef(0);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearRetryTimer = useCallback(() => {
-    if (retryTimerRef.current) {
-      clearTimeout(retryTimerRef.current);
-      retryTimerRef.current = null;
-    }
-  }, []);
-
-  const scheduleRetry = useCallback(
-    (loadFn: () => void) => {
-      clearRetryTimer();
-
-      if (retryCountRef.current >= ADMIN_MAX_AUTO_RETRIES) return;
-
-      retryCountRef.current += 1;
-      retryTimerRef.current = setTimeout(loadFn, ADMIN_AUTO_RETRY_DELAY_MS);
-    },
-    [clearRetryTimer],
-  );
-
-  const loadAuditLogs = useCallback(
-    async (options?: { resetRetryCount?: boolean }) => {
-      if (loadingRef.current) return;
-
-      if (options?.resetRetryCount) {
-        retryCountRef.current = 0;
-      }
-
-      if (!userId) return;
-
-      if (!accessToken) {
-        scheduleRetry(() => {
-          void loadAuditLogs();
-        });
-        return;
-      }
-
-      clearRetryTimer();
-      loadingRef.current = true;
-
-      try {
-        const rows = await withTimeout(
-          getDepositVerificationLogsFn({
-            data: {
-              accessToken,
-              paymentType: paymentType === "all" ? undefined : paymentType,
-              limit: AUDIT_LIMIT,
-            },
-          }),
-          ADMIN_TAB_LOAD_TIMEOUT_MS,
-          "Admin audit logs request timed out.",
-        );
-
-        if (!mountedRef.current) return;
-
-        setLogs(rows);
-        setLogsLoaded(true);
-        retryCountRef.current = 0;
-      } catch (err) {
-        console.error("[QHash] Admin audit logs background refresh failed:", err);
-
-        if (!mountedRef.current) return;
-
-        scheduleRetry(() => {
-          void loadAuditLogs();
-        });
-      } finally {
-        loadingRef.current = false;
-      }
-    },
-    [accessToken, clearRetryTimer, paymentType, scheduleRetry, userId],
-  );
-
-  useEffect(() => {
-    mountedRef.current = true;
-
-    return () => {
-      mountedRef.current = false;
-      clearRetryTimer();
-    };
-  }, [clearRetryTimer]);
-
-  useEffect(() => {
-    setExpandedId(null);
-    setLogs([]);
-    setLogsLoaded(false);
-    retryCountRef.current = 0;
-    void loadAuditLogs({ resetRetryCount: true });
-  }, [loadAuditLogs, paymentType]);
-
-  useEffect(() => {
-    const handleVisible = () => {
-      if (document.visibilityState === "visible") {
-        void loadAuditLogs({ resetRetryCount: true });
-      }
-    };
-
-    const handleOnline = () => {
-      void loadAuditLogs({ resetRetryCount: true });
-    };
-
-    document.addEventListener("visibilitychange", handleVisible);
-    window.addEventListener("online", handleOnline);
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisible);
-      window.removeEventListener("online", handleOnline);
-    };
-  }, [loadAuditLogs]);
-
-  const actionConfig: Record<string, { variant: "success" | "warning" | "danger" | "default" }> = {
-    approve: { variant: "success" },
-    reject: { variant: "danger" },
-    manual_review: { variant: "warning" },
-    skipped: { variant: "default" },
-    error: { variant: "danger" },
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <ScrollText size={13} className="text-gray-500" />
-        <p className="text-[11px] text-gray-500">
-          Read-only verification audit trail — latest {AUDIT_LIMIT}
-        </p>
-      </div>
-
-      {/* Payment type filter */}
-      <div className="flex gap-2 overflow-x-auto hide-scrollbar -mx-4 px-4 pb-1">
-        {(["all", "cbe", "telebirr"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setPaymentType(t)}
-            className={`shrink-0 px-3 py-1.5 rounded-full text-[11px] border transition-colors card-press ${
-              paymentType === t
-                ? "bg-[rgba(0,255,65,0.08)] text-[#00ff41] border-[rgba(0,255,65,0.3)]"
-                : "text-gray-500 border-[#1f1f1f]"
-            }`}
-          >
-            {t === "all" ? "All" : METHOD_LABELS[t] ?? t}
-          </button>
-        ))}
-      </div>
-
-      {!logsLoaded ? (
-        <div className="space-y-2">{[1, 2, 3].map((i) => <div key={i} className="skeleton h-16 rounded-xl" />)}</div>
-      ) : logs.length === 0 ? (
-        <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-8 text-center text-xs text-gray-600">No audit logs found.</div>
       ) : (
-        <div className="bg-[#111] rounded-xl border border-[#1a1a1a] divide-y divide-[#1a1a1a]">
-          {logs.map((logRow) => {
-            const ac = logRow.action ? actionConfig[logRow.action] : undefined;
-            const isOpen = expandedId === logRow.id;
-            return (
-              <div key={logRow.id}>
-                <button
-                  onClick={() => setExpandedId(isOpen ? null : logRow.id)}
-                  className="w-full text-left flex items-start justify-between gap-3 px-4 py-3 card-press"
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-xs font-medium text-gray-200">
-                        {logRow.payment_type ? METHOD_LABELS[logRow.payment_type] ?? logRow.payment_type : "—"}
-                      </span>
-                      {logRow.action && (
-                        <Badge variant={ac?.variant ?? "default"} className="text-[9px] px-1.5 py-0">
-                          {logRow.action}
-                        </Badge>
-                      )}
-                      <span className="text-[10px] text-gray-600 font-mono">{logRow.event ?? "—"}</span>
-                    </div>
-                    <p className="text-[10px] text-gray-600 mt-0.5">
-                      {formatDateTime(logRow.created_at)}
-                      {logRow.reason_code ? <> &middot; <span className="font-mono">{logRow.reason_code}</span></> : null}
-                    </p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <span className="text-xs text-[#00ff41] font-mono">
-                      {typeof logRow.amount === "number" && logRow.amount > 0
-                        ? <AdminEtbAmount value={logRow.amount} />
-                        : "—"}
-                    </span>
-                    {logRow.tx_ref_last4 && (
-                      <p className="text-[10px] text-gray-600 font-mono mt-0.5">****{logRow.tx_ref_last4}</p>
-                    )}
-                  </div>
-                </button>
-
-                {isOpen && (
-                  <div className="px-4 pb-3 -mt-1">
-                    <div className="grid grid-cols-2 gap-2.5 text-xs bg-[#0d0d0d] rounded-lg border border-[#1a1a1a] p-3">
-                      <AuditRow label="Source" value={logRow.source ?? "—"} />
-                      <AuditRow label="Actor" value={logRow.actor_type ?? "—"} />
-                      <AuditRow
-                        label="Receiver Matched"
-                        value={logRow.receiver_matched === null ? "—" : logRow.receiver_matched ? "Yes" : "No"}
-                      />
-                      <AuditRow label="Freshness" value={logRow.freshness_decision ?? "—"} />
-                      <AuditRow
-                        label="Age (min)"
-                        value={typeof logRow.age_minutes === "number" ? String(logRow.age_minutes) : "—"}
-                      />
-                      <AuditRow label="Reason Code" value={logRow.reason_code ?? "—"} />
-                      <AuditRow label="Deposit" value={shortId(logRow.deposit_id)} mono />
-                      <AuditRow label="User" value={shortId(logRow.user_id)} mono />
-                    </div>
-
-                    {logRow.reason_message_safe && (
-                      <p className="text-[11px] text-gray-400 mt-2 leading-relaxed">
-                        {logRow.reason_message_safe}
-                      </p>
-                    )}
-
-                    {logRow.metadata && Object.keys(logRow.metadata).length > 0 && (
-                      <details className="mt-2">
-                        <summary className="text-[10px] text-gray-500 cursor-pointer select-none">
-                          Metadata
-                        </summary>
-                        <pre className="text-[10px] text-gray-500 font-mono mt-1 p-2 bg-[#0d0d0d] rounded-lg border border-[#1a1a1a] overflow-x-auto whitespace-pre-wrap break-all">
-                          {JSON.stringify(logRow.metadata, null, 2)}
-                        </pre>
-                      </details>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <AdminCryptoSettingsPanel userId={userId} />
       )}
     </div>
   );
