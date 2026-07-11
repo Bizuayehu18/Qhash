@@ -19,6 +19,13 @@ const ADMIN_CRYPTO_ADDRESS_MAX_RETRIES = 2;
 
 type NetworkFilter = "all" | "TRON" | "BSC";
 
+type InventoryRequestState = {
+  accessToken: string | null;
+  userId: string | undefined;
+  networkFilter: NetworkFilter;
+  submittedSearchQuery: string;
+};
+
 function shortAddress(address: string): string {
   if (address.length <= 18) return address;
   return `${address.slice(0, 8)}...${address.slice(-8)}`;
@@ -123,6 +130,19 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
   const requestSequenceRef = useRef(0);
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestRequestRef = useRef<InventoryRequestState>({
+    accessToken,
+    userId,
+    networkFilter,
+    submittedSearchQuery,
+  });
+
+  latestRequestRef.current = {
+    accessToken,
+    userId,
+    networkFilter,
+    submittedSearchQuery,
+  };
 
   const clearRetryTimer = useCallback(() => {
     if (retryTimerRef.current) {
@@ -159,9 +179,11 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
         return;
       }
 
-      if (!userId) return;
+      const requestState = latestRequestRef.current;
 
-      if (!accessToken) {
+      if (!requestState.userId) return;
+
+      if (!requestState.accessToken) {
         scheduleRetry(() => {
           void loadInventory();
         });
@@ -179,9 +201,9 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
         const result = await withTimeout(
           getAdminCryptoAddressInventoryFn({
             data: {
-              accessToken,
-              searchQuery: submittedSearchQuery,
-              networkFilter,
+              accessToken: requestState.accessToken,
+              searchQuery: requestState.submittedSearchQuery,
+              networkFilter: requestState.networkFilter,
             },
           }),
           ADMIN_CRYPTO_ADDRESS_TIMEOUT_MS,
@@ -215,7 +237,7 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
         setRefreshing(false);
       }
     },
-    [accessToken, clearRetryTimer, networkFilter, scheduleRetry, submittedSearchQuery, userId],
+    [clearRetryTimer, scheduleRetry],
   );
 
   useEffect(() => {
@@ -247,6 +269,10 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
       window.removeEventListener("online", handleOnline);
     };
   }, [loadInventory]);
+
+  useEffect(() => {
+    void loadInventory({ resetRetryCount: true, resetLoaded: true });
+  }, [loadInventory, networkFilter, submittedSearchQuery]);
 
   const handleSearch = () => {
     const nextSearchQuery = searchQuery.trim();
