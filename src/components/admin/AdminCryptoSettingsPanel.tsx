@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
 import { Spinner } from "@/components/ui/Spinner.js";
+import { AdminCryptoAddressInventoryPanel } from "@/components/admin/AdminCryptoAddressInventoryPanel.js";
 import { getSafeErrorMessage } from "@/lib/errors.js";
 import { supabase } from "@/lib/supabase.js";
 import { withTimeout } from "@/lib/async.js";
@@ -318,6 +319,8 @@ export function AdminCryptoSettingsPanel({ userId }: { userId: string | undefine
           </>
         )}
       </div>
+
+      <AdminCryptoAddressInventoryPanel userId={userId} />
     </div>
   );
 }
