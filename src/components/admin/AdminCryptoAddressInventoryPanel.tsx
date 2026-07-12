@@ -4,8 +4,6 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
-import { Spinner } from "@/components/ui/Spinner.js";
-import { getSafeErrorMessage } from "@/lib/errors.js";
 import { withTimeout } from "@/lib/async.js";
 import {
   getAdminCryptoAddressInventoryFn,
@@ -242,13 +240,16 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
 
   useEffect(() => {
     mountedRef.current = true;
-    void loadInventory({ resetRetryCount: true, resetLoaded: true });
 
     return () => {
       mountedRef.current = false;
       clearRetryTimer();
     };
-  }, [clearRetryTimer, loadInventory]);
+  }, [clearRetryTimer]);
+
+  useEffect(() => {
+    void loadInventory({ resetRetryCount: true, resetLoaded: true });
+  }, [accessToken, loadInventory, networkFilter, submittedSearchQuery, userId]);
 
   useEffect(() => {
     const handleVisible = () => {
@@ -269,10 +270,6 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
       window.removeEventListener("online", handleOnline);
     };
   }, [loadInventory]);
-
-  useEffect(() => {
-    void loadInventory({ resetRetryCount: true, resetLoaded: true });
-  }, [loadInventory, networkFilter, submittedSearchQuery]);
 
   const handleSearch = () => {
     const nextSearchQuery = searchQuery.trim();
