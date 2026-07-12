@@ -4,7 +4,9 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
+import { getSafeErrorMessage } from "@/lib/errors.js";
 import { withTimeout } from "@/lib/async.js";
+import { assignAdminCryptoDepositAddressFn } from "@/lib/server/crypto-admin-address-assignment.js";
 import {
   getAdminCryptoAddressInventoryFn,
   type AdminCryptoAddressInventoryRow,
@@ -16,6 +18,8 @@ const ADMIN_CRYPTO_ADDRESS_RETRY_DELAY_MS = 1_500;
 const ADMIN_CRYPTO_ADDRESS_MAX_RETRIES = 2;
 
 type NetworkFilter = "all" | "TRON" | "BSC";
+type AssignNetwork = "TRON" | "BSC";
+type TronActivationStatus = "inactive" | "active";
 
 type InventoryRequestState = {
   accessToken: string | null;
@@ -55,6 +59,11 @@ function activationStatusVariant(status: string): "success" | "warning" | "dange
   if (status === "pending") return "warning";
   if (status === "failed" || status === "inactive") return "danger";
   return "default";
+}
+
+function isValidAddressForNetwork(network: AssignNetwork, address: string): boolean {
+  if (network === "TRON") return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address.trim());
+  return /^0x[a-fA-F0-9]{40}$/.test(address.trim());
 }
 
 function AddressInventoryRow({ row }: { row: AdminCryptoAddressInventoryRow }) {
@@ -121,6 +130,11 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
   const [networkFilter, setNetworkFilter] = useState<NetworkFilter>("all");
   const [loaded, setLoaded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [assigning, setAssigning] = useState(false);
+  const [assignTargetUserRef, setAssignTargetUserRef] = useState("");
+  const [assignNetwork, setAssignNetwork] = useState<AssignNetwork>("TRON");
+  const [assignAddress, setAssignAddress] = useState("");
+  const [assignTronActivationStatus, setAssignTronActivationStatus] = useState<TronActivationStatus>("inactive");
 
   const mountedRef = useRef(true);
   const loadingRef = useRef(false);
@@ -284,6 +298,49 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
     setSubmittedSearchQuery(nextSearchQuery);
   };
 
+  const handleAssignAddress = async () => {
+    if (!userId || assigning) return;
+
+    const targetUserRef = assignTargetUserRef.trim();
+    const address = assignAddress.trim();
+
+    if (!accessToken) {
+      toast.error("Session expired. Please sign in again.");
+      return;
+    }
+
+    if (targetUserRef.length < 2) {
+      toast.error("Enter a target username, phone, or user ID.");
+      return;
+    }
+
+    if (!isValidAddressForNetwork(assignNetwork, address)) {
+      toast.error(assignNetwork === "TRON" ? "Enter a valid TRON address starting with T." : "Enter a valid BSC address starting with 0x.");
+      return;
+    }
+
+    setAssigning(true);
+    try {
+      await assignAdminCryptoDepositAddressFn({
+        data: {
+          accessToken,
+          targetUserRef,
+          network: assignNetwork,
+          address,
+          activationStatus: assignNetwork === "TRON" ? assignTronActivationStatus : "not_required",
+        },
+      });
+
+      toast.success("Crypto deposit address assigned.");
+      setAssignAddress("");
+      await loadInventory({ resetRetryCount: true, resetLoaded: true });
+    } catch (err) {
+      toast.error(getSafeErrorMessage(err, "ADMIN").message);
+    } finally {
+      setAssigning(false);
+    }
+  };
+
   return (
     <div className="rounded-xl border border-[rgba(0,255,65,0.15)] bg-[#111] p-4 space-y-4">
       <div className="flex items-start justify-between gap-3">
@@ -293,15 +350,89 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
             <span className="text-xs font-semibold">Crypto Address Inventory</span>
           </div>
           <p className="mt-1 text-[11px] text-gray-500">
-            Admin-only read-only inventory. This does not expose addresses to users or enable auto-credit.
+            Admin-only inventory and manual public-address assignment. This does not expose addresses to users or enable auto-credit.
           </p>
         </div>
         <Badge variant={loaded ? "success" : "default"}>{loaded ? `${rows.length} shown` : "Loading"}</Badge>
       </div>
 
       <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-[11px] leading-relaxed text-amber-200/80">
-        Public deposit addresses may be visible here for admin operations only. This panel does not assign,
-        generate, activate, sweep, sign, credit, or enable crypto deposits.
+        Public deposit addresses may be visible here for admin operations only. This panel only assigns public addresses
+        that admins provide manually. It does not generate addresses, activate deposits for users, sweep, sign, credit, or enable crypto deposits.
+      </div>
+
+      <div className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] p-3 space-y-3">
+        <div>
+          <p className="text-xs font-semibold text-gray-200">Assign public deposit address</p>
+          <p className="mt-1 text-[11px] text-gray-600">
+            Manual admin-only assignment. Enter a public TRON/BSC USDT address only — never private keys or seed phrases.
+          </p>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+          <Input
+            label="Target user"
+            placeholder="Username, phone, or user ID"
+            value={assignTargetUserRef}
+            onChange={(e) => setAssignTargetUserRef(e.target.value)}
+            hint="Exact match only. The server resolves this to a profile ID."
+          />
+          <div className="flex items-end gap-2">
+            {(["TRON", "BSC"] as const).map((network) => (
+              <button
+                key={network}
+                type="button"
+                onClick={() => setAssignNetwork(network)}
+                className={`shrink-0 px-3 py-2 rounded-lg text-[11px] border transition-colors card-press ${
+                  assignNetwork === network
+                    ? "bg-[rgba(0,255,65,0.08)] text-[#00ff41] border-[rgba(0,255,65,0.3)]"
+                    : "text-gray-500 border-[#1f1f1f]"
+                }`}
+              >
+                {network}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
+          <Input
+            label="Public address"
+            placeholder={assignNetwork === "TRON" ? "T..." : "0x..."}
+            value={assignAddress}
+            onChange={(e) => setAssignAddress(e.target.value)}
+            hint={assignNetwork === "TRON" ? "TRON TRC20 public address." : "BSC BEP20 public address."}
+          />
+
+          {assignNetwork === "TRON" ? (
+            <div className="flex items-end gap-2">
+              {(["inactive", "active"] as const).map((status) => (
+                <button
+                  key={status}
+                  type="button"
+                  onClick={() => setAssignTronActivationStatus(status)}
+                  className={`shrink-0 px-3 py-2 rounded-lg text-[11px] border transition-colors card-press ${
+                    assignTronActivationStatus === status
+                      ? "bg-[rgba(0,255,65,0.08)] text-[#00ff41] border-[rgba(0,255,65,0.3)]"
+                      : "text-gray-500 border-[#1f1f1f]"
+                  }`}
+                >
+                  {status}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="flex items-end">
+              <Badge variant="success">not_required</Badge>
+            </div>
+          )}
+
+          <div className="flex items-end">
+            <Button size="sm" loading={assigning} onClick={handleAssignAddress}>
+              Assign Address
+            </Button>
+          </div>
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
