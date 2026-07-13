@@ -168,6 +168,14 @@ export function AdminCryptoBscDryRunPanel({ userId }: { userId: string | undefin
   const [result, setResult] = useState<AdminBscDryRunDetectorResult | null>(null);
   const [storageResult, setStorageResult] = useState<AdminBscDetectedStorageResult | null>(null);
 
+  const inspectedRangeMatchesInputs =
+    result !== null && result.fromBlock === parseBlockNumber(fromBlock) && result.toBlock === parseBlockNumber(toBlock);
+
+  const clearInspectionResults = () => {
+    setResult(null);
+    setStorageResult(null);
+  };
+
   const handleRunDryRun = async () => {
     if (!userId || runningDryRun || storingDetectedRows) return;
 
@@ -194,6 +202,7 @@ export function AdminCryptoBscDryRunPanel({ userId }: { userId: string | undefin
       );
 
       setResult(dryRunResult);
+      setStorageResult(null);
       toast.success(`BSC dry-run complete: ${dryRunResult.totalMatchedEvents} matched event${dryRunResult.totalMatchedEvents === 1 ? "" : "s"}.`);
     } catch (err) {
       toast.error(getSafeErrorMessage(err, "ADMIN").message);
@@ -212,6 +221,11 @@ export function AdminCryptoBscDryRunPanel({ userId }: { userId: string | undefin
 
     const range = validateBlockRange(fromBlock, toBlock);
     if (!range) return;
+
+    if (!result || result.fromBlock !== range.fromBlock || result.toBlock !== range.toBlock) {
+      toast.error("Run a dry-run for this exact BSC block range before storing detected rows.");
+      return;
+    }
 
     const confirmed = window.confirm(
       "This admin action stores matched BSC USDT rows as detected audit records only. It does not credit users, change balances, or advance watcher state. Continue?",
@@ -272,7 +286,10 @@ export function AdminCryptoBscDryRunPanel({ userId }: { userId: string | undefin
           inputMode="numeric"
           placeholder="e.g. 52000000"
           value={fromBlock}
-          onChange={(e) => setFromBlock(e.target.value)}
+          onChange={(e) => {
+            setFromBlock(e.target.value);
+            clearInspectionResults();
+          }}
           hint="Start of the BSC block range."
         />
         <Input
@@ -283,14 +300,17 @@ export function AdminCryptoBscDryRunPanel({ userId }: { userId: string | undefin
           inputMode="numeric"
           placeholder="e.g. 52002000"
           value={toBlock}
-          onChange={(e) => setToBlock(e.target.value)}
+          onChange={(e) => {
+            setToBlock(e.target.value);
+            clearInspectionResults();
+          }}
           hint="End of the BSC block range."
         />
         <div className="flex flex-col justify-end gap-2 sm:min-w-[170px]">
           <Button size="sm" loading={runningDryRun} disabled={storingDetectedRows} onClick={handleRunDryRun}>
             Run Dry-Run
           </Button>
-          <Button size="sm" variant="outline" loading={storingDetectedRows} disabled={runningDryRun} onClick={handleStoreDetectedRows}>
+          <Button size="sm" variant="outline" loading={storingDetectedRows} disabled={runningDryRun || !inspectedRangeMatchesInputs} onClick={handleStoreDetectedRows}>
             Store Detected Rows
           </Button>
         </div>
