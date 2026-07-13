@@ -121,26 +121,30 @@ export const getCryptoDepositOverviewFn = createServerFn({ method: "POST" })
           .filter(isUsableDepositAddress)
       : [];
 
-    const { data: rawDeposits, error: depositError } = await admin
-      .from("crypto_deposits")
-      .select(
-        "id, user_id, address_id, network, asset, tx_hash, event_index, from_address, to_address, amount_raw, amount_usdt, block_number, confirmations, status, exchange_rate_etb, credited_amount_etb, detected_at, confirmed_at, credited_at, swept_at, created_at, updated_at",
-      )
-      .eq("user_id", authUser.id)
-      .eq("asset", "USDT")
-      .order("detected_at", { ascending: false })
-      .limit(50);
+    const deposits = settings.autoCreditEnabled
+      ? await (async () => {
+          const { data: rawDeposits, error: depositError } = await admin
+            .from("crypto_deposits")
+            .select(
+              "id, user_id, address_id, network, asset, tx_hash, event_index, from_address, to_address, amount_raw, amount_usdt, block_number, confirmations, status, exchange_rate_etb, credited_amount_etb, detected_at, confirmed_at, credited_at, swept_at, created_at, updated_at",
+            )
+            .eq("user_id", authUser.id)
+            .eq("asset", "USDT")
+            .order("detected_at", { ascending: false })
+            .limit(50);
 
-    if (depositError) {
-      throwSafe("DEPOSIT", "Unable to load crypto deposit history.", `DB error: ${depositError.message}`);
-    }
+          if (depositError) {
+            throwSafe("DEPOSIT", "Unable to load crypto deposit history.", `DB error: ${depositError.message}`);
+          }
 
-    const deposits = (rawDeposits ?? [])
-      .map((deposit) => ({
-        ...deposit,
-        network: normalizeNetwork(deposit.network),
-      }))
-      .filter((deposit): deposit is typeof deposit & { network: CryptoNetwork } => deposit.network !== null);
+          return (rawDeposits ?? [])
+            .map((deposit) => ({
+              ...deposit,
+              network: normalizeNetwork(deposit.network),
+            }))
+            .filter((deposit): deposit is typeof deposit & { network: CryptoNetwork } => deposit.network !== null);
+        })()
+      : [];
 
     return {
       settings,
