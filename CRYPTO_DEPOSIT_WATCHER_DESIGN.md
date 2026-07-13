@@ -1,8 +1,8 @@
 # Crypto Deposit Watcher Detection Design
 
-This document proposes the next crypto-deposit phase for QHash after the merged manual public-address assignment checkpoint.
+This document defines the guardrails for QHash crypto-deposit watcher work after the manual public-address assignment checkpoint.
 
-This is a design document only. It intentionally adds no watcher code, no blockchain RPC calls, no packages, no database writes, no wallet crediting, no user-facing address exposure, no sweeping, no signing, and no private-key handling.
+The watcher phase must remain incremental. Detection, storage, admin audit, wallet crediting, user-facing address exposure, and sweeping/signing must be separate reviewed steps.
 
 ## Current prerequisite state
 
@@ -14,7 +14,7 @@ The current merged crypto state is:
 - admin read-only crypto address inventory exists
 - admin-only manual public-address assignment exists
 - user-facing address exposure remains gated by `crypto_auto_credit_enabled`
-- no watcher, automatic detection, wallet crediting, sweeping, signing, address generation, or private-key handling exists
+- no automatic crediting, sweeping, signing, address generation, or private-key handling exists
 
 The watcher phase must preserve the existing CBE/TeleBirr deposit flow and must not change `plan_purchase` or introduce `investment` terminology.
 
@@ -33,13 +33,12 @@ Supported detection model:
 
 - detect USDT token `Transfer` events
 - match event recipient address to assigned `crypto_deposit_addresses.address`
-- store detected deposits in `crypto_deposits`
 - do not credit user wallets in the first watcher implementation
 - do not expose deposit addresses to users until detection and crediting are reviewed separately
 
-## Explicit non-goals for the next implementation PR
+## Explicit non-goals for early watcher PRs
 
-The next implementation after this design must not do any of the following unless a later PR is explicitly scoped and reviewed for it:
+Early watcher PRs must not do any of the following unless a later PR is explicitly scoped and reviewed for it:
 
 - enable `crypto_auto_credit_enabled`
 - expose crypto addresses to normal users
@@ -60,28 +59,32 @@ The watcher should be a backend-only process.
 
 Possible deployment choices should be reviewed before implementation:
 
-1. scheduled server function / cron-like backend job
+1. scheduled server function or cron-like backend job
 2. server-only worker outside the frontend runtime
 3. external watcher service that writes through a restricted backend API or service role
 
-The first implementation should prefer a conservative dry-run mode:
+The first implementation should prefer conservative dry-run mode:
 
 - read configured assigned addresses
 - scan relevant token transfer events
 - normalize and match recipient addresses
-- write or preview detected deposits depending on PR scope
+- return preview data or write detected rows only when that PR is explicitly scoped
 - do not credit wallets
 - do not mark deposits as credited
 - expose results to admins only for audit
 
-## Network contracts
+## Network contracts and decimals
 
-The production USDT token contract addresses must be documented and verified before implementation.
+Production token constants must be verified per network before implementation.
 
-The implementation PR should define constants for each supported network only after verification:
+Known/current constants for the dry-run phase:
 
-- TRON USDT TRC20 contract address
-- BSC USDT BEP20 contract address
+- BSC USDT / Binance-Peg BSC-USD: `0x55d398326f99059ff775485246999027b3197955`
+- BSC USDT decimals: `18`
+
+TRON USDT/TRC20 constants must be verified before TRON watcher implementation.
+
+Do not copy decimal assumptions across networks. USDT decimals are network/token-contract specific. Future crediting logic must use the verified decimals for the exact token contract being scanned.
 
 The watcher must ignore:
 
@@ -127,7 +130,7 @@ network + tx_hash + event_index
 
 `event_index` should be the deterministic event/log index inside the transaction receipt or event list.
 
-The ingestion implementation must protect against duplicate processing with a database-level unique constraint or an already-existing unique key if present.
+The existing schema already enforces uniqueness on `(network, tx_hash, event_index)` for `crypto_deposits`. Future ingestion must rely on database-level uniqueness, not application code only.
 
 Required behavior:
 
@@ -135,8 +138,6 @@ Required behavior:
 - reprocessing after a crash must not create duplicate deposits
 - multiple watcher instances must not create duplicate deposits
 - duplicate events should be treated as already-seen, not as fatal failures
-
-If the current schema does not already enforce uniqueness on `(network, tx_hash, event_index)`, add that as a separate reviewed migration before or with the ingestion PR. Do not rely on application code only for idempotency.
 
 ## Amount handling
 
@@ -148,8 +149,8 @@ Rules:
 
 - keep raw token amounts as strings or BigInt-safe values
 - store `amount_raw` as the exact base-unit integer string
-- derive `amount_usdt` using USDT decimals only with decimal-safe logic
-- keep USDT decimals explicit per token/network, expected to be 6 for USDT on TRON and BSC, but still verify before implementation
+- derive `amount_usdt` using explicit, verified token decimals with decimal-safe logic
+- verify token decimals per network and contract before any crediting logic
 
 Required stored values for credited deposits later:
 
@@ -157,7 +158,7 @@ Required stored values for credited deposits later:
 - `exchange_rate_etb` used at credit time
 - `credited_amount_etb`
 
-A dry-run watcher may store detected `amount_usdt` while leaving credit fields null/pending if the schema supports that. If the schema requires credit fields, use a separate design review before writing detected deposits.
+A dry-run watcher may return detected `amount_usdt` while leaving all credit fields untouched. Persistent deposit storage and crediting require separate reviewed PRs.
 
 ## Confirmation policy
 
@@ -170,17 +171,9 @@ Suggested minimum confirmation policy, to be reviewed before implementation:
 
 The implementation must document exact values before merge.
 
-The watcher should store or track:
-
-- detected block number
-- confirmed block number or confirmation count
-- status such as `detected`, `confirming`, `confirmed`, `ignored`, `failed`, or equivalent existing schema values
-
-If the existing schema status values are different, the implementation must follow the existing database constraints and document the mapping.
-
 ## Block range tracking
 
-`crypto_watcher_state` should be used to track scan progress per network.
+`crypto_watcher_state` should be used to track scan progress per network only in a PR explicitly scoped for persistent watcher state.
 
 The watcher must preserve these principles:
 
@@ -191,30 +184,15 @@ The watcher must preserve these principles:
 - avoid skipping blocks if a provider request fails
 - record provider errors for admin diagnosis
 
-Recommended state keys:
-
-- network
-- last_scanned_block
-- last_confirmed_block
-- updated_at
-- status or error metadata if supported
-
 The implementation should avoid scanning from genesis or huge unbounded ranges in production.
 
 ## Provider and RPC policy
-
-This design does not choose a provider or add any package.
-
-Before implementation, choose providers deliberately:
-
-- TRON provider for TRC20 events
-- BSC provider for BEP20 logs
 
 Provider secrets must be backend-only.
 
 Do not expose provider API keys in frontend code. Do not add provider keys to client-readable settings. Do not place signing keys in provider configuration.
 
-If new packages are required, package additions must be in the implementation PR and reviewed separately.
+If new packages are required, package additions must be reviewed separately.
 
 ## Deposit statuses and admin audit
 
@@ -223,8 +201,8 @@ The first implementation should prefer admin-only audit over automatic crediting
 Recommended flow:
 
 1. watcher detects transfer
-2. watcher stores or surfaces pending detection
-3. admin can inspect network, tx hash, event index, address, user, amount, block, and confirmation state
+2. watcher returns preview data or stores pending detection only when explicitly scoped
+3. admin can inspect network, tx hash, event index, from address, recipient address, assigned user, amount, block, and confirmation state
 4. a later PR adds manual review or crediting rules
 5. only after that should user-facing address exposure be considered
 
@@ -234,6 +212,7 @@ Admin audit view should show enough information to verify deposits without needi
 - tx hash
 - event index
 - assigned user
+- sender address
 - recipient address
 - amount USDT
 - raw amount
@@ -330,8 +309,8 @@ A future watcher/detection PR should include tests or manual verification for:
 - transfer to unknown address is ignored
 - transfer to inactive TRON address is ignored
 - duplicate event replay does not create duplicate deposit rows
-- amount_raw is preserved exactly as string/base-unit integer
-- amount_usdt conversion is correct
+- `amount_raw` is preserved exactly as string/base-unit integer
+- `amount_usdt` conversion is correct
 - watcher restart resumes without skipping or duplicating blocks
 - provider failure does not advance watcher state incorrectly
 - no wallet balance changes occur in detection-only mode
@@ -356,7 +335,7 @@ Before merging any implementation PR based on this design, verify:
 
 ## Recommended next implementation sequence
 
-After this design is reviewed and merged, prefer this sequence:
+Prefer this sequence:
 
 1. verify schema constraints for deposit idempotency and add a migration only if needed
 2. add admin-only dry-run detection scaffolding for one network, no crediting
@@ -368,13 +347,11 @@ After this design is reviewed and merged, prefer this sequence:
 
 ## Current design status
 
-This document is only a design guardrail. It does not make crypto deposits live.
+This document is a guardrail. It does not make crypto deposits live.
 
 As of this design:
 
 - users still should not see crypto addresses
 - `crypto_auto_credit_enabled` should remain false/hidden
-- no watcher has been implemented
-- no blockchain RPC provider has been added
-- no crypto deposit can be automatically detected or credited
+- no automatic wallet crediting has been implemented
 - no funds can be swept or signed by QHash
