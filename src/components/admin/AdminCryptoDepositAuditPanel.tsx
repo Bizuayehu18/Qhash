@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Database, ExternalLink, RefreshCw } from "lucide-react";
-import { toast } from "sonner";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
@@ -120,6 +119,8 @@ export function AdminCryptoDepositAuditPanel({ userId }: { userId: string | unde
 
   const mountedRef = useRef(true);
   const loadingRef = useRef(false);
+  const pendingReloadRef = useRef(false);
+  const requestSequenceRef = useRef(0);
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestRequestRef = useRef<RequestState>({ accessToken, userId, networkFilter, statusFilter, submittedSearchQuery });
@@ -142,7 +143,12 @@ export function AdminCryptoDepositAuditPanel({ userId }: { userId: string | unde
   const loadAudit = useCallback(async (options?: { resetRetryCount?: boolean; resetLoaded?: boolean }) => {
     if (options?.resetRetryCount) retryCountRef.current = 0;
     if (options?.resetLoaded) setLoaded(false);
-    if (loadingRef.current) return;
+
+    if (loadingRef.current) {
+      pendingReloadRef.current = true;
+      requestSequenceRef.current += 1;
+      return;
+    }
 
     const requestState = latestRequestRef.current;
     if (!requestState.userId) return;
@@ -153,6 +159,9 @@ export function AdminCryptoDepositAuditPanel({ userId }: { userId: string | unde
 
     clearRetryTimer();
     loadingRef.current = true;
+    pendingReloadRef.current = false;
+    const requestId = requestSequenceRef.current + 1;
+    requestSequenceRef.current = requestId;
     setRefreshing(true);
 
     try {
@@ -169,17 +178,25 @@ export function AdminCryptoDepositAuditPanel({ userId }: { userId: string | unde
         "Admin crypto deposit audit request timed out.",
       );
 
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || requestId !== requestSequenceRef.current) return;
       setRows(result.rows);
       setLoaded(true);
       retryCountRef.current = 0;
     } catch (err) {
       console.error("[QHash] Admin crypto deposit audit background refresh failed:", err);
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || requestId !== requestSequenceRef.current) return;
       scheduleRetry(() => void loadAudit());
     } finally {
       loadingRef.current = false;
-      if (mountedRef.current) setRefreshing(false);
+      if (!mountedRef.current) return;
+
+      if (pendingReloadRef.current) {
+        pendingReloadRef.current = false;
+        void loadAudit({ resetRetryCount: true, resetLoaded: true });
+        return;
+      }
+
+      setRefreshing(false);
     }
   }, [clearRetryTimer, scheduleRetry]);
 
