@@ -3,8 +3,13 @@ import { getAdminClient } from "./supabase-admin.js";
 import { throwSafe } from "../errors.js";
 
 const DEPOSIT_LIMIT = 100;
+const SEARCH_LOOKUP_LIMIT = 100;
 const NETWORK_FILTERS = ["all", "TRON", "BSC"] as const;
 const STATUS_FILTERS = ["all", "detected", "confirmed", "credited", "swept", "failed"] as const;
+const DEPOSIT_SELECT =
+  "id, user_id, address_id, network, asset, tx_hash, event_index, from_address, to_address, amount_raw, amount_usdt, block_number, confirmations, status, exchange_rate_etb, credited_amount_etb, detected_at, confirmed_at, credited_at, swept_at, created_at, updated_at";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type NetworkFilter = (typeof NETWORK_FILTERS)[number];
 type StatusFilter = (typeof STATUS_FILTERS)[number];
@@ -36,16 +41,8 @@ type CryptoDepositRow = {
   updated_at?: unknown;
 };
 
-type ProfileRow = {
-  id?: unknown;
-  username?: unknown;
-  phone?: unknown;
-};
-
-type AddressRow = {
-  id?: unknown;
-  address?: unknown;
-};
+type ProfileRow = { id?: unknown; username?: unknown; phone?: unknown };
+type AddressRow = { id?: unknown; address?: unknown };
 
 export type AdminCryptoDepositAuditRow = {
   id: string;
@@ -85,7 +82,6 @@ function normalizeAccessToken(value: unknown): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throwSafe("ADMIN", "Unauthorized.", "Missing access token for crypto deposit audit");
   }
-
   return value.trim();
 }
 
@@ -94,8 +90,7 @@ function normalizeSearchQuery(value: unknown): string {
   if (typeof value !== "string") {
     throwSafe("ADMIN", "Invalid crypto deposit search.", "Crypto deposit search query must be a string");
   }
-
-  return value.trim().replace(/[,%]/g, "").slice(0, 90);
+  return value.trim().replace(/[,%()'"\\]/g, "").slice(0, 90);
 }
 
 function normalizeNetworkFilter(value: unknown): NetworkFilter {
@@ -126,13 +121,48 @@ function toNumberOrNull(value: unknown): number | null {
 }
 
 function normalizeNetwork(value: unknown): CryptoNetwork | null {
-  if (value === "TRON" || value === "BSC") return value;
-  return null;
+  return value === "TRON" || value === "BSC" ? value : null;
 }
 
 function normalizeStatus(value: unknown): CryptoDepositStatus | null {
-  if (value === "detected" || value === "confirmed" || value === "credited" || value === "swept" || value === "failed") return value;
-  return null;
+  return value === "detected" || value === "confirmed" || value === "credited" || value === "swept" || value === "failed" ? value : null;
+}
+
+function depositKey(row: CryptoDepositRow): string | null {
+  const id = toStringOrNull(row.id);
+  if (id) return id;
+  const network = toStringOrNull(row.network);
+  const txHash = toStringOrNull(row.tx_hash);
+  const eventIndex = toStringOrNull(row.event_index);
+  return network && txHash && eventIndex ? `${network}:${txHash}:${eventIndex}` : null;
+}
+
+function timestampMs(value: unknown): number {
+  const parsed = Date.parse(toStringOrNull(value) ?? "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function compareDepositsDesc(a: CryptoDepositRow, b: CryptoDepositRow): number {
+  return (timestampMs(b.detected_at) || timestampMs(b.created_at)) - (timestampMs(a.detected_at) || timestampMs(a.created_at));
+}
+
+function buildDirectSearchFilter(searchQuery: string): string {
+  const clauses = [
+    `tx_hash.ilike.%${searchQuery}%`,
+    `from_address.ilike.%${searchQuery}%`,
+    `to_address.ilike.%${searchQuery}%`,
+    `user_id.ilike.%${searchQuery}%`,
+    `network.ilike.%${searchQuery}%`,
+    `status.ilike.%${searchQuery}%`,
+  ];
+
+  if (UUID_RE.test(searchQuery)) clauses.push(`address_id.eq.${searchQuery}`);
+  if (/^\d+$/.test(searchQuery)) {
+    clauses.push(`event_index.eq.${searchQuery}`);
+    clauses.push(`block_number.eq.${searchQuery}`);
+  }
+
+  return clauses.join(",");
 }
 
 async function assertAdminToken(accessToken: string): Promise<void> {
@@ -168,7 +198,6 @@ function validateInput(data: unknown): {
   }
 
   const { accessToken, searchQuery, networkFilter, statusFilter } = data as Record<string, unknown>;
-
   return {
     accessToken: normalizeAccessToken(accessToken),
     searchQuery: normalizeSearchQuery(searchQuery),
@@ -180,15 +209,19 @@ function validateInput(data: unknown): {
 function matchesSearch(row: AdminCryptoDepositAuditRow, searchQuery: string): boolean {
   if (!searchQuery) return true;
   const needle = searchQuery.toLowerCase();
-
   return [
     row.username,
     row.phone ?? "",
     row.userId,
+    row.addressId ?? "",
     row.assignedAddress ?? "",
     row.txHash,
+    String(row.eventIndex),
+    String(row.blockNumber ?? ""),
     row.fromAddress ?? "",
     row.toAddress,
+    row.amountRaw,
+    row.amountUsdt,
     row.network,
     row.status,
   ].some((value) => value.toLowerCase().includes(needle));
@@ -200,40 +233,105 @@ export const getAdminCryptoDepositAuditFn = createServerFn({ method: "POST" })
     await assertAdminToken(data.accessToken);
 
     const admin = getAdminClient();
+    const buildDepositQuery = () => {
+      let query = admin.from("crypto_deposits").select(DEPOSIT_SELECT).eq("asset", "USDT");
+      if (data.networkFilter !== "all") query = query.eq("network", data.networkFilter);
+      if (data.statusFilter !== "all") query = query.eq("status", data.statusFilter);
+      return query;
+    };
 
-    let depositQuery = admin
-      .from("crypto_deposits")
-      .select(
-        "id, user_id, address_id, network, asset, tx_hash, event_index, from_address, to_address, amount_raw, amount_usdt, block_number, confirmations, status, exchange_rate_etb, credited_amount_etb, detected_at, confirmed_at, credited_at, swept_at, created_at, updated_at",
-      )
-      .eq("asset", "USDT")
-      .order("detected_at", { ascending: false })
-      .limit(DEPOSIT_LIMIT);
+    const rowsByKey = new Map<string, CryptoDepositRow>();
+    const appendRows = (rows: CryptoDepositRow[]) => {
+      for (const row of rows) {
+        const key = depositKey(row);
+        if (key && !rowsByKey.has(key)) rowsByKey.set(key, row);
+      }
+    };
 
-    if (data.networkFilter !== "all") depositQuery = depositQuery.eq("network", data.networkFilter);
-    if (data.statusFilter !== "all") depositQuery = depositQuery.eq("status", data.statusFilter);
+    if (data.searchQuery) {
+      const { data: directRows, error: directError } = await buildDepositQuery()
+        .or(buildDirectSearchFilter(data.searchQuery))
+        .order("detected_at", { ascending: false })
+        .limit(DEPOSIT_LIMIT);
 
-    const { data: rawDeposits, error: depositError } = await depositQuery;
+      if (directError) {
+        throwSafe("ADMIN", "Unable to search crypto deposit audit.", `DB error: ${directError.message}`);
+      }
+      appendRows((directRows ?? []) as CryptoDepositRow[]);
 
-    if (depositError) {
-      throwSafe("ADMIN", "Unable to load crypto deposit audit.", `DB error: ${depositError.message}`);
+      const { data: matchingProfiles, error: profileSearchError } = await admin
+        .from("profiles")
+        .select("id")
+        .or(`username.ilike.%${data.searchQuery}%,phone.ilike.%${data.searchQuery}%`)
+        .limit(SEARCH_LOOKUP_LIMIT);
+
+      if (profileSearchError) {
+        throwSafe("ADMIN", "Unable to search crypto deposit users.", `DB error: ${profileSearchError.message}`);
+      }
+
+      const matchingUserIds = Array.from(
+        new Set(((matchingProfiles ?? []) as ProfileRow[]).map((row) => toStringOrNull(row.id)).filter((id): id is string => id !== null)),
+      );
+
+      if (matchingUserIds.length > 0) {
+        const { data: userRows, error: userRowsError } = await buildDepositQuery()
+          .in("user_id", matchingUserIds)
+          .order("detected_at", { ascending: false })
+          .limit(DEPOSIT_LIMIT);
+
+        if (userRowsError) {
+          throwSafe("ADMIN", "Unable to search crypto deposit users.", `DB error: ${userRowsError.message}`);
+        }
+        appendRows((userRows ?? []) as CryptoDepositRow[]);
+      }
+
+      const { data: matchingAddresses, error: addressSearchError } = await admin
+        .from("crypto_deposit_addresses")
+        .select("id")
+        .eq("asset", "USDT")
+        .or(`address.ilike.%${data.searchQuery}%,user_id.ilike.%${data.searchQuery}%`)
+        .limit(SEARCH_LOOKUP_LIMIT);
+
+      if (addressSearchError) {
+        throwSafe("ADMIN", "Unable to search crypto deposit addresses.", `DB error: ${addressSearchError.message}`);
+      }
+
+      const matchingAddressIds = Array.from(
+        new Set(((matchingAddresses ?? []) as AddressRow[]).map((row) => toStringOrNull(row.id)).filter((id): id is string => id !== null)),
+      );
+
+      if (matchingAddressIds.length > 0) {
+        const { data: addressRows, error: addressRowsError } = await buildDepositQuery()
+          .in("address_id", matchingAddressIds)
+          .order("detected_at", { ascending: false })
+          .limit(DEPOSIT_LIMIT);
+
+        if (addressRowsError) {
+          throwSafe("ADMIN", "Unable to search crypto deposit addresses.", `DB error: ${addressRowsError.message}`);
+        }
+        appendRows((addressRows ?? []) as CryptoDepositRow[]);
+      }
+    } else {
+      const { data: rawDeposits, error: depositError } = await buildDepositQuery()
+        .order("detected_at", { ascending: false })
+        .limit(DEPOSIT_LIMIT);
+
+      if (depositError) {
+        throwSafe("ADMIN", "Unable to load crypto deposit audit.", `DB error: ${depositError.message}`);
+      }
+      appendRows((rawDeposits ?? []) as CryptoDepositRow[]);
     }
 
-    const depositRows = (rawDeposits ?? []) as CryptoDepositRow[];
+    const depositRows = Array.from(rowsByKey.values()).sort(compareDepositsDesc).slice(0, DEPOSIT_LIMIT);
     const userIds = Array.from(new Set(depositRows.map((row) => toStringOrNull(row.user_id)).filter((id): id is string => id !== null)));
     const addressIds = Array.from(new Set(depositRows.map((row) => toStringOrNull(row.address_id)).filter((id): id is string => id !== null)));
 
     const profilesById = new Map<string, ProfileRow>();
     if (userIds.length > 0) {
-      const { data: rawProfiles, error: profileError } = await admin
-        .from("profiles")
-        .select("id, username, phone")
-        .in("id", userIds);
-
+      const { data: rawProfiles, error: profileError } = await admin.from("profiles").select("id, username, phone").in("id", userIds);
       if (profileError) {
         throwSafe("ADMIN", "Unable to load crypto deposit users.", `DB error: ${profileError.message}`);
       }
-
       for (const profile of (rawProfiles ?? []) as ProfileRow[]) {
         const id = toStringOrNull(profile.id);
         if (id) profilesById.set(id, profile);
@@ -242,15 +340,10 @@ export const getAdminCryptoDepositAuditFn = createServerFn({ method: "POST" })
 
     const addressesById = new Map<string, AddressRow>();
     if (addressIds.length > 0) {
-      const { data: rawAddresses, error: addressError } = await admin
-        .from("crypto_deposit_addresses")
-        .select("id, address")
-        .in("id", addressIds);
-
+      const { data: rawAddresses, error: addressError } = await admin.from("crypto_deposit_addresses").select("id, address").in("id", addressIds);
       if (addressError) {
         throwSafe("ADMIN", "Unable to load crypto deposit addresses.", `DB error: ${addressError.message}`);
       }
-
       for (const address of (rawAddresses ?? []) as AddressRow[]) {
         const id = toStringOrNull(address.id);
         if (id) addressesById.set(id, address);
@@ -310,9 +403,5 @@ export const getAdminCryptoDepositAuditFn = createServerFn({ method: "POST" })
       .filter((row): row is AdminCryptoDepositAuditRow => row !== null)
       .filter((row) => matchesSearch(row, data.searchQuery));
 
-    return {
-      rows,
-      totalShown: rows.length,
-      limit: DEPOSIT_LIMIT,
-    };
+    return { rows, totalShown: rows.length, limit: DEPOSIT_LIMIT };
   });
