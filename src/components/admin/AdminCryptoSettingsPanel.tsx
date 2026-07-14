@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/Input.js";
 import { Spinner } from "@/components/ui/Spinner.js";
 import { AdminCryptoAddressInventoryPanel } from "@/components/admin/AdminCryptoAddressInventoryPanel.js";
 import { AdminCryptoBscDryRunPanel } from "@/components/admin/AdminCryptoBscDryRunPanel.js";
+import { AdminCryptoDepositAuditPanel } from "@/components/admin/AdminCryptoDepositAuditPanel.js";
 import { getSafeErrorMessage } from "@/lib/errors.js";
 import { supabase } from "@/lib/supabase.js";
 import { withTimeout } from "@/lib/async.js";
@@ -239,7 +240,7 @@ export function AdminCryptoSettingsPanel({ userId }: { userId: string | undefine
           <span className="text-xs font-semibold text-amber-100">Crypto deposits are still guarded</span>
         </div>
         <p>
-          This panel manages crypto settings, admin-only address inventory, and BSC dry-run detection previews. It does not enable crypto deposits,
+          This panel manages crypto settings, admin-only address inventory, BSC detection, and read-only deposit audit rows. It does not enable crypto deposits,
           expose deposit addresses to users, generate addresses, credit wallets, sweep, sign, or handle private keys.
         </p>
       </div>
@@ -322,6 +323,7 @@ export function AdminCryptoSettingsPanel({ userId }: { userId: string | undefine
       </div>
 
       <AdminCryptoBscDryRunPanel userId={userId} />
+      <AdminCryptoDepositAuditPanel userId={userId} />
       <AdminCryptoAddressInventoryPanel userId={userId} />
     </div>
   );
