@@ -10,8 +10,6 @@ const CANDIDATE_LIMIT = 100;
 const DEFAULT_CONFIRMATION_THRESHOLD = 20;
 const MAX_CONFIRMATION_THRESHOLD = 5_000;
 
-type AdminClient = ReturnType<typeof getAdminClient>;
-
 type CandidateDepositRow = {
   id?: unknown;
   user_id?: unknown;
@@ -21,7 +19,9 @@ type CandidateDepositRow = {
   from_address?: unknown;
   to_address?: unknown;
   amount_raw?: unknown;
+  amount_raw_text?: unknown;
   amount_usdt?: unknown;
+  amount_usdt_text?: unknown;
   block_number?: unknown;
   confirmations?: unknown;
   status?: unknown;
@@ -47,9 +47,7 @@ type BscReceipt = {
 
 type BscRpcResponse = {
   result?: unknown;
-  error?: {
-    message?: unknown;
-  };
+  error?: { message?: unknown };
 };
 
 type ConfirmationVerificationStatus =
@@ -63,6 +61,8 @@ type ConfirmationVerificationStatus =
   | "block_mismatch"
   | "rpc_error";
 
+type CandidateStatus = "detected" | "confirmed";
+
 export type AdminBscConfirmationDryRunRow = {
   depositId: string | null;
   userId: string | null;
@@ -74,7 +74,7 @@ export type AdminBscConfirmationDryRunRow = {
   storedConfirmations: number | null;
   calculatedConfirmations: number | null;
   confirmationThreshold: number;
-  status: "detected" | "confirmed" | null;
+  status: CandidateStatus | null;
   verificationStatus: ConfirmationVerificationStatus;
   wouldMarkConfirmed: boolean;
   alreadyConfirmed: boolean;
@@ -109,10 +109,7 @@ export type AdminBscConfirmationDryRunResult = {
   rows: AdminBscConfirmationDryRunRow[];
 };
 
-function validateInput(data: unknown): {
-  accessToken: string;
-  confirmationThreshold: number;
-} {
+function validateInput(data: unknown): { accessToken: string; confirmationThreshold: number } {
   if (!data || typeof data !== "object") {
     throwSafe("ADMIN", "Invalid request.", "Missing request body");
   }
@@ -168,6 +165,26 @@ function toNumberOrNull(value: unknown): number | null {
   return null;
 }
 
+function toExactIntegerTextOrNull(value: unknown): string | null {
+  if (typeof value === "string" && /^\d+$/.test(value)) return value;
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return String(value);
+  return null;
+}
+
+function toDecimalTextOrNull(value: unknown): string | null {
+  if (typeof value === "string" && /^\d+(?:\.\d+)?$/.test(value)) return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return null;
+}
+
+function amountRawText(row: CandidateDepositRow): string | null {
+  return toExactIntegerTextOrNull(row.amount_raw_text) ?? toExactIntegerTextOrNull(row.amount_raw);
+}
+
+function amountUsdtText(row: CandidateDepositRow): string | null {
+  return toDecimalTextOrNull(row.amount_usdt_text) ?? toDecimalTextOrNull(row.amount_usdt);
+}
+
 function normalizeBscAddress(value: unknown): string | null {
   const address = toStringOrNull(value)?.toLowerCase() ?? null;
   return address && /^0x[a-f0-9]{40}$/.test(address) ? address : null;
@@ -194,13 +211,17 @@ function hexToSafeNumber(value: unknown): number | null {
   return Number.isSafeInteger(numberValue) ? numberValue : null;
 }
 
-function parseRawAmount(value: unknown): bigint | null {
-  if (typeof value !== "string" || !/^\d+$/.test(value)) return null;
+function parseRawAmountText(value: string | null): bigint | null {
+  if (!value || !/^\d+$/.test(value)) return null;
   try {
     return BigInt(value);
   } catch {
     return null;
   }
+}
+
+function normalizeStatus(value: unknown): CandidateStatus | null {
+  return value === "detected" || value === "confirmed" ? value : null;
 }
 
 function rpcErrorMessage(value: unknown): string {
@@ -275,14 +296,14 @@ function buildMalformedRow(row: CandidateDepositRow, confirmationThreshold: numb
     storedConfirmations: toNumberOrNull(row.confirmations),
     calculatedConfirmations: null,
     confirmationThreshold,
-    status: row.status === "detected" || row.status === "confirmed" ? row.status : null,
+    status: normalizeStatus(row.status),
     verificationStatus: "malformed_row",
     wouldMarkConfirmed: false,
     alreadyConfirmed: false,
     fromAddress: normalizeBscAddress(row.from_address),
     toAddress: normalizeBscAddress(row.to_address),
-    amountRaw: toStringOrNull(row.amount_raw),
-    amountUsdt: toStringOrNull(row.amount_usdt),
+    amountRaw: amountRawText(row),
+    amountUsdt: amountUsdtText(row),
     reason,
   };
 }
@@ -300,14 +321,14 @@ function verifyReceiptLog(
   const eventIndex = toNumberOrNull(row.event_index);
   const fromAddress = normalizeBscAddress(row.from_address);
   const toAddress = normalizeBscAddress(row.to_address);
-  const amountRaw = toStringOrNull(row.amount_raw);
-  const amountRawBigInt = parseRawAmount(row.amount_raw);
-  const amountUsdt = toStringOrNull(row.amount_usdt);
+  const amountRaw = amountRawText(row);
+  const amountRawBigInt = parseRawAmountText(amountRaw);
+  const amountUsdt = amountUsdtText(row);
   const storedBlockNumber = toNumberOrNull(row.block_number);
   const storedConfirmations = toNumberOrNull(row.confirmations);
-  const status = row.status === "detected" || row.status === "confirmed" ? row.status : null;
+  const status = normalizeStatus(row.status);
 
-  const baseRow = {
+  const baseRow: Omit<AdminBscConfirmationDryRunRow, "verificationStatus" | "reason"> = {
     depositId,
     userId,
     addressId,
@@ -327,7 +348,7 @@ function verifyReceiptLog(
     amountUsdt,
   };
 
-  if (!depositId || !userId || !txHash || !/^0x[0-9a-f]{64}$/.test(txHash) || eventIndex === null || !toAddress || !amountRaw || amountRawBigInt === null || storedBlockNumber === null || storedConfirmations === null || !status) {
+  if (!depositId || !userId || !txHash || !/^0x[0-9a-f]{64}$/.test(txHash) || eventIndex === null || !fromAddress || !toAddress || !amountRaw || amountRawBigInt === null || storedBlockNumber === null || storedConfirmations === null || !status) {
     return { ...baseRow, verificationStatus: "malformed_row", reason: "Stored deposit row is missing required exact audit fields." };
   }
 
@@ -371,8 +392,8 @@ function verifyReceiptLog(
     logContract === BSC_USDT_CONTRACT_ADDRESS &&
     logTopic0 === TRANSFER_EVENT_TOPIC &&
     logTxHash === txHash &&
+    logFromAddress === fromAddress &&
     logToAddress === toAddress &&
-    (fromAddress === null || logFromAddress === fromAddress) &&
     logAmount !== null &&
     logAmount === amountRawBigInt;
 
@@ -435,7 +456,7 @@ export const runAdminBscConfirmationDryRunFn = createServerFn({ method: "POST" }
 
     const { data: rawDeposits, error: depositError } = await admin
       .from("crypto_deposits")
-      .select("id, user_id, address_id, tx_hash, event_index, from_address, to_address, amount_raw, amount_usdt, block_number, confirmations, status, detected_at")
+      .select("id, user_id, address_id, tx_hash, event_index, from_address, to_address, amount_raw, amount_raw_text:amount_raw::text, amount_usdt, amount_usdt_text:amount_usdt::text, block_number, confirmations, status, detected_at")
       .eq("network", BSC_NETWORK)
       .eq("asset", "USDT")
       .in("status", ["detected", "confirmed"])
@@ -471,14 +492,14 @@ export const runAdminBscConfirmationDryRunFn = createServerFn({ method: "POST" }
           storedConfirmations: toNumberOrNull(candidate.confirmations),
           calculatedConfirmations: null,
           confirmationThreshold: data.confirmationThreshold,
-          status: candidate.status === "detected" || candidate.status === "confirmed" ? candidate.status : null,
+          status: normalizeStatus(candidate.status),
           verificationStatus: "rpc_error",
           wouldMarkConfirmed: false,
           alreadyConfirmed: false,
           fromAddress: normalizeBscAddress(candidate.from_address),
           toAddress: normalizeBscAddress(candidate.to_address),
-          amountRaw: toStringOrNull(candidate.amount_raw),
-          amountUsdt: toStringOrNull(candidate.amount_usdt),
+          amountRaw: amountRawText(candidate),
+          amountUsdt: amountUsdtText(candidate),
           reason: error instanceof Error ? error.message : "Unable to verify canonical receipt/log.",
         });
       }
