@@ -646,6 +646,24 @@ export interface Database {
         Args: { p_investment_id: string; p_run_id?: string | null; p_trigger_type?: string | null }
         Returns: Json
       }
+      apply_bsc_crypto_deposit_confirmation: {
+        Args: {
+          p_deposit_id: string
+          p_expected_user_id: string
+          p_expected_address_id: string
+          p_expected_tx_hash: string
+          p_expected_event_index: number
+          p_expected_from_address: string
+          p_expected_to_address: string
+          p_expected_amount_raw_text: string
+          p_expected_amount_usdt_text: string
+          p_expected_block_number: number
+          p_expected_confirmations: number
+          p_calculated_confirmations: number
+          p_confirmation_threshold: number
+        }
+        Returns: Json
+      }
     }
     Enums: {
       transaction_type: TransactionType
