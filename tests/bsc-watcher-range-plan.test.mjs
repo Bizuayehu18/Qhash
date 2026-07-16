@@ -5,10 +5,10 @@ import { planBscWatcherRanges } from "../src/lib/server/bsc-watcher-range-plan.t
 const defaults = {
   initialLookbackBlocks: 2_000,
   blocksPerBatch: 100,
-  maxBatches: 5,
+  maxBatches: 3,
 };
 
-test("plans five contiguous provider-safe batches while catching up", () => {
+test("plans three contiguous provider-safe batches while catching up", () => {
   assert.deepEqual(
     planBscWatcherRanges({
       ...defaults,
@@ -19,8 +19,6 @@ test("plans five contiguous provider-safe batches while catching up", () => {
       { fromBlock: 1_001, toBlock: 1_100 },
       { fromBlock: 1_101, toBlock: 1_200 },
       { fromBlock: 1_201, toBlock: 1_300 },
-      { fromBlock: 1_301, toBlock: 1_400 },
-      { fromBlock: 1_401, toBlock: 1_500 },
     ],
   );
 });
@@ -36,8 +34,6 @@ test("limits the first run to the configured lookback window", () => {
       { fromBlock: 8_001, toBlock: 8_100 },
       { fromBlock: 8_101, toBlock: 8_200 },
       { fromBlock: 8_201, toBlock: 8_300 },
-      { fromBlock: 8_301, toBlock: 8_400 },
-      { fromBlock: 8_401, toBlock: 8_500 },
     ],
   );
 });

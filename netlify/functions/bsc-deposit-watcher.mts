@@ -8,9 +8,20 @@ const BSC_NETWORK = "BSC" as const;
 const SAFE_HEAD_CONFIRMATIONS = 20;
 const INITIAL_LOOKBACK_BLOCKS = 2_000;
 const BLOCKS_PER_RPC_BATCH = 100;
-const MAX_RPC_BATCHES_PER_RUN = 5;
+const MAX_RPC_BATCHES_PER_RUN = 3;
 const MAX_MATCHED_EVENTS_PER_BATCH = 2_000;
-const RPC_TIMEOUT_MS = 10_000;
+const SCHEDULED_RPC_TIMEOUT_MS = 5_000;
+
+// Netlify scheduled functions have a 30-second execution limit. One latest-
+// block request plus three sequential log requests can therefore spend at
+// most 20 seconds waiting on the RPC provider, leaving 10 seconds for address
+// loading, deposit storage, checkpoint updates, and logging.
+const MAX_SEQUENTIAL_RPC_WAIT_MS = (MAX_RPC_BATCHES_PER_RUN + 1) * SCHEDULED_RPC_TIMEOUT_MS;
+const NETLIFY_SCHEDULED_FUNCTION_LIMIT_MS = 30_000;
+
+if (MAX_SEQUENTIAL_RPC_WAIT_MS >= NETLIFY_SCHEDULED_FUNCTION_LIMIT_MS) {
+  throw new Error("BSC watcher RPC wait budget must stay below the Netlify scheduled-function limit");
+}
 
 type BscBlockNumberResponse = {
   result?: unknown;
@@ -56,7 +67,7 @@ function rpcErrorMessage(value: unknown): string {
 
 async function fetchLatestBscBlock(rpcUrl: string): Promise<number> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), SCHEDULED_RPC_TIMEOUT_MS);
 
   let response: Response;
 
@@ -180,6 +191,8 @@ export default async (): Promise<void> => {
       to_block: lastRange.toBlock,
       batches_planned: ranges.length,
       blocks_planned: lastRange.toBlock - firstRange.fromBlock + 1,
+      rpc_timeout_ms: SCHEDULED_RPC_TIMEOUT_MS,
+      max_sequential_rpc_wait_ms: MAX_SEQUENTIAL_RPC_WAIT_MS,
     });
 
     const totals = {
@@ -208,6 +221,7 @@ export default async (): Promise<void> => {
         // independent of assigned-address count without relying on a provider's
         // larger-range response cap. Matching remains server-side.
         scanAllRecipients: true,
+        rpcTimeoutMs: SCHEDULED_RPC_TIMEOUT_MS,
       });
 
       const { data: advancedState, error: advanceError } = await admin
