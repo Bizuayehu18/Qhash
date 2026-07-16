@@ -1,13 +1,15 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Config } from "@netlify/functions";
 import type { Database } from "../../src/lib/database.types.ts";
+import { planBscWatcherRanges } from "../../src/lib/server/bsc-watcher-range-plan.ts";
 import { storeBscDetectedTransfersForRange } from "../../src/lib/server/crypto-bsc-dry-run-detector.ts";
 
 const BSC_NETWORK = "BSC" as const;
 const SAFE_HEAD_CONFIRMATIONS = 20;
 const INITIAL_LOOKBACK_BLOCKS = 2_000;
-const MAX_BLOCKS_PER_RUN = 100;
-const MAX_MATCHED_EVENTS_PER_RUN = 2_000;
+const BLOCKS_PER_RPC_BATCH = 100;
+const MAX_RPC_BATCHES_PER_RUN = 5;
+const MAX_MATCHED_EVENTS_PER_BATCH = 2_000;
 const RPC_TIMEOUT_MS = 10_000;
 
 type BscBlockNumberResponse = {
@@ -150,82 +152,153 @@ export default async (): Promise<void> => {
       return;
     }
 
-    const fromBlock = checkpoint === 0
-      ? Math.max(0, safeHead - INITIAL_LOOKBACK_BLOCKS + 1)
-      : checkpoint + 1;
-    const toBlock = Math.min(safeHead, fromBlock + MAX_BLOCKS_PER_RUN - 1);
+    const ranges = planBscWatcherRanges({
+      checkpoint,
+      safeHead,
+      initialLookbackBlocks: INITIAL_LOOKBACK_BLOCKS,
+      blocksPerBatch: BLOCKS_PER_RPC_BATCH,
+      maxBatches: MAX_RPC_BATCHES_PER_RUN,
+    });
+
+    if (ranges.length === 0) {
+      log("no_safe_blocks", {
+        latest_block: latestBlock,
+        safe_head: safeHead,
+        checkpoint,
+      });
+      return;
+    }
+
+    const firstRange = ranges[0];
+    const lastRange = ranges[ranges.length - 1];
 
     log("scan_started", {
       latest_block: latestBlock,
       safe_head: safeHead,
       checkpoint,
-      from_block: fromBlock,
-      to_block: toBlock,
+      from_block: firstRange.fromBlock,
+      to_block: lastRange.toBlock,
+      batches_planned: ranges.length,
+      blocks_planned: lastRange.toBlock - firstRange.fromBlock + 1,
     });
 
-    const result = await storeBscDetectedTransfersForRange({
-      admin,
-      rpcUrl,
-      fromBlock,
-      toBlock,
-      matchedEventLimit: MAX_MATCHED_EVENTS_PER_RUN,
-      // A single unfiltered Transfer query keeps runtime independent of the
-      // number of assigned addresses; matching still happens against the
-      // server-loaded active address inventory before any row is stored.
-      scanAllRecipients: true,
-    });
+    const totals = {
+      assignedAddressCount: 0,
+      rpcBatchCount: 0,
+      scannedLogCount: 0,
+      totalMatchedEvents: 0,
+      insertedDetectedCount: 0,
+      duplicateDetectedCount: 0,
+      invalidAssignedAddressCount: 0,
+      skippedMalformedLogs: 0,
+      skippedZeroAmountLogs: 0,
+      skippedBelowStorageScaleLogs: 0,
+    };
+    let expectedCheckpoint = checkpoint;
+    let completedBatches = 0;
 
-    const { data: advancedState, error: advanceError } = await admin
-      .from("crypto_watcher_state")
-      .update({ last_scanned_block: toBlock })
-      .eq("network", BSC_NETWORK)
-      .eq("last_scanned_block", checkpoint)
-      .select("last_scanned_block")
-      .maybeSingle();
+    for (const range of ranges) {
+      const result = await storeBscDetectedTransfersForRange({
+        admin,
+        rpcUrl,
+        fromBlock: range.fromBlock,
+        toBlock: range.toBlock,
+        matchedEventLimit: MAX_MATCHED_EVENTS_PER_BATCH,
+        // One unfiltered Transfer query per 100-block batch keeps runtime
+        // independent of assigned-address count without relying on a provider's
+        // larger-range response cap. Matching remains server-side.
+        scanAllRecipients: true,
+      });
 
-    if (advanceError) {
-      throw new Error(`Unable to advance BSC watcher checkpoint: ${advanceError.message}`);
-    }
-
-    if (!advancedState) {
-      const { data: currentState, error: currentStateError } = await admin
+      const { data: advancedState, error: advanceError } = await admin
         .from("crypto_watcher_state")
-        .select("last_scanned_block")
+        .update({ last_scanned_block: range.toBlock })
         .eq("network", BSC_NETWORK)
-        .single();
+        .eq("last_scanned_block", expectedCheckpoint)
+        .select("last_scanned_block")
+        .maybeSingle();
 
-      if (currentStateError || !currentState || Number(currentState.last_scanned_block) < toBlock) {
-        throw new Error(`BSC watcher checkpoint changed unexpectedly: ${currentStateError?.message ?? "stale state"}`);
+      if (advanceError) {
+        throw new Error(`Unable to advance BSC watcher checkpoint: ${advanceError.message}`);
       }
 
-      log("checkpoint_already_advanced", {
-        from_block: fromBlock,
-        to_block: toBlock,
-        current_checkpoint: currentState.last_scanned_block,
+      if (!advancedState) {
+        const { data: currentState, error: currentStateError } = await admin
+          .from("crypto_watcher_state")
+          .select("last_scanned_block")
+          .eq("network", BSC_NETWORK)
+          .single();
+
+        if (
+          currentStateError ||
+          !currentState ||
+          Number(currentState.last_scanned_block) < range.toBlock
+        ) {
+          throw new Error(
+            `BSC watcher checkpoint changed unexpectedly: ${currentStateError?.message ?? "stale state"}`,
+          );
+        }
+
+        log("checkpoint_already_advanced", {
+          from_block: range.fromBlock,
+          to_block: range.toBlock,
+          current_checkpoint: currentState.last_scanned_block,
+          batches_completed: completedBatches,
+          inserted_detected: totals.insertedDetectedCount + result.insertedDetectedCount,
+          duplicate_detected: totals.duplicateDetectedCount + result.duplicateDetectedCount,
+        });
+        return;
+      }
+
+      expectedCheckpoint = range.toBlock;
+      completedBatches += 1;
+      totals.assignedAddressCount = Math.max(totals.assignedAddressCount, result.assignedAddressCount);
+      totals.rpcBatchCount += result.rpcBatchCount;
+      totals.scannedLogCount += result.scannedLogCount;
+      totals.totalMatchedEvents += result.totalMatchedEvents;
+      totals.insertedDetectedCount += result.insertedDetectedCount;
+      totals.duplicateDetectedCount += result.duplicateDetectedCount;
+      totals.invalidAssignedAddressCount = Math.max(
+        totals.invalidAssignedAddressCount,
+        result.invalidAssignedAddressCount,
+      );
+      totals.skippedMalformedLogs += result.skippedMalformedLogs;
+      totals.skippedZeroAmountLogs += result.skippedZeroAmountLogs;
+      totals.skippedBelowStorageScaleLogs += result.skippedBelowStorageScaleLogs;
+
+      log("batch_completed", {
+        batch: completedBatches,
+        from_block: range.fromBlock,
+        to_block: range.toBlock,
+        assigned_addresses: result.assignedAddressCount,
+        rpc_batches: result.rpcBatchCount,
+        matched_events: result.totalMatchedEvents,
         inserted_detected: result.insertedDetectedCount,
         duplicate_detected: result.duplicateDetectedCount,
+        checkpoint: advancedState.last_scanned_block,
       });
-      return;
     }
 
     log("scan_completed", {
-      from_block: fromBlock,
-      to_block: toBlock,
-      assigned_addresses: result.assignedAddressCount,
-      rpc_batches: result.rpcBatchCount,
-      scanned_logs: result.scannedLogCount,
-      matched_events: result.totalMatchedEvents,
-      inserted_detected: result.insertedDetectedCount,
-      duplicate_detected: result.duplicateDetectedCount,
-      invalid_assigned_addresses: result.invalidAssignedAddressCount,
-      skipped_malformed_logs: result.skippedMalformedLogs,
-      skipped_zero_amount_logs: result.skippedZeroAmountLogs,
-      skipped_below_storage_scale_logs: result.skippedBelowStorageScaleLogs,
-      checkpoint: advancedState.last_scanned_block,
+      from_block: firstRange.fromBlock,
+      to_block: expectedCheckpoint,
+      batches_completed: completedBatches,
+      assigned_addresses: totals.assignedAddressCount,
+      rpc_batches: totals.rpcBatchCount,
+      scanned_logs: totals.scannedLogCount,
+      matched_events: totals.totalMatchedEvents,
+      inserted_detected: totals.insertedDetectedCount,
+      duplicate_detected: totals.duplicateDetectedCount,
+      invalid_assigned_addresses: totals.invalidAssignedAddressCount,
+      skipped_malformed_logs: totals.skippedMalformedLogs,
+      skipped_zero_amount_logs: totals.skippedZeroAmountLogs,
+      skipped_below_storage_scale_logs: totals.skippedBelowStorageScaleLogs,
+      checkpoint: expectedCheckpoint,
     });
   } catch (error) {
-    // The checkpoint advances only after every detected row is stored. Partial inserts
-    // are harmless because the detector's chain-event identity is idempotent on retry.
+    // Each batch checkpoint advances only after every detected row in that batch is
+    // stored. Earlier completed batches remain committed; a failed batch is safely
+    // retried because the detector's chain-event identity is idempotent.
     logError("run_failed", error);
     throw error;
   }
