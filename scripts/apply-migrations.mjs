@@ -10,8 +10,13 @@ const { Client } = pg;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
-const migrationsRoot = path.join(repoRoot, "netlify", "database", "migrations");
+// QHash's production schema lives in Supabase and is migrated by this runner.
+// Never point this at netlify/database/migrations: Netlify Database reserves
+// that directory and automatically applies its contents to a separate database.
+const migrationsRoot = path.join(repoRoot, "supabase", "migrations");
 const migrationsTable = "public._qhash_migrations";
+// Keep the historical lock key stable so overlapping old/new deploys still
+// serialize against each other while the migration directory is separated.
 const advisoryLockKey = "qhash_netlify_database_migrations";
 const supabaseCaCertPath = path.join(__dirname, "certs", "supabase-ca.crt");
 // Production already has earlier manual migrations, including
