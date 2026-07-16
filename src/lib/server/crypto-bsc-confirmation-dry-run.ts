@@ -4,11 +4,18 @@ import { getAdminClient } from "./supabase-admin.js";
 
 const BSC_NETWORK = "BSC" as const;
 const BSC_USDT_CONTRACT_ADDRESS = "0x55d398326f99059ff775485246999027b3197955";
+const BSC_USDT_DECIMALS = 18;
+const BSC_USDT_STORAGE_DECIMALS = 6;
+const BSC_USDT_STORAGE_DIVISOR = 10n ** BigInt(BSC_USDT_DECIMALS - BSC_USDT_STORAGE_DECIMALS);
 const TRANSFER_EVENT_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
-const RPC_TIMEOUT_MS = 10_000;
-const CANDIDATE_LIMIT = 100;
+const RPC_TIMEOUT_MS = 8_000;
+const CANDIDATE_LIMIT = 15;
+const RECEIPT_CONCURRENCY = 5;
+const MAX_CANDIDATE_OFFSET = 10_000;
 const DEFAULT_CONFIRMATION_THRESHOLD = 20;
 const MAX_CONFIRMATION_THRESHOLD = 5_000;
+
+type AdminClient = ReturnType<typeof getAdminClient>;
 
 type CandidateDepositRow = {
   id?: unknown;
@@ -28,18 +35,28 @@ type CandidateDepositRow = {
   detected_at?: unknown;
 };
 
+type CandidateDepositAddressRow = {
+  id?: unknown;
+  user_id?: unknown;
+  address?: unknown;
+  network?: unknown;
+  asset?: unknown;
+};
+
 type BscReceiptLog = {
   address?: unknown;
   topics?: unknown;
   data?: unknown;
   logIndex?: unknown;
   transactionHash?: unknown;
+  blockHash?: unknown;
   blockNumber?: unknown;
   removed?: unknown;
 };
 
 type BscReceipt = {
   transactionHash?: unknown;
+  blockHash?: unknown;
   blockNumber?: unknown;
   status?: unknown;
   logs?: unknown;
@@ -49,6 +66,10 @@ type BscRpcResponse = {
   result?: unknown;
   error?: { message?: unknown };
 };
+
+type ReceiptFetchOutcome =
+  | { ok: true; receipt: BscReceipt | null }
+  | { ok: false; error: unknown };
 
 type ConfirmationVerificationStatus =
   | "canonical_verified"
@@ -91,8 +112,10 @@ export type AdminBscConfirmationDryRunResult = {
   contract: string;
   latestBlockNumber: number;
   confirmationThreshold: number;
+  candidateOffset: number;
   candidateLimit: number;
   candidateCount: number;
+  hasMoreCandidates: boolean;
   resultsTruncated: boolean;
   canonicalVerifiedCount: number;
   wouldMarkConfirmedCount: number;
@@ -109,15 +132,18 @@ export type AdminBscConfirmationDryRunResult = {
   rows: AdminBscConfirmationDryRunRow[];
 };
 
-function validateInput(data: unknown): { accessToken: string; confirmationThreshold: number } {
+function validateInput(data: unknown): { accessToken: string; confirmationThreshold: number; candidateOffset: number } {
   if (!data || typeof data !== "object") {
     throwSafe("ADMIN", "Invalid request.", "Missing request body");
   }
 
-  const { accessToken, confirmationThreshold } = data as Record<string, unknown>;
+  const { accessToken, confirmationThreshold, candidateOffset } = data as Record<string, unknown>;
   const threshold = confirmationThreshold === undefined || confirmationThreshold === null || confirmationThreshold === ""
     ? DEFAULT_CONFIRMATION_THRESHOLD
     : Number(confirmationThreshold);
+  const offset = candidateOffset === undefined || candidateOffset === null || candidateOffset === ""
+    ? 0
+    : Number(candidateOffset);
 
   if (typeof accessToken !== "string" || accessToken.trim().length === 0) {
     throwSafe("ADMIN", "Unauthorized.", "Missing access token");
@@ -127,7 +153,15 @@ function validateInput(data: unknown): { accessToken: string; confirmationThresh
     throwSafe("ADMIN", "Invalid confirmation threshold.", "BSC confirmation threshold is invalid");
   }
 
-  return { accessToken: accessToken.trim(), confirmationThreshold: threshold };
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > MAX_CANDIDATE_OFFSET) {
+    throwSafe("ADMIN", "Invalid candidate page.", "BSC confirmation candidate offset is invalid");
+  }
+
+  return {
+    accessToken: accessToken.trim(),
+    confirmationThreshold: threshold,
+    candidateOffset: offset,
+  };
 }
 
 async function assertAdmin(accessToken: string): Promise<void> {
@@ -190,13 +224,28 @@ function normalizeBscAddress(value: unknown): string | null {
   return address && /^0x[a-f0-9]{40}$/.test(address) ? address : null;
 }
 
+function normalizeHash32(value: unknown): string | null {
+  const hash = toStringOrNull(value)?.toLowerCase() ?? null;
+  return hash && /^0x[0-9a-f]{64}$/.test(hash) ? hash : null;
+}
+
 function topicAddress(topic: unknown): string | null {
   if (typeof topic !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(topic)) return null;
+  if (!/^0{24}$/i.test(topic.slice(2, 26))) return null;
   return `0x${topic.slice(-40).toLowerCase()}`;
 }
 
 function parseHexBigInt(value: unknown): bigint | null {
   if (typeof value !== "string" || !/^0x[0-9a-fA-F]+$/.test(value)) return null;
+  try {
+    return BigInt(value);
+  } catch {
+    return null;
+  }
+}
+
+function parseAbiUint256(value: unknown): bigint | null {
+  if (typeof value !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(value)) return null;
   try {
     return BigInt(value);
   } catch {
@@ -215,6 +264,21 @@ function parseRawAmountText(value: string | null): bigint | null {
   if (!value || !/^\d+$/.test(value)) return null;
   try {
     return BigInt(value);
+  } catch {
+    return null;
+  }
+}
+
+function parseScaledDecimal(value: string | null, scale: number): bigint | null {
+  if (!value || !/^\d+(?:\.\d+)?$/.test(value)) return null;
+
+  const [whole, fraction = ""] = value.split(".");
+  if (fraction.length > scale) return null;
+
+  try {
+    const base = 10n ** BigInt(scale);
+    const fractionText = fraction.padEnd(scale, "0");
+    return BigInt(whole) * base + BigInt(fractionText || "0");
   } catch {
     return null;
   }
@@ -284,6 +348,62 @@ async function fetchReceipt(rpcUrl: string, txHash: string, requestId: number): 
   return result as BscReceipt;
 }
 
+async function loadCandidateAddresses(
+  admin: AdminClient,
+  candidates: CandidateDepositRow[],
+): Promise<Map<string, CandidateDepositAddressRow>> {
+  const addressIds = Array.from(new Set(
+    candidates
+      .map((candidate) => toStringOrNull(candidate.address_id))
+      .filter((value): value is string => value !== null),
+  ));
+
+  if (addressIds.length === 0) return new Map();
+
+  const { data, error } = await admin
+    .from("crypto_deposit_addresses")
+    .select("id, user_id, address, network, asset")
+    .in("id", addressIds);
+
+  if (error) {
+    throwSafe("ADMIN", "Unable to load assigned crypto addresses.", `DB error: ${error.message}`);
+  }
+
+  const addresses = new Map<string, CandidateDepositAddressRow>();
+  for (const row of (data ?? []) as CandidateDepositAddressRow[]) {
+    const id = toStringOrNull(row.id);
+    if (id) addresses.set(id, row);
+  }
+  return addresses;
+}
+
+async function fetchReceiptOutcomes(
+  rpcUrl: string,
+  txHashes: string[],
+): Promise<Map<string, ReceiptFetchOutcome>> {
+  const outcomes = new Map<string, ReceiptFetchOutcome>();
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (nextIndex < txHashes.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const txHash = txHashes[index];
+
+      try {
+        const receipt = await fetchReceipt(rpcUrl, txHash, index + 2);
+        outcomes.set(txHash, { ok: true, receipt });
+      } catch (error) {
+        outcomes.set(txHash, { ok: false, error });
+      }
+    }
+  }
+
+  const workerCount = Math.min(RECEIPT_CONCURRENCY, txHashes.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return outcomes;
+}
+
 function buildMalformedRow(row: CandidateDepositRow, confirmationThreshold: number, reason: string): AdminBscConfirmationDryRunRow {
   return {
     depositId: toStringOrNull(row.id),
@@ -308,8 +428,41 @@ function buildMalformedRow(row: CandidateDepositRow, confirmationThreshold: numb
   };
 }
 
+function buildRpcErrorRow(
+  row: CandidateDepositRow,
+  confirmationThreshold: number,
+  error: unknown,
+): AdminBscConfirmationDryRunRow {
+  const reason = error instanceof Error
+    ? error.message
+    : "Unable to verify canonical receipt/log.";
+
+  return {
+    depositId: toStringOrNull(row.id),
+    userId: toStringOrNull(row.user_id),
+    addressId: toStringOrNull(row.address_id),
+    txHash: toStringOrNull(row.tx_hash)?.toLowerCase() ?? null,
+    eventIndex: toNumberOrNull(row.event_index),
+    storedBlockNumber: toNumberOrNull(row.block_number),
+    canonicalBlockNumber: null,
+    storedConfirmations: toNumberOrNull(row.confirmations),
+    calculatedConfirmations: null,
+    confirmationThreshold,
+    status: normalizeStatus(row.status),
+    verificationStatus: "rpc_error",
+    wouldMarkConfirmed: false,
+    alreadyConfirmed: false,
+    fromAddress: normalizeBscAddress(row.from_address),
+    toAddress: normalizeBscAddress(row.to_address),
+    amountRaw: amountRawText(row),
+    amountUsdt: amountUsdtText(row),
+    reason,
+  };
+}
+
 function verifyReceiptLog(
   row: CandidateDepositRow,
+  assignedAddress: CandidateDepositAddressRow | null,
   receipt: BscReceipt | null,
   latestBlockNumber: number,
   confirmationThreshold: number,
@@ -324,6 +477,10 @@ function verifyReceiptLog(
   const amountRaw = amountRawText(row);
   const amountRawBigInt = parseRawAmountText(amountRaw);
   const amountUsdt = amountUsdtText(row);
+  const amountUsdtScaled = parseScaledDecimal(amountUsdt, BSC_USDT_STORAGE_DECIMALS);
+  const expectedAmountUsdtScaled = amountRawBigInt === null
+    ? null
+    : amountRawBigInt / BSC_USDT_STORAGE_DIVISOR;
   const storedBlockNumber = toNumberOrNull(row.block_number);
   const storedConfirmations = toNumberOrNull(row.confirmations);
   const status = normalizeStatus(row.status);
@@ -348,24 +505,62 @@ function verifyReceiptLog(
     amountUsdt,
   };
 
-  if (!depositId || !userId || !txHash || !/^0x[0-9a-f]{64}$/.test(txHash) || eventIndex === null || !fromAddress || !toAddress || !amountRaw || amountRawBigInt === null || storedBlockNumber === null || storedConfirmations === null || !status) {
+  if (
+    !depositId ||
+    !userId ||
+    !addressId ||
+    !txHash ||
+    !/^0x[0-9a-f]{64}$/.test(txHash) ||
+    eventIndex === null ||
+    !fromAddress ||
+    !toAddress ||
+    !amountRaw ||
+    amountRawBigInt === null ||
+    !amountUsdt ||
+    amountUsdtScaled === null ||
+    expectedAmountUsdtScaled === null ||
+    expectedAmountUsdtScaled <= 0n ||
+    storedBlockNumber === null ||
+    storedConfirmations === null ||
+    !status
+  ) {
     return { ...baseRow, verificationStatus: "malformed_row", reason: "Stored deposit row is missing required exact audit fields." };
+  }
+
+  if (amountUsdtScaled !== expectedAmountUsdtScaled) {
+    return { ...baseRow, verificationStatus: "malformed_row", reason: "Stored USDT amount does not match the exact raw token amount." };
+  }
+
+  const assignedAddressMatches =
+    toStringOrNull(assignedAddress?.id) === addressId &&
+    toStringOrNull(assignedAddress?.user_id) === userId &&
+    normalizeBscAddress(assignedAddress?.address) === toAddress &&
+    assignedAddress?.network === BSC_NETWORK &&
+    assignedAddress?.asset === "USDT";
+
+  if (!assignedAddressMatches) {
+    return { ...baseRow, verificationStatus: "malformed_row", reason: "Stored deposit ownership does not match the assigned BSC USDT address." };
   }
 
   if (!receipt) {
     return { ...baseRow, verificationStatus: "receipt_missing", reason: "Canonical transaction receipt was not found." };
   }
 
-  const receiptTxHash = toStringOrNull(receipt.transactionHash)?.toLowerCase() ?? null;
+  const receiptTxHash = normalizeHash32(receipt.transactionHash);
+  const receiptBlockHash = normalizeHash32(receipt.blockHash);
   const receiptBlockNumber = hexToSafeNumber(receipt.blockNumber);
   const receiptStatus = toStringOrNull(receipt.status)?.toLowerCase() ?? null;
 
-  if (receiptTxHash !== txHash || receiptBlockNumber === null) {
-    return { ...baseRow, verificationStatus: "receipt_missing", reason: "Receipt did not match the stored transaction hash or block number." };
+  if (receiptTxHash !== txHash || !receiptBlockHash || receiptBlockNumber === null) {
+    return { ...baseRow, verificationStatus: "receipt_missing", reason: "Receipt did not contain the required canonical transaction and block fields." };
   }
 
   if (receiptStatus !== "0x1") {
     return { ...baseRow, canonicalBlockNumber: receiptBlockNumber, verificationStatus: "receipt_not_successful", reason: "Receipt was not successful." };
+  }
+
+  if (latestBlockNumber < receiptBlockNumber) {
+    return { ...baseRow, canonicalBlockNumber: receiptBlockNumber, verificationStatus: "block_mismatch", reason: "Canonical receipt block is above the latest RPC block." };
   }
 
   const logs = Array.isArray(receipt.logs) ? (receipt.logs as BscReceiptLog[]) : [];
@@ -379,16 +574,22 @@ function verifyReceiptLog(
     return { ...baseRow, canonicalBlockNumber: receiptBlockNumber, verificationStatus: "log_removed", reason: "Receipt log is marked removed." };
   }
 
+  if (matchingLog.removed !== false) {
+    return { ...baseRow, canonicalBlockNumber: receiptBlockNumber, verificationStatus: "log_mismatch", reason: "Receipt log did not include a valid canonical removal marker." };
+  }
+
   const topics = Array.isArray(matchingLog.topics) ? matchingLog.topics : [];
   const logContract = normalizeBscAddress(matchingLog.address);
-  const logTopic0 = toStringOrNull(topics[0])?.toLowerCase() ?? null;
+  const logTopic0 = normalizeHash32(topics[0]);
   const logFromAddress = topicAddress(topics[1]);
   const logToAddress = topicAddress(topics[2]);
-  const logAmount = parseHexBigInt(matchingLog.data);
-  const logTxHash = toStringOrNull(matchingLog.transactionHash)?.toLowerCase() ?? receiptTxHash;
-  const logBlockNumber = hexToSafeNumber(matchingLog.blockNumber) ?? receiptBlockNumber;
+  const logAmount = parseAbiUint256(matchingLog.data);
+  const logTxHash = normalizeHash32(matchingLog.transactionHash);
+  const logBlockHash = normalizeHash32(matchingLog.blockHash);
+  const logBlockNumber = hexToSafeNumber(matchingLog.blockNumber);
 
   const logMatches =
+    topics.length === 3 &&
     logContract === BSC_USDT_CONTRACT_ADDRESS &&
     logTopic0 === TRANSFER_EVENT_TOPIC &&
     logTxHash === txHash &&
@@ -398,14 +599,21 @@ function verifyReceiptLog(
     logAmount === amountRawBigInt;
 
   if (!logMatches) {
-    return { ...baseRow, canonicalBlockNumber: receiptBlockNumber, verificationStatus: "log_mismatch", reason: "Canonical log did not match contract, topic, sender, recipient, or raw amount." };
+    return { ...baseRow, canonicalBlockNumber: receiptBlockNumber, verificationStatus: "log_mismatch", reason: "Canonical log did not match the exact ERC-20 Transfer shape or stored transfer fields." };
   }
 
-  if (logBlockNumber !== storedBlockNumber || receiptBlockNumber !== storedBlockNumber) {
-    return { ...baseRow, canonicalBlockNumber: receiptBlockNumber, verificationStatus: "block_mismatch", reason: "Canonical block number differs from the stored deposit row." };
+  if (
+    !logBlockHash ||
+    logBlockHash !== receiptBlockHash ||
+    logBlockNumber === null ||
+    logBlockNumber !== receiptBlockNumber ||
+    logBlockNumber !== storedBlockNumber ||
+    receiptBlockNumber !== storedBlockNumber
+  ) {
+    return { ...baseRow, canonicalBlockNumber: receiptBlockNumber, verificationStatus: "block_mismatch", reason: "Canonical receipt/log block identity differs from the stored deposit row." };
   }
 
-  const calculatedConfirmations = Math.max(0, latestBlockNumber - receiptBlockNumber + 1);
+  const calculatedConfirmations = latestBlockNumber - receiptBlockNumber + 1;
   const wouldMarkConfirmed = status === "detected" && calculatedConfirmations >= confirmationThreshold;
   const alreadyConfirmed = status === "confirmed";
 
@@ -424,7 +632,7 @@ function verifyReceiptLog(
   };
 }
 
-function countRows(rows: AdminBscConfirmationDryRunRow[]): Omit<AdminBscConfirmationDryRunResult, "dryRun" | "network" | "contract" | "latestBlockNumber" | "confirmationThreshold" | "candidateLimit" | "candidateCount" | "resultsTruncated" | "rows"> {
+function countRows(rows: AdminBscConfirmationDryRunRow[]): Omit<AdminBscConfirmationDryRunResult, "dryRun" | "network" | "contract" | "latestBlockNumber" | "confirmationThreshold" | "candidateOffset" | "candidateLimit" | "candidateCount" | "hasMoreCandidates" | "resultsTruncated" | "rows"> {
   return {
     canonicalVerifiedCount: rows.filter((row) => row.verificationStatus === "canonical_verified").length,
     wouldMarkConfirmedCount: rows.filter((row) => row.wouldMarkConfirmed).length,
@@ -452,57 +660,61 @@ export const runAdminBscConfirmationDryRunFn = createServerFn({ method: "POST" }
     }
 
     const admin = getAdminClient();
-    const latestBlockNumber = await fetchLatestBlockNumber(rpcUrl);
-
-    const { data: rawDeposits, error: depositError } = await admin
+    const latestBlockPromise = fetchLatestBlockNumber(rpcUrl);
+    const depositQuery = admin
       .from("crypto_deposits")
       .select("id, user_id, address_id, tx_hash, event_index, from_address, to_address, amount_raw, amount_raw_text:amount_raw::text, amount_usdt, amount_usdt_text:amount_usdt::text, block_number, confirmations, status, detected_at")
       .eq("network", BSC_NETWORK)
       .eq("asset", "USDT")
       .in("status", ["detected", "confirmed"])
       .order("detected_at", { ascending: false })
-      .limit(CANDIDATE_LIMIT);
+      .order("id", { ascending: false })
+      .range(data.candidateOffset, data.candidateOffset + CANDIDATE_LIMIT);
+
+    const [latestBlockNumber, depositResult] = await Promise.all([latestBlockPromise, depositQuery]);
+    const { data: rawDeposits, error: depositError } = depositResult;
 
     if (depositError) {
       throwSafe("ADMIN", "Unable to load BSC deposit candidates.", `DB error: ${depositError.message}`);
     }
 
-    const candidates = (rawDeposits ?? []) as CandidateDepositRow[];
+    const candidatePage = (rawDeposits ?? []) as CandidateDepositRow[];
+    const hasMoreCandidates = candidatePage.length > CANDIDATE_LIMIT;
+    const candidates = candidatePage.slice(0, CANDIDATE_LIMIT);
+    const assignedAddresses = await loadCandidateAddresses(admin, candidates);
+    const txHashes = Array.from(new Set(
+      candidates
+        .map((candidate) => toStringOrNull(candidate.tx_hash)?.toLowerCase() ?? null)
+        .filter((value): value is string => value !== null && /^0x[0-9a-f]{64}$/.test(value)),
+    ));
+    const receiptOutcomes = await fetchReceiptOutcomes(rpcUrl, txHashes);
     const rows: AdminBscConfirmationDryRunRow[] = [];
 
-    for (const [index, candidate] of candidates.entries()) {
+    for (const candidate of candidates) {
       const txHash = toStringOrNull(candidate.tx_hash)?.toLowerCase() ?? null;
       if (!txHash || !/^0x[0-9a-f]{64}$/.test(txHash)) {
         rows.push(buildMalformedRow(candidate, data.confirmationThreshold, "Stored deposit row has an invalid transaction hash."));
         continue;
       }
 
-      try {
-        const receipt = await fetchReceipt(rpcUrl, txHash, index + 2);
-        rows.push(verifyReceiptLog(candidate, receipt, latestBlockNumber, data.confirmationThreshold));
-      } catch (error) {
-        rows.push({
-          depositId: toStringOrNull(candidate.id),
-          userId: toStringOrNull(candidate.user_id),
-          addressId: toStringOrNull(candidate.address_id),
-          txHash,
-          eventIndex: toNumberOrNull(candidate.event_index),
-          storedBlockNumber: toNumberOrNull(candidate.block_number),
-          canonicalBlockNumber: null,
-          storedConfirmations: toNumberOrNull(candidate.confirmations),
-          calculatedConfirmations: null,
-          confirmationThreshold: data.confirmationThreshold,
-          status: normalizeStatus(candidate.status),
-          verificationStatus: "rpc_error",
-          wouldMarkConfirmed: false,
-          alreadyConfirmed: false,
-          fromAddress: normalizeBscAddress(candidate.from_address),
-          toAddress: normalizeBscAddress(candidate.to_address),
-          amountRaw: amountRawText(candidate),
-          amountUsdt: amountUsdtText(candidate),
-          reason: error instanceof Error ? error.message : "Unable to verify canonical receipt/log.",
-        });
+      const outcome = receiptOutcomes.get(txHash);
+      if (!outcome || !outcome.ok) {
+        rows.push(buildRpcErrorRow(
+          candidate,
+          data.confirmationThreshold,
+          outcome?.error ?? new Error("Receipt verification did not return a result."),
+        ));
+        continue;
       }
+
+      const addressId = toStringOrNull(candidate.address_id);
+      rows.push(verifyReceiptLog(
+        candidate,
+        addressId ? assignedAddresses.get(addressId) ?? null : null,
+        outcome.receipt,
+        latestBlockNumber,
+        data.confirmationThreshold,
+      ));
     }
 
     const counts = countRows(rows);
@@ -513,9 +725,11 @@ export const runAdminBscConfirmationDryRunFn = createServerFn({ method: "POST" }
       contract: BSC_USDT_CONTRACT_ADDRESS,
       latestBlockNumber,
       confirmationThreshold: data.confirmationThreshold,
+      candidateOffset: data.candidateOffset,
       candidateLimit: CANDIDATE_LIMIT,
       candidateCount: candidates.length,
-      resultsTruncated: candidates.length === CANDIDATE_LIMIT,
+      hasMoreCandidates,
+      resultsTruncated: hasMoreCandidates,
       ...counts,
       rows,
     };
