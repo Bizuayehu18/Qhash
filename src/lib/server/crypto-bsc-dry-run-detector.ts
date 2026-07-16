@@ -414,9 +414,10 @@ async function fetchBscLogs(
   data: { fromBlock: number; toBlock: number },
   recipientTopics: string[] | null,
   requestId: number,
+  rpcTimeoutMs = RPC_TIMEOUT_MS,
 ): Promise<unknown[]> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), rpcTimeoutMs);
 
   let response: Response;
 
@@ -472,6 +473,7 @@ async function scanAssignedBscTransfers(
   matchedEventLimit: number,
   rpcUrlOverride?: string,
   scanAllRecipients = false,
+  rpcTimeoutMs = RPC_TIMEOUT_MS,
 ): Promise<BscDetectionScanResult> {
   const rpcUrl = (rpcUrlOverride ?? process.env.BSC_RPC_URL ?? "").trim();
   if (!rpcUrl) {
@@ -514,7 +516,7 @@ async function scanAssignedBscTransfers(
 
   for (const recipientTopics of recipientTopicBatches) {
     rpcBatchCount += 1;
-    const logs = await fetchBscLogs(rpcUrl, data, recipientTopics, rpcBatchCount);
+    const logs = await fetchBscLogs(rpcUrl, data, recipientTopics, rpcBatchCount, rpcTimeoutMs);
     scannedLogCount += logs.length;
 
     for (const log of logs) {
@@ -694,8 +696,10 @@ export async function storeBscDetectedTransfersForRange(options: {
   toBlock: number;
   matchedEventLimit?: number;
   scanAllRecipients?: boolean;
+  rpcTimeoutMs?: number;
 }): Promise<AdminBscDetectedStorageResult> {
   const matchedEventLimit = options.matchedEventLimit ?? Number.MAX_SAFE_INTEGER;
+  const rpcTimeoutMs = options.rpcTimeoutMs ?? RPC_TIMEOUT_MS;
 
   if (
     !Number.isSafeInteger(options.fromBlock) ||
@@ -703,9 +707,16 @@ export async function storeBscDetectedTransfersForRange(options: {
     options.fromBlock < 0 ||
     options.toBlock < options.fromBlock ||
     !Number.isSafeInteger(matchedEventLimit) ||
-    matchedEventLimit <= 0
+    matchedEventLimit <= 0 ||
+    !Number.isSafeInteger(rpcTimeoutMs) ||
+    rpcTimeoutMs <= 0 ||
+    rpcTimeoutMs > RPC_TIMEOUT_MS
   ) {
-    throwSafe("ADMIN", "Invalid block range.", "BSC storage range or matched-event limit is invalid");
+    throwSafe(
+      "ADMIN",
+      "Invalid BSC detector limits.",
+      "BSC storage range, matched-event limit, or RPC timeout is invalid",
+    );
   }
 
   const scan = await scanAssignedBscTransfers(
@@ -714,6 +725,7 @@ export async function storeBscDetectedTransfersForRange(options: {
     matchedEventLimit,
     options.rpcUrl,
     options.scanAllRecipients,
+    rpcTimeoutMs,
   );
 
   if (scan.resultsTruncated) {
