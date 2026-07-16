@@ -15,7 +15,7 @@ const STORAGE_PREVIEW_EVENT_LIMIT = 200;
 const STORAGE_INSERT_BATCH_SIZE = 200;
 const RPC_TIMEOUT_MS = 10_000;
 
-type AdminClient = ReturnType<typeof getAdminClient>;
+export type BscDetectionAdminClient = ReturnType<typeof getAdminClient>;
 
 type BscAddressRow = {
   id?: unknown;
@@ -312,6 +312,7 @@ function emptyScanResult(
   addressPageCount: number,
   invalidAssignedAddressCount: number,
   matchedEventLimit: number,
+  recipientTopicBatchSize: number,
 ): BscDetectionScanResult {
   return {
     network: BSC_NETWORK,
@@ -321,7 +322,7 @@ function emptyScanResult(
     toBlock: data.toBlock,
     assignedAddressCount: 0,
     addressPageCount,
-    recipientTopicBatchSize: RECIPIENT_TOPIC_BATCH_SIZE,
+    recipientTopicBatchSize,
     rpcBatchCount: 0,
     scannedLogCount: 0,
     totalMatchedEvents: 0,
@@ -352,7 +353,7 @@ function toDryRunEvent(event: BscMatchedTransferEvent): AdminBscDryRunMatchedEve
   };
 }
 
-async function loadAssignedBscAddresses(admin: AdminClient): Promise<{
+async function loadAssignedBscAddresses(admin: BscDetectionAdminClient): Promise<{
   addresses: AssignedBscAddress[];
   pageCount: number;
   invalidAssignedAddressCount: number;
@@ -411,7 +412,7 @@ async function loadAssignedBscAddresses(admin: AdminClient): Promise<{
 async function fetchBscLogs(
   rpcUrl: string,
   data: { fromBlock: number; toBlock: number },
-  recipientTopics: string[],
+  recipientTopics: string[] | null,
   requestId: number,
 ): Promise<unknown[]> {
   const controller = new AbortController();
@@ -433,7 +434,9 @@ async function fetchBscLogs(
             address: BSC_USDT_CONTRACT_ADDRESS,
             fromBlock: quantity(data.fromBlock),
             toBlock: quantity(data.toBlock),
-            topics: [TRANSFER_EVENT_TOPIC, null, recipientTopics],
+            topics: recipientTopics
+              ? [TRANSFER_EVENT_TOPIC, null, recipientTopics]
+              : [TRANSFER_EVENT_TOPIC],
           },
         ],
       }),
@@ -464,11 +467,13 @@ async function fetchBscLogs(
 }
 
 async function scanAssignedBscTransfers(
-  admin: AdminClient,
+  admin: BscDetectionAdminClient,
   data: { fromBlock: number; toBlock: number },
   matchedEventLimit: number,
+  rpcUrlOverride?: string,
+  scanAllRecipients = false,
 ): Promise<BscDetectionScanResult> {
-  const rpcUrl = (process.env.BSC_RPC_URL ?? "").trim();
+  const rpcUrl = (rpcUrlOverride ?? process.env.BSC_RPC_URL ?? "").trim();
   if (!rpcUrl) {
     throwSafe("ADMIN", "BSC detector is not configured.", "Missing BSC_RPC_URL");
   }
@@ -477,7 +482,13 @@ async function scanAssignedBscTransfers(
   const assignedByAddress = new Map(addressLoad.addresses.map((address) => [address.address, address]));
 
   if (addressLoad.addresses.length === 0) {
-    return emptyScanResult(data, addressLoad.pageCount, addressLoad.invalidAssignedAddressCount, matchedEventLimit);
+    return emptyScanResult(
+      data,
+      addressLoad.pageCount,
+      addressLoad.invalidAssignedAddressCount,
+      matchedEventLimit,
+      scanAllRecipients ? 0 : RECIPIENT_TOPIC_BATCH_SIZE,
+    );
   }
 
   const matchedEvents: BscMatchedTransferEvent[] = [];
@@ -488,11 +499,20 @@ async function scanAssignedBscTransfers(
   let skippedUnassignedLogs = 0;
   let skippedZeroAmountLogs = 0;
 
-  for (let index = 0; index < addressLoad.addresses.length; index += RECIPIENT_TOPIC_BATCH_SIZE) {
-    const recipientTopics = addressLoad.addresses
-      .slice(index, index + RECIPIENT_TOPIC_BATCH_SIZE)
-      .map((address) => address.recipientTopic);
+  const recipientTopicBatches: Array<string[] | null> = [];
+  if (scanAllRecipients) {
+    recipientTopicBatches.push(null);
+  } else {
+    for (let index = 0; index < addressLoad.addresses.length; index += RECIPIENT_TOPIC_BATCH_SIZE) {
+      recipientTopicBatches.push(
+        addressLoad.addresses
+          .slice(index, index + RECIPIENT_TOPIC_BATCH_SIZE)
+          .map((address) => address.recipientTopic),
+      );
+    }
+  }
 
+  for (const recipientTopics of recipientTopicBatches) {
     rpcBatchCount += 1;
     const logs = await fetchBscLogs(rpcUrl, data, recipientTopics, rpcBatchCount);
     scannedLogCount += logs.length;
@@ -574,7 +594,7 @@ async function scanAssignedBscTransfers(
     toBlock: data.toBlock,
     assignedAddressCount: addressLoad.addresses.length,
     addressPageCount: addressLoad.pageCount,
-    recipientTopicBatchSize: RECIPIENT_TOPIC_BATCH_SIZE,
+    recipientTopicBatchSize: scanAllRecipients ? 0 : RECIPIENT_TOPIC_BATCH_SIZE,
     rpcBatchCount,
     scannedLogCount,
     totalMatchedEvents,
@@ -632,7 +652,7 @@ function buildDetectedStorageRows(scan: BscDetectionScanResult): {
   return { storableEvents, skippedBelowStorageScaleLogs };
 }
 
-async function insertDetectedRows(admin: AdminClient, storableEvents: StorableDetectedEvent[]): Promise<Set<string>> {
+async function insertDetectedRows(admin: BscDetectionAdminClient, storableEvents: StorableDetectedEvent[]): Promise<Set<string>> {
   const insertedKeys = new Set<string>();
 
   for (let index = 0; index < storableEvents.length; index += STORAGE_INSERT_BATCH_SIZE) {
@@ -665,6 +685,89 @@ async function insertDetectedRows(admin: AdminClient, storableEvents: StorableDe
   }
 
   return insertedKeys;
+}
+
+export async function storeBscDetectedTransfersForRange(options: {
+  admin: BscDetectionAdminClient;
+  rpcUrl?: string;
+  fromBlock: number;
+  toBlock: number;
+  matchedEventLimit?: number;
+  scanAllRecipients?: boolean;
+}): Promise<AdminBscDetectedStorageResult> {
+  const matchedEventLimit = options.matchedEventLimit ?? Number.MAX_SAFE_INTEGER;
+
+  if (
+    !Number.isSafeInteger(options.fromBlock) ||
+    !Number.isSafeInteger(options.toBlock) ||
+    options.fromBlock < 0 ||
+    options.toBlock < options.fromBlock ||
+    !Number.isSafeInteger(matchedEventLimit) ||
+    matchedEventLimit <= 0
+  ) {
+    throwSafe("ADMIN", "Invalid block range.", "BSC storage range or matched-event limit is invalid");
+  }
+
+  const scan = await scanAssignedBscTransfers(
+    options.admin,
+    { fromBlock: options.fromBlock, toBlock: options.toBlock },
+    matchedEventLimit,
+    options.rpcUrl,
+    options.scanAllRecipients,
+  );
+
+  if (scan.resultsTruncated) {
+    throwSafe(
+      "ADMIN",
+      "BSC detector matched too many events for one safe run.",
+      `Matched ${scan.totalMatchedEvents} event(s), limit ${matchedEventLimit}; watcher checkpoint must not advance`,
+    );
+  }
+
+  const { storableEvents, skippedBelowStorageScaleLogs } = buildDetectedStorageRows(scan);
+  const insertedKeys = await insertDetectedRows(options.admin, storableEvents);
+
+  const storagePreviewEvents = storableEvents.slice(0, STORAGE_PREVIEW_EVENT_LIMIT).map(({ event, amountUsdtStored }) => ({
+    network: BSC_NETWORK,
+    contract: BSC_USDT_CONTRACT_ADDRESS,
+    txHash: event.txHash,
+    eventIndex: event.eventIndex,
+    blockNumber: event.blockNumber,
+    fromAddress: event.fromAddress,
+    recipient: event.recipient,
+    userId: event.userId,
+    addressId: event.addressId,
+    amountRaw: event.amountRaw,
+    amountUsdtDetected: event.amountUsdt,
+    amountUsdtStored,
+    storageStatus: insertedKeys.has(eventKey(event.txHash, event.eventIndex)) ? "inserted" as const : "already_seen" as const,
+  }));
+
+  return {
+    dryRun: false,
+    network: BSC_NETWORK,
+    contract: BSC_USDT_CONTRACT_ADDRESS,
+    decimals: BSC_USDT_DECIMALS,
+    storageDecimals: BSC_USDT_STORAGE_DECIMALS,
+    fromBlock: options.fromBlock,
+    toBlock: options.toBlock,
+    assignedAddressCount: scan.assignedAddressCount,
+    addressPageCount: scan.addressPageCount,
+    recipientTopicBatchSize: scan.recipientTopicBatchSize,
+    rpcBatchCount: scan.rpcBatchCount,
+    scannedLogCount: scan.scannedLogCount,
+    totalMatchedEvents: scan.totalMatchedEvents,
+    attemptedInsertCount: storableEvents.length,
+    insertedDetectedCount: insertedKeys.size,
+    duplicateDetectedCount: storableEvents.length - insertedKeys.size,
+    storagePreviewEventLimit: STORAGE_PREVIEW_EVENT_LIMIT,
+    storagePreviewEvents,
+    skippedMalformedLogs: scan.skippedMalformedLogs,
+    skippedUnassignedLogs: scan.skippedUnassignedLogs,
+    skippedZeroAmountLogs: scan.skippedZeroAmountLogs,
+    skippedBelowStorageScaleLogs,
+    invalidAssignedAddressCount: scan.invalidAssignedAddressCount,
+  };
 }
 
 export const runAdminBscDryRunDetectorFn = createServerFn({ method: "POST" })
@@ -704,49 +807,9 @@ export const runAdminBscDetectedStorageFn = createServerFn({ method: "POST" })
     await assertAdmin(data.accessToken);
 
     const admin = getAdminClient();
-    const scan = await scanAssignedBscTransfers(admin, data, Number.MAX_SAFE_INTEGER);
-    const { storableEvents, skippedBelowStorageScaleLogs } = buildDetectedStorageRows(scan);
-    const insertedKeys = await insertDetectedRows(admin, storableEvents);
-
-    const storagePreviewEvents = storableEvents.slice(0, STORAGE_PREVIEW_EVENT_LIMIT).map(({ event, amountUsdtStored }) => ({
-      network: BSC_NETWORK,
-      contract: BSC_USDT_CONTRACT_ADDRESS,
-      txHash: event.txHash,
-      eventIndex: event.eventIndex,
-      blockNumber: event.blockNumber,
-      fromAddress: event.fromAddress,
-      recipient: event.recipient,
-      userId: event.userId,
-      addressId: event.addressId,
-      amountRaw: event.amountRaw,
-      amountUsdtDetected: event.amountUsdt,
-      amountUsdtStored,
-      storageStatus: insertedKeys.has(eventKey(event.txHash, event.eventIndex)) ? "inserted" : "already_seen",
-    }));
-
-    return {
-      dryRun: false,
-      network: BSC_NETWORK,
-      contract: BSC_USDT_CONTRACT_ADDRESS,
-      decimals: BSC_USDT_DECIMALS,
-      storageDecimals: BSC_USDT_STORAGE_DECIMALS,
+    return storeBscDetectedTransfersForRange({
+      admin,
       fromBlock: data.fromBlock,
       toBlock: data.toBlock,
-      assignedAddressCount: scan.assignedAddressCount,
-      addressPageCount: scan.addressPageCount,
-      recipientTopicBatchSize: RECIPIENT_TOPIC_BATCH_SIZE,
-      rpcBatchCount: scan.rpcBatchCount,
-      scannedLogCount: scan.scannedLogCount,
-      totalMatchedEvents: scan.totalMatchedEvents,
-      attemptedInsertCount: storableEvents.length,
-      insertedDetectedCount: insertedKeys.size,
-      duplicateDetectedCount: storableEvents.length - insertedKeys.size,
-      storagePreviewEventLimit: STORAGE_PREVIEW_EVENT_LIMIT,
-      storagePreviewEvents,
-      skippedMalformedLogs: scan.skippedMalformedLogs,
-      skippedUnassignedLogs: scan.skippedUnassignedLogs,
-      skippedZeroAmountLogs: scan.skippedZeroAmountLogs,
-      skippedBelowStorageScaleLogs,
-      invalidAssignedAddressCount: scan.invalidAssignedAddressCount,
-    };
+    });
   });
