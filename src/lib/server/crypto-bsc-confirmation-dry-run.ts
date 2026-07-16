@@ -132,6 +132,13 @@ export type AdminBscConfirmationDryRunResult = {
   rows: AdminBscConfirmationDryRunRow[];
 };
 
+export type AdminBscConfirmationVerificationRequest = {
+  accessToken: string;
+  confirmationThreshold: number;
+  candidateOffset: number;
+  candidateIds?: readonly string[];
+};
+
 function validateInput(data: unknown): { accessToken: string; confirmationThreshold: number; candidateOffset: number } {
   if (!data || typeof data !== "object") {
     throwSafe("ADMIN", "Invalid request.", "Missing request body");
@@ -649,88 +656,97 @@ function countRows(rows: AdminBscConfirmationDryRunRow[]): Omit<AdminBscConfirma
   };
 }
 
+export async function runAdminBscConfirmationVerification(
+  request: AdminBscConfirmationVerificationRequest,
+): Promise<AdminBscConfirmationDryRunResult> {
+  await assertAdmin(request.accessToken);
+
+  const rpcUrl = (process.env.BSC_RPC_URL ?? "").trim();
+  if (!rpcUrl) {
+    throwSafe("ADMIN", "BSC confirmation dry-run is not configured.", "Missing BSC_RPC_URL");
+  }
+
+  const admin = getAdminClient();
+  const latestBlockPromise = fetchLatestBlockNumber(rpcUrl);
+  let depositQuery = admin
+    .from("crypto_deposits")
+    .select("id, user_id, address_id, tx_hash, event_index, from_address, to_address, amount_raw, amount_raw_text:amount_raw::text, amount_usdt, amount_usdt_text:amount_usdt::text, block_number, confirmations, status, detected_at")
+    .eq("network", BSC_NETWORK)
+    .eq("asset", "USDT")
+    .in("status", ["detected", "confirmed"])
+    .order("detected_at", { ascending: false })
+    .order("id", { ascending: false });
+
+  depositQuery = request.candidateIds
+    ? depositQuery.in("id", [...request.candidateIds]).limit(CANDIDATE_LIMIT)
+    : depositQuery.range(request.candidateOffset, request.candidateOffset + CANDIDATE_LIMIT);
+
+  const [latestBlockNumber, depositResult] = await Promise.all([latestBlockPromise, depositQuery]);
+  const { data: rawDeposits, error: depositError } = depositResult;
+
+  if (depositError) {
+    throwSafe("ADMIN", "Unable to load BSC deposit candidates.", `DB error: ${depositError.message}`);
+  }
+
+  const candidatePage = (rawDeposits ?? []) as CandidateDepositRow[];
+  const hasMoreCandidates = !request.candidateIds && candidatePage.length > CANDIDATE_LIMIT;
+  const candidates = candidatePage.slice(0, CANDIDATE_LIMIT);
+  const assignedAddresses = await loadCandidateAddresses(admin, candidates);
+  const txHashes = Array.from(new Set(
+    candidates
+      .map((candidate) => toStringOrNull(candidate.tx_hash)?.toLowerCase() ?? null)
+      .filter((value): value is string => value !== null && /^0x[0-9a-f]{64}$/.test(value)),
+  ));
+  const receiptOutcomes = await fetchReceiptOutcomes(rpcUrl, txHashes);
+  const rows: AdminBscConfirmationDryRunRow[] = [];
+
+  for (const candidate of candidates) {
+    const txHash = toStringOrNull(candidate.tx_hash)?.toLowerCase() ?? null;
+    if (!txHash || !/^0x[0-9a-f]{64}$/.test(txHash)) {
+      rows.push(buildMalformedRow(candidate, request.confirmationThreshold, "Stored deposit row has an invalid transaction hash."));
+      continue;
+    }
+
+    const outcome = receiptOutcomes.get(txHash);
+    if (!outcome || !outcome.ok) {
+      rows.push(buildRpcErrorRow(
+        candidate,
+        request.confirmationThreshold,
+        outcome?.error ?? new Error("Receipt verification did not return a result."),
+      ));
+      continue;
+    }
+
+    const addressId = toStringOrNull(candidate.address_id);
+    rows.push(verifyReceiptLog(
+      candidate,
+      addressId ? assignedAddresses.get(addressId) ?? null : null,
+      outcome.receipt,
+      latestBlockNumber,
+      request.confirmationThreshold,
+    ));
+  }
+
+  const counts = countRows(rows);
+
+  return {
+    dryRun: true,
+    network: BSC_NETWORK,
+    contract: BSC_USDT_CONTRACT_ADDRESS,
+    latestBlockNumber,
+    confirmationThreshold: request.confirmationThreshold,
+    candidateOffset: request.candidateIds ? 0 : request.candidateOffset,
+    candidateLimit: CANDIDATE_LIMIT,
+    candidateCount: candidates.length,
+    hasMoreCandidates,
+    resultsTruncated: hasMoreCandidates,
+    ...counts,
+    rows,
+  };
+}
+
 export const runAdminBscConfirmationDryRunFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => validateInput(data))
   .handler(async ({ data }): Promise<AdminBscConfirmationDryRunResult> => {
-    await assertAdmin(data.accessToken);
-
-    const rpcUrl = (process.env.BSC_RPC_URL ?? "").trim();
-    if (!rpcUrl) {
-      throwSafe("ADMIN", "BSC confirmation dry-run is not configured.", "Missing BSC_RPC_URL");
-    }
-
-    const admin = getAdminClient();
-    const latestBlockPromise = fetchLatestBlockNumber(rpcUrl);
-    const depositQuery = admin
-      .from("crypto_deposits")
-      .select("id, user_id, address_id, tx_hash, event_index, from_address, to_address, amount_raw, amount_raw_text:amount_raw::text, amount_usdt, amount_usdt_text:amount_usdt::text, block_number, confirmations, status, detected_at")
-      .eq("network", BSC_NETWORK)
-      .eq("asset", "USDT")
-      .in("status", ["detected", "confirmed"])
-      .order("detected_at", { ascending: false })
-      .order("id", { ascending: false })
-      .range(data.candidateOffset, data.candidateOffset + CANDIDATE_LIMIT);
-
-    const [latestBlockNumber, depositResult] = await Promise.all([latestBlockPromise, depositQuery]);
-    const { data: rawDeposits, error: depositError } = depositResult;
-
-    if (depositError) {
-      throwSafe("ADMIN", "Unable to load BSC deposit candidates.", `DB error: ${depositError.message}`);
-    }
-
-    const candidatePage = (rawDeposits ?? []) as CandidateDepositRow[];
-    const hasMoreCandidates = candidatePage.length > CANDIDATE_LIMIT;
-    const candidates = candidatePage.slice(0, CANDIDATE_LIMIT);
-    const assignedAddresses = await loadCandidateAddresses(admin, candidates);
-    const txHashes = Array.from(new Set(
-      candidates
-        .map((candidate) => toStringOrNull(candidate.tx_hash)?.toLowerCase() ?? null)
-        .filter((value): value is string => value !== null && /^0x[0-9a-f]{64}$/.test(value)),
-    ));
-    const receiptOutcomes = await fetchReceiptOutcomes(rpcUrl, txHashes);
-    const rows: AdminBscConfirmationDryRunRow[] = [];
-
-    for (const candidate of candidates) {
-      const txHash = toStringOrNull(candidate.tx_hash)?.toLowerCase() ?? null;
-      if (!txHash || !/^0x[0-9a-f]{64}$/.test(txHash)) {
-        rows.push(buildMalformedRow(candidate, data.confirmationThreshold, "Stored deposit row has an invalid transaction hash."));
-        continue;
-      }
-
-      const outcome = receiptOutcomes.get(txHash);
-      if (!outcome || !outcome.ok) {
-        rows.push(buildRpcErrorRow(
-          candidate,
-          data.confirmationThreshold,
-          outcome?.error ?? new Error("Receipt verification did not return a result."),
-        ));
-        continue;
-      }
-
-      const addressId = toStringOrNull(candidate.address_id);
-      rows.push(verifyReceiptLog(
-        candidate,
-        addressId ? assignedAddresses.get(addressId) ?? null : null,
-        outcome.receipt,
-        latestBlockNumber,
-        data.confirmationThreshold,
-      ));
-    }
-
-    const counts = countRows(rows);
-
-    return {
-      dryRun: true,
-      network: BSC_NETWORK,
-      contract: BSC_USDT_CONTRACT_ADDRESS,
-      latestBlockNumber,
-      confirmationThreshold: data.confirmationThreshold,
-      candidateOffset: data.candidateOffset,
-      candidateLimit: CANDIDATE_LIMIT,
-      candidateCount: candidates.length,
-      hasMoreCandidates,
-      resultsTruncated: hasMoreCandidates,
-      ...counts,
-      rows,
-    };
+    return runAdminBscConfirmationVerification(data);
   });

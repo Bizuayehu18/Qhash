@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CheckCircle2, ExternalLink, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Database, ExternalLink, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
@@ -11,9 +11,14 @@ import {
   type AdminBscConfirmationDryRunResult,
   type AdminBscConfirmationDryRunRow,
 } from "@/lib/server/crypto-bsc-confirmation-dry-run.js";
+import {
+  runAdminBscConfirmationWriterFn,
+  type AdminBscConfirmationWriteResult,
+} from "@/lib/server/crypto-bsc-confirmation-writer.js";
 import { useAuthStore } from "@/store/authStore.js";
 
 const ADMIN_BSC_CONFIRMATION_DRY_RUN_TIMEOUT_MS = 60_000;
+const ADMIN_BSC_CONFIRMATION_WRITE_TIMEOUT_MS = 60_000;
 const DEFAULT_CONFIRMATION_THRESHOLD = "20";
 const MAX_CONFIRMATION_THRESHOLD = 5_000;
 const MAX_CANDIDATE_OFFSET = 10_000;
@@ -168,7 +173,9 @@ export function AdminCryptoBscConfirmationDryRunPanel({ userId }: { userId: stri
   const [confirmationThreshold, setConfirmationThreshold] = useState(DEFAULT_CONFIRMATION_THRESHOLD);
   const [candidateOffset, setCandidateOffset] = useState(0);
   const [running, setRunning] = useState(false);
+  const [writing, setWriting] = useState(false);
   const [result, setResult] = useState<AdminBscConfirmationDryRunResult | null>(null);
+  const [lastWriteResult, setLastWriteResult] = useState<AdminBscConfirmationWriteResult | null>(null);
 
   const runDryRun = async (nextOffset: number) => {
     if (!userId || running) return;
@@ -215,6 +222,72 @@ export function AdminCryptoBscConfirmationDryRunPanel({ userId }: { userId: stri
     }
   };
 
+  const applyConfirmationUpdates = async () => {
+    if (!userId || running || writing || !result) return;
+
+    if (!accessToken) {
+      toast.error("Session expired. Please sign in again.");
+      return;
+    }
+
+    const parsedThreshold = parseConfirmationThreshold(confirmationThreshold);
+    if (parsedThreshold === null || parsedThreshold !== result.confirmationThreshold) {
+      toast.error("Run a fresh dry-run with the current confirmation threshold first.");
+      return;
+    }
+
+    const candidateIds = result.rows.flatMap((row) =>
+      row.status === "detected" && row.verificationStatus === "canonical_verified" && row.depositId
+        ? [row.depositId]
+        : [],
+    );
+
+    if (candidateIds.length === 0) {
+      toast.error("No canonically verified detected rows are available on this page.");
+      return;
+    }
+
+    const eligibleCount = result.rows.filter((row) =>
+      row.status === "detected" && row.verificationStatus === "canonical_verified" && row.wouldMarkConfirmed,
+    ).length;
+    const approved = window.confirm(
+      `Revalidate ${candidateIds.length} detected BSC deposit(s), update confirmation progress, and mark up to ${eligibleCount} as confirmed? This does not credit wallets or move funds.`,
+    );
+    if (!approved) return;
+
+    setWriting(true);
+    try {
+      const writeResult = await withTimeout(
+        runAdminBscConfirmationWriterFn({
+          data: {
+            accessToken,
+            confirmationThreshold: parsedThreshold,
+            candidateIds,
+          },
+        }),
+        ADMIN_BSC_CONFIRMATION_WRITE_TIMEOUT_MS,
+        "BSC confirmation update request timed out.",
+      );
+
+      setLastWriteResult(writeResult);
+      if (writeResult.writeErrorCount > 0) {
+        toast.error(
+          `Confirmation update finished with ${writeResult.writeErrorCount} database error(s). Review the summary before retrying.`,
+        );
+      } else {
+        toast.success(
+          `Confirmation update complete: ${writeResult.confirmedCount} confirmed, ${writeResult.progressedCount} progressed.`,
+        );
+      }
+
+      await runDryRun(result.candidateOffset);
+    } catch (error) {
+      toast.error(getSafeErrorMessage(error, "ADMIN").message);
+    } finally {
+      setWriting(false);
+    }
+  };
+
   const previousOffset = result ? Math.max(0, result.candidateOffset - result.candidateLimit) : 0;
   const nextOffset = result ? result.candidateOffset + result.candidateLimit : 0;
   const canLoadNext = Boolean(result?.hasMoreCandidates) && nextOffset <= MAX_CANDIDATE_OFFSET;
@@ -231,12 +304,13 @@ export function AdminCryptoBscConfirmationDryRunPanel({ userId }: { userId: stri
             Revalidates stored BSC USDT deposits against canonical receipts and previews confirmation eligibility.
           </p>
         </div>
-        <Badge variant="warning">Read-only</Badge>
+        <Badge variant="info">Revalidate + confirm</Badge>
       </div>
 
       <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 text-[11px] leading-relaxed text-blue-100/80">
-        This admin tool only reads deposit rows and BSC receipts. It does not update confirmations or statuses, credit wallets, change balances,
-        insert wallet transactions, expose addresses to users, sweep, sign, or move funds.
+        The preview is read-only. The separate apply action revalidates every receipt/log again and atomically updates only confirmation progress,
+        <span className="font-mono"> confirmed_at</span>, and eligible <span className="font-mono">detected → confirmed</span> status.
+        It does not credit wallets, change balances, insert wallet transactions, expose users, sweep, sign, or move funds.
       </div>
 
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
@@ -247,17 +321,18 @@ export function AdminCryptoBscConfirmationDryRunPanel({ userId }: { userId: stri
           max={String(MAX_CONFIRMATION_THRESHOLD)}
           step="1"
           inputMode="numeric"
-          disabled={running}
+          disabled={running || writing}
           value={confirmationThreshold}
           onChange={(event) => {
             setConfirmationThreshold(event.target.value);
             setCandidateOffset(0);
             setResult(null);
+            setLastWriteResult(null);
           }}
           hint="Whole-number confirmations required for the preview. Default: 20."
         />
         <div className="flex items-end">
-          <Button size="sm" loading={running} onClick={() => void runDryRun(0)}>
+          <Button size="sm" loading={running} disabled={writing} onClick={() => void runDryRun(0)}>
             <CheckCircle2 size={13} /> Run Confirmation Dry-Run
           </Button>
         </div>
@@ -265,6 +340,42 @@ export function AdminCryptoBscConfirmationDryRunPanel({ userId }: { userId: stri
 
       {result ? (
         <div className="space-y-3">
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-[11px] leading-relaxed text-amber-100/80">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="max-w-3xl">
+                Apply only after reviewing this page. The server ignores this preview as proof, revalidates canonical BSC data again, and uses an
+                atomic stale-row guard before changing any deposit fields.
+              </p>
+              <Button
+                size="sm"
+                variant="secondary"
+                loading={writing}
+                disabled={running || result.canonicalVerifiedCount === result.alreadyConfirmedCount}
+                onClick={() => void applyConfirmationUpdates()}
+              >
+                <Database size={13} /> Apply Verified Updates
+              </Button>
+            </div>
+          </div>
+
+          {lastWriteResult ? (
+            <div className="grid gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 sm:grid-cols-2 lg:grid-cols-4">
+              <SummaryItem label="Last write confirmed" value={lastWriteResult.confirmedCount} />
+              <SummaryItem label="Progress increased" value={lastWriteResult.progressedCount} />
+              <SummaryItem
+                label="Skipped / protected"
+                value={
+                  lastWriteResult.unchangedCount +
+                  lastWriteResult.alreadyConfirmedCount +
+                  lastWriteResult.notCanonicalCount +
+                  lastWriteResult.staleOrIneligibleCount +
+                  lastWriteResult.missingOrProtectedCount
+                }
+              />
+              <SummaryItem label="Write errors" value={lastWriteResult.writeErrorCount} />
+            </div>
+          ) : null}
+
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <SummaryItem label="Latest BSC block" value={result.latestBlockNumber} />
             <SummaryItem label="Threshold" value={result.confirmationThreshold} />
@@ -311,7 +422,7 @@ export function AdminCryptoBscConfirmationDryRunPanel({ userId }: { userId: stri
               <Button
                 size="sm"
                 variant="outline"
-                disabled={running || result.candidateOffset === 0}
+                disabled={running || writing || result.candidateOffset === 0}
                 onClick={() => void runDryRun(previousOffset)}
               >
                 Previous Page
@@ -319,7 +430,7 @@ export function AdminCryptoBscConfirmationDryRunPanel({ userId }: { userId: stri
               <Button
                 size="sm"
                 variant="outline"
-                disabled={running || !canLoadNext}
+                disabled={running || writing || !canLoadNext}
                 onClick={() => void runDryRun(nextOffset)}
               >
                 Next Page
