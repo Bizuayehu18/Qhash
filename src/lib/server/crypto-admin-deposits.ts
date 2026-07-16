@@ -7,7 +7,7 @@ const SEARCH_LOOKUP_LIMIT = 100;
 const NETWORK_FILTERS = ["all", "TRON", "BSC"] as const;
 const STATUS_FILTERS = ["all", "detected", "confirmed", "credited", "swept", "failed"] as const;
 const DEPOSIT_SELECT =
-  "id, user_id, address_id, network, asset, tx_hash, event_index, from_address, to_address, amount_raw, amount_usdt, block_number, confirmations, status, exchange_rate_etb, credited_amount_etb, detected_at, confirmed_at, credited_at, swept_at, created_at, updated_at";
+  "id, user_id, address_id, network, asset, tx_hash, event_index, from_address, to_address, amount_raw, amount_usdt, block_number, confirmations, status, exchange_rate_etb, credited_amount_etb, credited_transaction_id, credited_by_admin_id, detected_at, confirmed_at, credited_at, swept_at, created_at, updated_at";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -33,6 +33,8 @@ type CryptoDepositRow = {
   status?: unknown;
   exchange_rate_etb?: unknown;
   credited_amount_etb?: unknown;
+  credited_transaction_id?: unknown;
+  credited_by_admin_id?: unknown;
   detected_at?: unknown;
   confirmed_at?: unknown;
   credited_at?: unknown;
@@ -64,6 +66,8 @@ export type AdminCryptoDepositAuditRow = {
   status: CryptoDepositStatus;
   exchangeRateEtb: string | null;
   creditedAmountEtb: string | null;
+  creditedTransactionId: string | null;
+  creditedByAdminId: string | null;
   detectedAt: string | null;
   confirmedAt: string | null;
   creditedAt: string | null;
@@ -224,6 +228,8 @@ function matchesSearch(row: AdminCryptoDepositAuditRow, searchQuery: string): bo
     row.amountUsdt,
     row.network,
     row.status,
+    row.creditedTransactionId ?? "",
+    row.creditedByAdminId ?? "",
   ].some((value) => value.toLowerCase().includes(needle));
 }
 
@@ -392,6 +398,8 @@ export const getAdminCryptoDepositAuditFn = createServerFn({ method: "POST" })
           status,
           exchangeRateEtb: toStringOrNull(deposit.exchange_rate_etb),
           creditedAmountEtb: toStringOrNull(deposit.credited_amount_etb),
+          creditedTransactionId: toStringOrNull(deposit.credited_transaction_id),
+          creditedByAdminId: toStringOrNull(deposit.credited_by_admin_id),
           detectedAt: toStringOrNull(deposit.detected_at),
           confirmedAt: toStringOrNull(deposit.confirmed_at),
           creditedAt: toStringOrNull(deposit.credited_at),

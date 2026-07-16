@@ -414,6 +414,8 @@ export interface Database {
           status: string
           exchange_rate_etb: number | null
           credited_amount_etb: number | null
+          credited_transaction_id: string | null
+          credited_by_admin_id: string | null
           detected_at: string
           confirmed_at: string | null
           credited_at: string | null
@@ -438,6 +440,8 @@ export interface Database {
           status?: string
           exchange_rate_etb?: number | null
           credited_amount_etb?: number | null
+          credited_transaction_id?: string | null
+          credited_by_admin_id?: string | null
           detected_at?: string
           confirmed_at?: string | null
           credited_at?: string | null
@@ -461,6 +465,8 @@ export interface Database {
           status?: string
           exchange_rate_etb?: number | null
           credited_amount_etb?: number | null
+          credited_transaction_id?: string | null
+          credited_by_admin_id?: string | null
           detected_at?: string
           confirmed_at?: string | null
           credited_at?: string | null
@@ -661,6 +667,26 @@ export interface Database {
           p_expected_confirmations: number
           p_calculated_confirmations: number
           p_confirmation_threshold: number
+        }
+        Returns: Json
+      }
+      credit_confirmed_bsc_crypto_deposit: {
+        Args: {
+          p_deposit_id: string
+          p_admin_id: string
+          p_expected_user_id: string
+          p_expected_address_id: string
+          p_expected_tx_hash: string
+          p_expected_event_index: number
+          p_expected_from_address: string
+          p_expected_to_address: string
+          p_expected_amount_raw_text: string
+          p_expected_amount_usdt_text: string
+          p_expected_block_number: number
+          p_expected_confirmations: number
+          p_calculated_confirmations: number
+          p_expected_exchange_rate_etb_text: string
+          p_expected_credited_amount_etb_text: string
         }
         Returns: Json
       }
