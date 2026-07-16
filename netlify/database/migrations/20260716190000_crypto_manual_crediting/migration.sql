@@ -5,7 +5,7 @@
 
 alter table public.crypto_deposits
   add column if not exists credited_transaction_id uuid,
-  add column if not exists credited_by_admin_id text;
+  add column if not exists credited_by_admin_id uuid;
 
 do $$
 begin
@@ -56,7 +56,7 @@ create index if not exists idx_crypto_deposits_credited_by_admin_id
 
 create or replace function public.credit_confirmed_bsc_crypto_deposit(
   p_deposit_id uuid,
-  p_admin_id text,
+  p_admin_id uuid,
   p_expected_user_id text,
   p_expected_address_id uuid,
   p_expected_tx_hash text,
@@ -95,7 +95,6 @@ declare
 begin
   if p_deposit_id is null
     or p_admin_id is null
-    or btrim(p_admin_id) = ''
     or p_expected_user_id is null
     or btrim(p_expected_user_id) = ''
     or p_expected_address_id is null
@@ -297,7 +296,7 @@ begin
   select true
     into v_user_exists
   from public.profiles as profile
-  where profile.id = v_deposit.user_id
+  where profile.id::text = v_deposit.user_id
   for key share;
 
   if v_user_exists is not true then
@@ -384,30 +383,30 @@ end;
 $$;
 
 revoke all on function public.credit_confirmed_bsc_crypto_deposit(
-  uuid, text, text, uuid, text, integer, text, text, text, text, bigint, integer, integer, text, text
+  uuid, uuid, text, uuid, text, integer, text, text, text, text, bigint, integer, integer, text, text
 ) from public;
 
 do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'anon') then
     revoke all on function public.credit_confirmed_bsc_crypto_deposit(
-      uuid, text, text, uuid, text, integer, text, text, text, text, bigint, integer, integer, text, text
+      uuid, uuid, text, uuid, text, integer, text, text, text, text, bigint, integer, integer, text, text
     ) from anon;
   end if;
 
   if exists (select 1 from pg_roles where rolname = 'authenticated') then
     revoke all on function public.credit_confirmed_bsc_crypto_deposit(
-      uuid, text, text, uuid, text, integer, text, text, text, text, bigint, integer, integer, text, text
+      uuid, uuid, text, uuid, text, integer, text, text, text, text, bigint, integer, integer, text, text
     ) from authenticated;
   end if;
 
   if exists (select 1 from pg_roles where rolname = 'service_role') then
     grant execute on function public.credit_confirmed_bsc_crypto_deposit(
-      uuid, text, text, uuid, text, integer, text, text, text, text, bigint, integer, integer, text, text
+      uuid, uuid, text, uuid, text, integer, text, text, text, text, bigint, integer, integer, text, text
     ) to service_role;
   end if;
 end $$;
 
 comment on function public.credit_confirmed_bsc_crypto_deposit(
-  uuid, text, text, uuid, text, integer, text, text, text, text, bigint, integer, integer, text, text
+  uuid, uuid, text, uuid, text, integer, text, text, text, text, bigint, integer, integer, text, text
 ) is 'Atomically and idempotently credits one canonically revalidated confirmed BSC USDT deposit at the current fixed rate; service-role only.';
