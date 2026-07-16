@@ -312,6 +312,7 @@ function emptyScanResult(
   addressPageCount: number,
   invalidAssignedAddressCount: number,
   matchedEventLimit: number,
+  recipientTopicBatchSize: number,
 ): BscDetectionScanResult {
   return {
     network: BSC_NETWORK,
@@ -321,7 +322,7 @@ function emptyScanResult(
     toBlock: data.toBlock,
     assignedAddressCount: 0,
     addressPageCount,
-    recipientTopicBatchSize: RECIPIENT_TOPIC_BATCH_SIZE,
+    recipientTopicBatchSize,
     rpcBatchCount: 0,
     scannedLogCount: 0,
     totalMatchedEvents: 0,
@@ -411,7 +412,7 @@ async function loadAssignedBscAddresses(admin: BscDetectionAdminClient): Promise
 async function fetchBscLogs(
   rpcUrl: string,
   data: { fromBlock: number; toBlock: number },
-  recipientTopics: string[],
+  recipientTopics: string[] | null,
   requestId: number,
 ): Promise<unknown[]> {
   const controller = new AbortController();
@@ -433,7 +434,9 @@ async function fetchBscLogs(
             address: BSC_USDT_CONTRACT_ADDRESS,
             fromBlock: quantity(data.fromBlock),
             toBlock: quantity(data.toBlock),
-            topics: [TRANSFER_EVENT_TOPIC, null, recipientTopics],
+            topics: recipientTopics
+              ? [TRANSFER_EVENT_TOPIC, null, recipientTopics]
+              : [TRANSFER_EVENT_TOPIC],
           },
         ],
       }),
@@ -468,6 +471,7 @@ async function scanAssignedBscTransfers(
   data: { fromBlock: number; toBlock: number },
   matchedEventLimit: number,
   rpcUrlOverride?: string,
+  scanAllRecipients = false,
 ): Promise<BscDetectionScanResult> {
   const rpcUrl = (rpcUrlOverride ?? process.env.BSC_RPC_URL ?? "").trim();
   if (!rpcUrl) {
@@ -478,7 +482,13 @@ async function scanAssignedBscTransfers(
   const assignedByAddress = new Map(addressLoad.addresses.map((address) => [address.address, address]));
 
   if (addressLoad.addresses.length === 0) {
-    return emptyScanResult(data, addressLoad.pageCount, addressLoad.invalidAssignedAddressCount, matchedEventLimit);
+    return emptyScanResult(
+      data,
+      addressLoad.pageCount,
+      addressLoad.invalidAssignedAddressCount,
+      matchedEventLimit,
+      scanAllRecipients ? 0 : RECIPIENT_TOPIC_BATCH_SIZE,
+    );
   }
 
   const matchedEvents: BscMatchedTransferEvent[] = [];
@@ -489,11 +499,20 @@ async function scanAssignedBscTransfers(
   let skippedUnassignedLogs = 0;
   let skippedZeroAmountLogs = 0;
 
-  for (let index = 0; index < addressLoad.addresses.length; index += RECIPIENT_TOPIC_BATCH_SIZE) {
-    const recipientTopics = addressLoad.addresses
-      .slice(index, index + RECIPIENT_TOPIC_BATCH_SIZE)
-      .map((address) => address.recipientTopic);
+  const recipientTopicBatches: Array<string[] | null> = [];
+  if (scanAllRecipients) {
+    recipientTopicBatches.push(null);
+  } else {
+    for (let index = 0; index < addressLoad.addresses.length; index += RECIPIENT_TOPIC_BATCH_SIZE) {
+      recipientTopicBatches.push(
+        addressLoad.addresses
+          .slice(index, index + RECIPIENT_TOPIC_BATCH_SIZE)
+          .map((address) => address.recipientTopic),
+      );
+    }
+  }
 
+  for (const recipientTopics of recipientTopicBatches) {
     rpcBatchCount += 1;
     const logs = await fetchBscLogs(rpcUrl, data, recipientTopics, rpcBatchCount);
     scannedLogCount += logs.length;
@@ -575,7 +594,7 @@ async function scanAssignedBscTransfers(
     toBlock: data.toBlock,
     assignedAddressCount: addressLoad.addresses.length,
     addressPageCount: addressLoad.pageCount,
-    recipientTopicBatchSize: RECIPIENT_TOPIC_BATCH_SIZE,
+    recipientTopicBatchSize: scanAllRecipients ? 0 : RECIPIENT_TOPIC_BATCH_SIZE,
     rpcBatchCount,
     scannedLogCount,
     totalMatchedEvents,
@@ -674,6 +693,7 @@ export async function storeBscDetectedTransfersForRange(options: {
   fromBlock: number;
   toBlock: number;
   matchedEventLimit?: number;
+  scanAllRecipients?: boolean;
 }): Promise<AdminBscDetectedStorageResult> {
   const matchedEventLimit = options.matchedEventLimit ?? Number.MAX_SAFE_INTEGER;
 
@@ -693,6 +713,7 @@ export async function storeBscDetectedTransfersForRange(options: {
     { fromBlock: options.fromBlock, toBlock: options.toBlock },
     matchedEventLimit,
     options.rpcUrl,
+    options.scanAllRecipients,
   );
 
   if (scan.resultsTruncated) {
@@ -732,7 +753,7 @@ export async function storeBscDetectedTransfersForRange(options: {
     toBlock: options.toBlock,
     assignedAddressCount: scan.assignedAddressCount,
     addressPageCount: scan.addressPageCount,
-    recipientTopicBatchSize: RECIPIENT_TOPIC_BATCH_SIZE,
+    recipientTopicBatchSize: scan.recipientTopicBatchSize,
     rpcBatchCount: scan.rpcBatchCount,
     scannedLogCount: scan.scannedLogCount,
     totalMatchedEvents: scan.totalMatchedEvents,

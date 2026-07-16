@@ -6,7 +6,7 @@ import { storeBscDetectedTransfersForRange } from "../../src/lib/server/crypto-b
 const BSC_NETWORK = "BSC" as const;
 const SAFE_HEAD_CONFIRMATIONS = 20;
 const INITIAL_LOOKBACK_BLOCKS = 2_000;
-const MAX_BLOCKS_PER_RUN = 500;
+const MAX_BLOCKS_PER_RUN = 100;
 const MAX_MATCHED_EVENTS_PER_RUN = 2_000;
 const RPC_TIMEOUT_MS = 10_000;
 
@@ -101,17 +101,20 @@ async function fetchLatestBscBlock(rpcUrl: string): Promise<number> {
 }
 
 export default async (): Promise<void> => {
-  const supabaseUrl = Netlify.env.get("VITE_SUPABASE_URL") ?? Netlify.env.get("SUPABASE_URL") ?? "";
-  const serviceRoleKey = Netlify.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  const rpcUrl = Netlify.env.get("BSC_RPC_URL") ?? "";
+  const supabaseUrl = (
+    Netlify.env.get("VITE_SUPABASE_URL") ?? Netlify.env.get("SUPABASE_URL") ?? ""
+  ).trim();
+  const serviceRoleKey = (Netlify.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
+  const rpcUrl = (Netlify.env.get("BSC_RPC_URL") ?? "").trim();
 
   if (!supabaseUrl || !serviceRoleKey || !rpcUrl) {
-    logError("config_error", "Missing required server configuration", {
+    const error = new Error("Missing required server configuration");
+    logError("config_error", error, {
       has_supabase_url: Boolean(supabaseUrl),
       has_service_role_key: Boolean(serviceRoleKey),
       has_bsc_rpc_url: Boolean(rpcUrl),
     });
-    return;
+    throw error;
   }
 
   const admin = createClient<Database>(supabaseUrl, serviceRoleKey, {
@@ -166,6 +169,10 @@ export default async (): Promise<void> => {
       fromBlock,
       toBlock,
       matchedEventLimit: MAX_MATCHED_EVENTS_PER_RUN,
+      // A single unfiltered Transfer query keeps runtime independent of the
+      // number of assigned addresses; matching still happens against the
+      // server-loaded active address inventory before any row is stored.
+      scanAllRecipients: true,
     });
 
     const { data: advancedState, error: advanceError } = await admin
@@ -220,6 +227,7 @@ export default async (): Promise<void> => {
     // The checkpoint advances only after every detected row is stored. Partial inserts
     // are harmless because the detector's chain-event identity is idempotent on retry.
     logError("run_failed", error);
+    throw error;
   }
 };
 
