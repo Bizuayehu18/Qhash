@@ -3,6 +3,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getAdminClient } from "./supabase-admin.js";
 import { throwSafe } from "../errors.js";
 import type { AdminCryptoAddressInventoryRow } from "./crypto-admin-addresses.js";
+import { planCryptoTargetUserLookups } from "./crypto-target-user-lookups.js";
 
 const TRON_ADDRESS_VERSION_BYTE = 0x41;
 const TRON_DECODED_ADDRESS_LENGTH = 25;
@@ -15,7 +16,6 @@ for (let index = 0; index < BASE58_ALPHABET.length; index += 1) {
 }
 
 type CryptoNetwork = "TRON" | "BSC";
-type TronActivationStatus = "inactive" | "active";
 
 type ProfileRow = {
   id?: unknown;
@@ -24,6 +24,8 @@ type ProfileRow = {
   is_admin?: unknown;
   is_frozen?: unknown;
 };
+
+type ResolvedProfileRow = Omit<ProfileRow, "id"> & { id: string };
 
 type CryptoAddressInsertRow = {
   id?: unknown;
@@ -191,15 +193,16 @@ function validateInput(data: unknown): {
   };
 }
 
-async function findTargetProfile(targetUserRef: string): Promise<Required<Pick<ProfileRow, "id">> & ProfileRow> {
+async function findTargetProfile(targetUserRef: string): Promise<ResolvedProfileRow> {
   const admin = getAdminClient();
-  const searchColumns = ["id", "username", "phone"] as const;
+  const lookups = planCryptoTargetUserLookups(targetUserRef);
+  const matches = new Map<string, ResolvedProfileRow>();
 
-  for (const column of searchColumns) {
+  for (const lookup of lookups) {
     const { data, error } = await admin
       .from("profiles")
       .select("id, username, phone")
-      .eq(column, targetUserRef)
+      .eq(lookup.column, lookup.value)
       .limit(2);
 
     if (error) {
@@ -208,14 +211,21 @@ async function findTargetProfile(targetUserRef: string): Promise<Required<Pick<P
 
     const rows = (data ?? []) as ProfileRow[];
     if (rows.length > 1) {
-      throwSafe("ADMIN", "Target user is ambiguous.", `Multiple profiles matched ${column}`);
+      throwSafe("ADMIN", "Target user is ambiguous.", `Multiple profiles matched ${lookup.column}`);
     }
 
     const id = toStringOrNull(rows[0]?.id);
     if (id) {
-      return { ...rows[0], id };
+      matches.set(id, { ...rows[0], id });
     }
   }
+
+  if (matches.size > 1) {
+    throwSafe("ADMIN", "Target user is ambiguous.", "Target reference matched multiple profiles");
+  }
+
+  const targetProfile = matches.values().next().value;
+  if (targetProfile) return targetProfile;
 
   throwSafe("ADMIN", "Target user not found.", "No profile matched target user reference");
 }
