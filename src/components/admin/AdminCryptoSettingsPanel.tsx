@@ -241,8 +241,8 @@ export function AdminCryptoSettingsPanel({ userId }: { userId: string | undefine
           <span className="text-xs font-semibold text-amber-100">Crypto deposits are still guarded</span>
         </div>
         <p>
-          This panel manages crypto settings, admin-only address inventory, BSC detection, confirmation dry-runs, and read-only deposit audit rows. It does not enable crypto deposits,
-          expose deposit addresses to users, generate addresses, credit wallets, sweep, sign, or handle private keys.
+          This panel manages crypto settings, admin-only address inventory, BSC detection, confirmation, audit, and explicit manual crediting of eligible confirmed BSC deposits. It does not enable automatic crypto deposits,
+          expose deposit addresses to users, generate addresses, sweep, sign, or handle private keys.
         </p>
       </div>
 
@@ -253,7 +253,7 @@ export function AdminCryptoSettingsPanel({ userId }: { userId: string | undefine
               <Settings size={14} className="text-[#00ff41]" />
               <span className="text-xs font-semibold">Crypto Settings</span>
             </div>
-            <p className="mt-1 text-[11px] text-gray-500">Admin-only numeric settings for the read-only crypto deposit UI.</p>
+            <p className="mt-1 text-[11px] text-gray-500">Admin-only numeric settings. The fixed USDT/ETB rate is captured atomically when a confirmed deposit is manually credited.</p>
           </div>
           <Badge variant={loaded ? "success" : "default"}>{loaded ? "Loaded" : "Loading"}</Badge>
         </div>
@@ -273,7 +273,7 @@ export function AdminCryptoSettingsPanel({ userId }: { userId: string | undefine
                 inputMode="decimal"
                 value={usdtEtbRate}
                 onChange={(e) => setUsdtEtbRate(e.target.value)}
-                hint="Used for crypto deposit display and future crediting calculations."
+                hint="Captured by the database at manual credit time; rate changes invalidate stale credit previews."
               />
               <Input
                 label="TRON Minimum USDT"
@@ -299,7 +299,7 @@ export function AdminCryptoSettingsPanel({ userId }: { userId: string | undefine
 
             <div className="rounded-lg border border-[#1a1a1a] bg-[#0d0d0d] p-3 text-[11px] leading-relaxed text-gray-500">
               The address-exposure control is intentionally not included here. Keep it disabled until watcher,
-              idempotent crediting, audit trail, and manual review behavior are implemented and reviewed.
+              idempotent crediting, audit trail, and manual review behavior are proven end to end and separately reviewed for user exposure.
             </div>
 
             <div className="flex flex-wrap gap-2">
