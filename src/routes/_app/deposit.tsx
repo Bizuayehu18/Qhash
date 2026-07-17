@@ -27,6 +27,7 @@ import { useWalletStore } from "@/store/walletStore.js";
 import { getPaymentMethodsFn } from "@/lib/server/payment-methods.js";
 import { submitDepositFn, getUserDepositsFn } from "@/lib/server/deposits.js";
 import { getCryptoDepositOverviewFn } from "@/lib/server/crypto-deposits.js";
+import { isUserCryptoDepositNetworkEnabled } from "@/lib/crypto-deposit-availability.js";
 import { withTimeout } from "@/lib/async.js";
 import { getSafeErrorMessage } from "@/lib/errors.js";
 import { formatDateTime } from "@/lib/format.js";
@@ -692,12 +693,13 @@ function CryptoDepositSection({
   loaded: boolean;
   error: string | null;
 }) {
-  const [selectedNetwork, setSelectedNetwork] = useState<CryptoNetwork>("TRON");
+  const [selectedNetwork, setSelectedNetwork] = useState<CryptoNetwork>("BSC");
   const [copied, setCopied] = useState(false);
 
-  const cryptoReady = overview?.settings.autoCreditEnabled === true;
+  const bscUserDepositsEnabled = overview?.settings.bscUserDepositsEnabled === true;
+  const selectedNetworkEnabled = isUserCryptoDepositNetworkEnabled(selectedNetwork, bscUserDepositsEnabled);
   const selectedMeta = CRYPTO_NETWORKS.find((meta) => meta.network === selectedNetwork) ?? CRYPTO_NETWORKS[0];
-  const selectedAddress = cryptoReady
+  const selectedAddress = selectedNetworkEnabled
     ? overview?.addresses.find((address) => address.network === selectedNetwork && address.status === "active")
     : undefined;
   const selectedNetworkDeposits = overview?.deposits.filter((deposit) => deposit.network === selectedNetwork) ?? [];
@@ -705,7 +707,7 @@ function CryptoDepositSection({
   const usdtEtbRate = overview?.settings.usdtEtbRate ?? 160;
 
   const copyAddress = useCallback(async () => {
-    if (!cryptoReady || !selectedAddress?.address) return;
+    if (!selectedNetworkEnabled || !selectedAddress?.address) return;
 
     try {
       await navigator.clipboard.writeText(selectedAddress.address);
@@ -714,7 +716,7 @@ function CryptoDepositSection({
     } catch {
       toast.error("Unable to copy. Please copy manually.");
     }
-  }, [cryptoReady, selectedAddress?.address]);
+  }, [selectedAddress?.address, selectedNetworkEnabled]);
 
   return (
     <section className="space-y-2.5">
@@ -742,7 +744,8 @@ function CryptoDepositSection({
         <div className="space-y-3 rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111] p-3.5">
           <div className="grid grid-cols-2 gap-2">
             {CRYPTO_NETWORKS.map((meta) => {
-              const address = cryptoReady
+              const networkEnabled = isUserCryptoDepositNetworkEnabled(meta.network, bscUserDepositsEnabled);
+              const address = networkEnabled
                 ? overview?.addresses.find(
                     (candidate) => candidate.network === meta.network && candidate.status === "active",
                   )
@@ -768,7 +771,7 @@ function CryptoDepositSection({
                   <span className="mt-1 flex items-center justify-between gap-2">
                     <span className="text-[10px] text-gray-500">{meta.chainName}</span>
                     <Badge variant={address ? "success" : "default"} className="shrink-0 text-[8px]">
-                      {address ? "Available" : cryptoReady ? "Coming" : "Paused"}
+                      {address ? "Available" : networkEnabled ? "Not assigned" : "Paused"}
                     </Badge>
                   </span>
                 </button>
@@ -783,9 +786,17 @@ function CryptoDepositSection({
 
           <CryptoWarnings />
 
-          {!cryptoReady && (
+          {!selectedNetworkEnabled && (
             <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-[11px] leading-relaxed text-amber-200/80">
-              Crypto deposits are not accepting funds yet. Address display is disabled until backend watcher and crediting support is enabled by an admin.
+              {selectedNetwork === "TRON"
+                ? "TRC20 deposits are not enabled yet. Do not send USDT on TRON."
+                : "BEP20 deposits are currently paused by an admin. Do not send USDT until this page shows an assigned address."}
+            </div>
+          )}
+
+          {selectedNetworkEnabled && (
+            <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3 text-[11px] leading-relaxed text-blue-200/80">
+              BSC deposits are monitored automatically, then reviewed before ETB crediting. Your deposit history will show its progress.
             </div>
           )}
 
@@ -796,7 +807,7 @@ function CryptoDepositSection({
                 <p className="mt-0.5 text-[10px] text-gray-600">{selectedMeta.chainName}</p>
               </div>
               <Badge variant={selectedAddress ? "success" : "default"} className="shrink-0 text-[9px]">
-                {selectedAddress ? "Available" : cryptoReady ? "Not assigned" : "Paused"}
+                {selectedAddress ? "Available" : selectedNetworkEnabled ? "Not assigned" : "Paused"}
               </Badge>
             </div>
 
@@ -816,14 +827,18 @@ function CryptoDepositSection({
               </div>
             ) : (
               <p className="mt-3 rounded-lg border border-[#1f1f1f] bg-[#111] p-2.5 text-[11px] leading-relaxed text-gray-500">
-                {cryptoReady
-                  ? `No ${selectedMeta.label} address is assigned yet. This PR does not generate blockchain addresses; it only displays addresses once they are safely assigned by backend/admin tooling.`
-                  : "Crypto deposit addresses are hidden until backend watcher and crediting support is enabled. Do not send USDT yet."}
+                {selectedNetworkEnabled
+                  ? `No ${selectedMeta.label} address is assigned to your account yet. Do not send USDT until an address appears here.`
+                  : `${selectedMeta.label} deposits are paused. Do not send USDT on this network.`}
               </p>
             )}
           </div>
 
-          <CryptoDepositHistory deposits={selectedNetworkDeposits} networkLabel={selectedMeta.shortLabel} />
+          <CryptoDepositHistory
+            deposits={selectedNetworkDeposits}
+            networkLabel={selectedMeta.shortLabel}
+            enabled={selectedNetworkEnabled}
+          />
         </div>
       )}
     </section>
@@ -852,9 +867,11 @@ function CryptoWarnings() {
 function CryptoDepositHistory({
   deposits,
   networkLabel,
+  enabled,
 }: {
   deposits: CryptoOverview["deposits"];
   networkLabel: string;
+  enabled: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const visibleDeposits = expanded ? deposits : deposits.slice(0, CRYPTO_HISTORY_PREVIEW_LIMIT);
@@ -878,7 +895,11 @@ function CryptoDepositHistory({
           <EmptyState
             icon={<Clock size={22} />}
             title={`No ${networkLabel} deposits yet`}
-            description="Detected crypto deposits will appear here after watcher support is added."
+            description={
+              enabled
+                ? "Detected deposits will appear here while they are reviewed and credited."
+                : `${networkLabel} deposits are currently paused.`
+            }
             className="py-8"
           />
         </ListPanel>

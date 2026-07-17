@@ -37,6 +37,7 @@ function buildFormState(settings: AdminCryptoSettings) {
     usdtEtbRate: formatSettingValue(settings.usdtEtbRate),
     tronMinUsdt: formatSettingValue(settings.tronMinUsdt),
     bscMinUsdt: formatSettingValue(settings.bscMinUsdt),
+    bscUserDepositsEnabled: settings.bscUserDepositsEnabled,
   };
 }
 
@@ -46,6 +47,7 @@ export function AdminCryptoSettingsPanel({ userId }: { userId: string | undefine
   const [usdtEtbRate, setUsdtEtbRate] = useState("160");
   const [tronMinUsdt, setTronMinUsdt] = useState("10");
   const [bscMinUsdt, setBscMinUsdt] = useState("5");
+  const [bscUserDepositsEnabled, setBscUserDepositsEnabled] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -80,6 +82,7 @@ export function AdminCryptoSettingsPanel({ userId }: { userId: string | undefine
     setUsdtEtbRate(formState.usdtEtbRate);
     setTronMinUsdt(formState.tronMinUsdt);
     setBscMinUsdt(formState.bscMinUsdt);
+    setBscUserDepositsEnabled(formState.bscUserDepositsEnabled);
   }, []);
 
   const loadSettings = useCallback(
@@ -214,6 +217,7 @@ export function AdminCryptoSettingsPanel({ userId }: { userId: string | undefine
           usdtEtbRate: parsedRate,
           tronMinUsdt: parsedTronMin,
           bscMinUsdt: parsedBscMin,
+          bscUserDepositsEnabled,
         },
       });
 
@@ -231,7 +235,8 @@ export function AdminCryptoSettingsPanel({ userId }: { userId: string | undefine
     settings !== null &&
     (usdtEtbRate.trim() !== formatSettingValue(settings.usdtEtbRate) ||
       tronMinUsdt.trim() !== formatSettingValue(settings.tronMinUsdt) ||
-      bscMinUsdt.trim() !== formatSettingValue(settings.bscMinUsdt));
+      bscMinUsdt.trim() !== formatSettingValue(settings.bscMinUsdt) ||
+      bscUserDepositsEnabled !== settings.bscUserDepositsEnabled);
 
   return (
     <div className="space-y-4">
@@ -241,8 +246,7 @@ export function AdminCryptoSettingsPanel({ userId }: { userId: string | undefine
           <span className="text-xs font-semibold text-amber-100">Crypto deposits are still guarded</span>
         </div>
         <p>
-          This panel manages crypto settings, admin-only address inventory, BSC detection, confirmation, audit, and explicit manual crediting of eligible confirmed BSC deposits. It does not enable automatic crypto deposits,
-          expose deposit addresses to users, generate addresses, sweep, sign, or handle private keys.
+          This panel manages crypto settings, admin-only address inventory, BSC detection, confirmation, audit, and explicit manual crediting of eligible confirmed BSC deposits. BSC address exposure is separately controlled below. It does not enable automatic crediting, generate addresses, sweep, sign, or handle private keys.
         </p>
       </div>
 
@@ -297,9 +301,38 @@ export function AdminCryptoSettingsPanel({ userId }: { userId: string | undefine
               />
             </div>
 
-            <div className="rounded-lg border border-[#1a1a1a] bg-[#0d0d0d] p-3 text-[11px] leading-relaxed text-gray-500">
-              The address-exposure control is intentionally not included here. Keep it disabled until watcher,
-              idempotent crediting, audit trail, and manual review behavior are proven end to end and separately reviewed for user exposure.
+            <div className="rounded-lg border border-[#1a1a1a] bg-[#0d0d0d] p-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="max-w-2xl">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs font-semibold text-gray-200">BSC user deposits</p>
+                    <Badge variant={bscUserDepositsEnabled ? "success" : "default"}>
+                      {bscUserDepositsEnabled ? "Enabled" : "Disabled"}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+                    When enabled, each user can see only their own active assigned BSC address and BSC deposit history. Confirmation and ETB crediting remain explicit admin operations. TRON remains paused.
+                  </p>
+                </div>
+                <div className="flex gap-2" role="group" aria-label="BSC user deposit availability">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={!bscUserDepositsEnabled ? "secondary" : "outline"}
+                    onClick={() => setBscUserDepositsEnabled(false)}
+                  >
+                    Disabled
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={bscUserDepositsEnabled ? "secondary" : "outline"}
+                    onClick={() => setBscUserDepositsEnabled(true)}
+                  >
+                    Enabled
+                  </Button>
+                </div>
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-2">
