@@ -22,12 +22,20 @@ const applyMigration = async (db) => {
   }
 };
 
-const createFixture = async (db, { addConstraint = true } = {}) => {
+const createFixture = async (
+  db,
+  { addConstraint = true, referenceIdType = "uuid" } = {},
+) => {
+  assert.ok(
+    ["uuid", "text"].includes(referenceIdType),
+    "unsupported reference_id fixture type",
+  );
+
   await db.exec(`
     create table public.transactions (
       id uuid primary key default gen_random_uuid(),
       user_id uuid not null,
-      reference_id uuid
+      reference_id ${referenceIdType}
     );
 
     create table public.crypto_deposits (
@@ -161,6 +169,76 @@ test("fails closed when the historical index name has a different definition", a
       and conrelid = 'public.crypto_deposits'::regclass
   `);
   assert.deepEqual(constraint.rows, [{ convalidated: false }]);
+});
+
+test("fails closed when the audit constraint has weaker boolean logic", async (t) => {
+  const db = new PGlite();
+  t.after(() => db.close());
+
+  await createFixture(db, { addConstraint: false });
+  await db.exec(`
+    alter table public.crypto_deposits
+      add constraint crypto_deposits_credit_audit_fields_check
+      check (
+        status <> 'credited'
+        or credited_transaction_id is not null
+        or credited_by_admin_id is not null
+      ) not valid;
+  `);
+
+  await assert.rejects(
+    applyMigration(db),
+    /crypto_deposits_credit_audit_fields_check has an unexpected definition/,
+  );
+
+  const state = await db.query(`
+    select
+      (select convalidated
+       from pg_constraint
+       where conname = 'crypto_deposits_credit_audit_fields_check'
+         and conrelid = 'public.crypto_deposits'::regclass) as convalidated,
+      to_regclass('public.idx_transactions_reference') is not null as index_created
+  `);
+  assert.deepEqual(state.rows, [{ convalidated: false, index_created: false }]);
+});
+
+test("fails closed when transactions.reference_id is not UUID", async (t) => {
+  const db = new PGlite();
+  t.after(() => db.close());
+
+  await createFixture(db, { referenceIdType: "text" });
+
+  await assert.rejects(
+    applyMigration(db),
+    /Unexpected transactions.reference_id type: text/,
+  );
+
+  const state = await db.query(`
+    select
+      (select convalidated
+       from pg_constraint
+       where conname = 'crypto_deposits_credit_audit_fields_check'
+         and conrelid = 'public.crypto_deposits'::regclass) as convalidated,
+      to_regclass('public.idx_transactions_reference') is not null as index_created
+  `);
+  assert.deepEqual(state.rows, [{ convalidated: false, index_created: false }]);
+});
+
+test("fails closed when the crypto audit constraint is missing", async (t) => {
+  const db = new PGlite();
+  t.after(() => db.close());
+
+  await createFixture(db, { addConstraint: false });
+
+  await assert.rejects(
+    applyMigration(db),
+    /crypto_deposits_credit_audit_fields_check is missing/,
+  );
+
+  const index = await db.query(`
+    select to_regclass('public.idx_transactions_reference') is not null as created
+  `);
+  assert.deepEqual(index.rows, [{ created: false }]);
 });
 
 test("refuses to validate a historical credited row without audit metadata", async (t) => {

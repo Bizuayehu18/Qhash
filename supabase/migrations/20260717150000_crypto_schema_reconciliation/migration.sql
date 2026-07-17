@@ -7,7 +7,7 @@
 do $migration$
 declare
   v_reference_id_type text;
-  v_constraint_definition text;
+  v_constraint_expression text;
   v_index_table oid;
   v_index_unique boolean;
   v_index_valid boolean;
@@ -30,27 +30,26 @@ begin
     raise exception 'Unexpected transactions.reference_id type: %', v_reference_id_type;
   end if;
 
-  select lower(pg_get_constraintdef(constraint_info.oid))
-    into v_constraint_definition
+  select lower(pg_get_expr(constraint_info.conbin, constraint_info.conrelid))
+    into v_constraint_expression
   from pg_constraint as constraint_info
   where constraint_info.conname = 'crypto_deposits_credit_audit_fields_check'
     and constraint_info.conrelid = 'public.crypto_deposits'::regclass
     and constraint_info.contype = 'c';
 
-  if v_constraint_definition is null then
+  if v_constraint_expression is null then
     raise exception 'crypto_deposits_credit_audit_fields_check is missing';
   end if;
 
-  v_constraint_definition := regexp_replace(
-    v_constraint_definition,
+  v_constraint_expression := regexp_replace(
+    replace(v_constraint_expression, '::text', ''),
     '[[:space:]()]',
     '',
     'g'
   );
 
-  if strpos(v_constraint_definition, 'status<>''credited''') = 0
-    or strpos(v_constraint_definition, 'credited_transaction_idisnotnull') = 0
-    or strpos(v_constraint_definition, 'credited_by_admin_idisnotnull') = 0
+  if v_constraint_expression <>
+    'status<>''credited''orcredited_transaction_idisnotnullandcredited_by_admin_idisnotnull'
   then
     raise exception 'crypto_deposits_credit_audit_fields_check has an unexpected definition';
   end if;
@@ -61,7 +60,7 @@ begin
     index_info.indisvalid,
     index_info.indisready,
     array(
-      select attribute_info.attname
+      select attribute_info.attname::text
       from unnest(index_info.indkey) with ordinality as index_key(attnum, position)
       join pg_attribute as attribute_info
         on attribute_info.attrelid = index_info.indrelid
@@ -135,6 +134,20 @@ begin
       and not index_info.indisunique
       and index_info.indisvalid
       and index_info.indisready
+      and array(
+        select attribute_info.attname::text
+        from unnest(index_info.indkey) with ordinality as index_key(attnum, position)
+        join pg_attribute as attribute_info
+          on attribute_info.attrelid = index_info.indrelid
+         and attribute_info.attnum = index_key.attnum
+        order by index_key.position
+      ) = array['reference_id']::text[]
+      and regexp_replace(
+        lower(coalesce(pg_get_expr(index_info.indpred, index_info.indrelid), '')),
+        '[[:space:]()]',
+        '',
+        'g'
+      ) = 'reference_idisnotnull'
   ) then
     raise exception 'public.idx_transactions_reference was not created correctly';
   end if;
