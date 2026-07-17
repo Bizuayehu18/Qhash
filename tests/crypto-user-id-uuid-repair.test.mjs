@@ -111,7 +111,7 @@ test("repairs crypto user IDs and credits a confirmed BSC deposit exactly once",
       balance_before numeric(18, 2),
       balance_after numeric(18, 2),
       description text,
-      reference_id text,
+      reference_id uuid,
       metadata jsonb not null default '{}'::jsonb,
       created_at timestamptz not null default now()
     );
@@ -209,6 +209,26 @@ test("repairs crypto user IDs and credits a confirmed BSC deposit exactly once",
     { conname: "crypto_deposit_addresses_user_id_fkey" },
     { conname: "crypto_deposits_user_id_fkey" },
   ]);
+
+  await assert.rejects(
+    callCredit(db),
+    /operator does not exist: uuid = text/,
+    "the user-ID repair alone should reproduce the remaining production ledger-reference mismatch",
+  );
+
+  const beforeReferenceRepair = await db.query(`
+    select
+      (select balance::text from public.wallets where user_id = '${USER_ID}'::uuid) as balance,
+      (select count(*)::integer from public.transactions) as transaction_count,
+      (select status from public.crypto_deposits where id = '${DEPOSIT_ID}'::uuid) as status
+  `);
+  assert.deepEqual(beforeReferenceRepair.rows[0], {
+    balance: "0.00",
+    transaction_count: 0,
+    status: "confirmed",
+  });
+
+  await db.exec(await migration("20260717130000_crypto_reference_id_uuid_repair"));
 
   await db.query(
     `insert into public.crypto_deposits (
