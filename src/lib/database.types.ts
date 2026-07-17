@@ -690,6 +690,16 @@ export interface Database {
         }
         Returns: Json
       }
+      rotate_bsc_crypto_deposit_address: {
+        Args: {
+          p_user_id: string
+          p_admin_id: string
+          p_expected_current_address_id: string
+          p_expected_current_address: string
+          p_new_address: string
+        }
+        Returns: Json
+      }
     }
     Enums: {
       transaction_type: TransactionType
