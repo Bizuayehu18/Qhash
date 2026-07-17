@@ -1,19 +1,20 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getAdminClient } from "./supabase-admin.js";
 import { throwSafe } from "../errors.js";
+import { isUserCryptoDepositNetworkEnabled } from "../crypto-deposit-availability.js";
 
 const SETTINGS_KEYS = [
   "usdt_etb_rate",
   "crypto_tron_min_usdt",
   "crypto_bsc_min_usdt",
-  "crypto_auto_credit_enabled",
+  "crypto_bsc_user_deposits_enabled",
 ] as const;
 
 const DEFAULT_SETTINGS = {
   usdt_etb_rate: 160,
   crypto_tron_min_usdt: 10,
   crypto_bsc_min_usdt: 5,
-  crypto_auto_credit_enabled: false,
+  crypto_bsc_user_deposits_enabled: false,
 };
 
 type CryptoNetwork = "TRON" | "BSC";
@@ -31,7 +32,9 @@ function parseNumberSetting(value: string | undefined, fallback: number): number
 
 function parseBooleanSetting(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined) return fallback;
-  return ["true", "1", "yes", "on"].includes(value.trim().toLowerCase());
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return fallback;
 }
 
 function normalizeNetwork(value: string): CryptoNetwork | null {
@@ -94,34 +97,42 @@ export const getCryptoDepositOverviewFn = createServerFn({ method: "POST" })
       usdtEtbRate: parseNumberSetting(settingsMap.get("usdt_etb_rate"), DEFAULT_SETTINGS.usdt_etb_rate),
       tronMinUsdt: parseNumberSetting(settingsMap.get("crypto_tron_min_usdt"), DEFAULT_SETTINGS.crypto_tron_min_usdt),
       bscMinUsdt: parseNumberSetting(settingsMap.get("crypto_bsc_min_usdt"), DEFAULT_SETTINGS.crypto_bsc_min_usdt),
-      autoCreditEnabled: parseBooleanSetting(
-        settingsMap.get("crypto_auto_credit_enabled"),
-        DEFAULT_SETTINGS.crypto_auto_credit_enabled,
+      bscUserDepositsEnabled: parseBooleanSetting(
+        settingsMap.get("crypto_bsc_user_deposits_enabled"),
+        DEFAULT_SETTINGS.crypto_bsc_user_deposits_enabled,
       ),
     };
 
-    const { data: rawAddresses, error: addressError } = await admin
-      .from("crypto_deposit_addresses")
-      .select("id, user_id, network, asset, address, derivation_index, activation_status, status, created_at, updated_at")
-      .eq("user_id", authUser.id)
-      .eq("asset", "USDT")
-      .order("network", { ascending: true });
+    const bscUserDepositsEnabled = isUserCryptoDepositNetworkEnabled(
+      "BSC",
+      settings.bscUserDepositsEnabled,
+    );
 
-    if (addressError) {
-      throwSafe("DEPOSIT", "Unable to load crypto addresses.", `DB error: ${addressError.message}`);
-    }
+    const addresses = bscUserDepositsEnabled
+      ? await (async () => {
+          const { data: rawAddresses, error: addressError } = await admin
+            .from("crypto_deposit_addresses")
+            .select("id, user_id, network, asset, address, derivation_index, activation_status, status, created_at, updated_at")
+            .eq("user_id", authUser.id)
+            .eq("network", "BSC")
+            .eq("asset", "USDT")
+            .order("created_at", { ascending: true });
 
-    const addresses = settings.autoCreditEnabled
-      ? (rawAddresses ?? [])
-          .map((address) => ({
-            ...address,
-            network: normalizeNetwork(address.network),
-          }))
-          .filter((address): address is typeof address & { network: CryptoNetwork } => address.network !== null)
-          .filter(isUsableDepositAddress)
+          if (addressError) {
+            throwSafe("DEPOSIT", "Unable to load crypto addresses.", `DB error: ${addressError.message}`);
+          }
+
+          return (rawAddresses ?? [])
+            .map((address) => ({
+              ...address,
+              network: normalizeNetwork(address.network),
+            }))
+            .filter((address): address is typeof address & { network: CryptoNetwork } => address.network !== null)
+            .filter(isUsableDepositAddress);
+        })()
       : [];
 
-    const deposits = settings.autoCreditEnabled
+    const deposits = bscUserDepositsEnabled
       ? await (async () => {
           const { data: rawDeposits, error: depositError } = await admin
             .from("crypto_deposits")
@@ -129,6 +140,7 @@ export const getCryptoDepositOverviewFn = createServerFn({ method: "POST" })
               "id, user_id, address_id, network, asset, tx_hash, event_index, from_address, to_address, amount_raw, amount_usdt, block_number, confirmations, status, exchange_rate_etb, credited_amount_etb, detected_at, confirmed_at, credited_at, swept_at, created_at, updated_at",
             )
             .eq("user_id", authUser.id)
+            .eq("network", "BSC")
             .eq("asset", "USDT")
             .order("detected_at", { ascending: false })
             .limit(50);

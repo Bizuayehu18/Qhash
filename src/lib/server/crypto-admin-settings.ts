@@ -2,16 +2,23 @@ import { createServerFn } from "@tanstack/react-start";
 import { getAdminClient } from "./supabase-admin.js";
 import { throwSafe } from "../errors.js";
 
-const CRYPTO_SETTING_KEYS = [
+const NUMERIC_CRYPTO_SETTING_KEYS = [
   "usdt_etb_rate",
   "crypto_tron_min_usdt",
   "crypto_bsc_min_usdt",
+] as const;
+
+const BSC_USER_DEPOSITS_SETTING_KEY = "crypto_bsc_user_deposits_enabled" as const;
+const CRYPTO_SETTING_KEYS = [
+  ...NUMERIC_CRYPTO_SETTING_KEYS,
+  BSC_USER_DEPOSITS_SETTING_KEY,
 ] as const;
 
 const DEFAULT_CRYPTO_SETTINGS = {
   usdt_etb_rate: 160,
   crypto_tron_min_usdt: 10,
   crypto_bsc_min_usdt: 5,
+  crypto_bsc_user_deposits_enabled: false,
 };
 
 const SETTING_LIMITS = {
@@ -20,12 +27,13 @@ const SETTING_LIMITS = {
   crypto_bsc_min_usdt: { min: 0.01, max: 1_000_000 },
 };
 
-type CryptoSettingKey = (typeof CRYPTO_SETTING_KEYS)[number];
+type NumericCryptoSettingKey = (typeof NUMERIC_CRYPTO_SETTING_KEYS)[number];
 
 export type AdminCryptoSettings = {
   usdtEtbRate: number;
   tronMinUsdt: number;
   bscMinUsdt: number;
+  bscUserDepositsEnabled: boolean;
 };
 
 function parseNumberSetting(value: string | undefined, fallback: number): number {
@@ -33,11 +41,18 @@ function parseNumberSetting(value: string | undefined, fallback: number): number
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function parseBooleanSetting(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined) return fallback;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return fallback;
+}
+
 function serializeNumberSetting(value: number): string {
   return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(6)));
 }
 
-function validateNumberSetting(key: CryptoSettingKey, value: unknown): number {
+function validateNumberSetting(key: NumericCryptoSettingKey, value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throwSafe("ADMIN", "Enter a valid crypto setting value.", `Invalid numeric value for ${key}`);
   }
@@ -49,6 +64,14 @@ function validateNumberSetting(key: CryptoSettingKey, value: unknown): number {
       `Crypto setting must be between ${limits.min} and ${limits.max}.`,
       `Out-of-range value for ${key}`,
     );
+  }
+
+  return value;
+}
+
+function validateBooleanSetting(key: string, value: unknown): boolean {
+  if (typeof value !== "boolean") {
+    throwSafe("ADMIN", "Choose whether BSC user deposits are enabled.", `Invalid boolean value for ${key}`);
   }
 
   return value;
@@ -89,6 +112,10 @@ function buildSettings(rows: Array<{ key: string; value: string }> | null): Admi
       settingsMap.get("crypto_bsc_min_usdt"),
       DEFAULT_CRYPTO_SETTINGS.crypto_bsc_min_usdt,
     ),
+    bscUserDepositsEnabled: parseBooleanSetting(
+      settingsMap.get(BSC_USER_DEPOSITS_SETTING_KEY),
+      DEFAULT_CRYPTO_SETTINGS.crypto_bsc_user_deposits_enabled,
+    ),
   };
 }
 
@@ -127,7 +154,13 @@ export const updateAdminCryptoSettingsFn = createServerFn({ method: "POST" })
       throwSafe("ADMIN", "Failed to update crypto settings.", "Invalid request data");
     }
 
-    const { accessToken, usdtEtbRate, tronMinUsdt, bscMinUsdt } = data as Record<string, unknown>;
+    const {
+      accessToken,
+      usdtEtbRate,
+      tronMinUsdt,
+      bscMinUsdt,
+      bscUserDepositsEnabled,
+    } = data as Record<string, unknown>;
 
     if (typeof accessToken !== "string" || !accessToken) {
       throwSafe("ADMIN", "Unauthorized.", "Missing access token for crypto settings update");
@@ -139,6 +172,10 @@ export const updateAdminCryptoSettingsFn = createServerFn({ method: "POST" })
         usdt_etb_rate: validateNumberSetting("usdt_etb_rate", usdtEtbRate),
         crypto_tron_min_usdt: validateNumberSetting("crypto_tron_min_usdt", tronMinUsdt),
         crypto_bsc_min_usdt: validateNumberSetting("crypto_bsc_min_usdt", bscMinUsdt),
+        crypto_bsc_user_deposits_enabled: validateBooleanSetting(
+          BSC_USER_DEPOSITS_SETTING_KEY,
+          bscUserDepositsEnabled,
+        ),
       },
     };
   })
@@ -147,11 +184,18 @@ export const updateAdminCryptoSettingsFn = createServerFn({ method: "POST" })
 
     const admin = getAdminClient();
     const updatedAt = new Date().toISOString();
-    const rows = CRYPTO_SETTING_KEYS.map((key) => ({
-      key,
-      value: serializeNumberSetting(data.settings[key]),
-      updated_at: updatedAt,
-    }));
+    const rows = [
+      ...NUMERIC_CRYPTO_SETTING_KEYS.map((key) => ({
+        key,
+        value: serializeNumberSetting(data.settings[key]),
+        updated_at: updatedAt,
+      })),
+      {
+        key: BSC_USER_DEPOSITS_SETTING_KEY,
+        value: String(data.settings.crypto_bsc_user_deposits_enabled),
+        updated_at: updatedAt,
+      },
+    ];
 
     const { error } = await admin
       .from("app_settings")
