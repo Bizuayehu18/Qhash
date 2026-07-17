@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Copy, RefreshCw, WalletCards } from "lucide-react";
+import { Copy, RefreshCw, RotateCw, WalletCards } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/Input.js";
 import { getSafeErrorMessage } from "@/lib/errors.js";
 import { withTimeout } from "@/lib/async.js";
 import { assignAdminCryptoDepositAddressFn } from "@/lib/server/crypto-admin-address-assignment.js";
+import { rotateAdminBscDepositAddressFn } from "@/lib/server/crypto-admin-address-rotation.js";
 import {
   getAdminCryptoAddressInventoryFn,
   type AdminCryptoAddressInventoryRow,
@@ -66,7 +67,13 @@ function isValidAddressForNetwork(network: AssignNetwork, address: string): bool
   return /^0x[a-fA-F0-9]{40}$/.test(address.trim());
 }
 
-function AddressInventoryRow({ row }: { row: AdminCryptoAddressInventoryRow }) {
+function AddressInventoryRow({
+  row,
+  onRotate,
+}: {
+  row: AdminCryptoAddressInventoryRow;
+  onRotate: (row: AdminCryptoAddressInventoryRow) => void;
+}) {
   const copyAddress = async () => {
     try {
       await navigator.clipboard.writeText(row.address);
@@ -118,6 +125,16 @@ function AddressInventoryRow({ row }: { row: AdminCryptoAddressInventoryRow }) {
           <span>{row.derivationIndex ?? "—"}</span>
         </div>
       </div>
+
+      {row.network === "BSC" && row.status === "active" && (
+        <button
+          type="button"
+          onClick={() => onRotate(row)}
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-amber-500/20 px-2.5 py-1.5 text-[10px] text-amber-200/80 transition-colors hover:border-amber-500/40 hover:text-amber-100"
+        >
+          <RotateCw size={11} /> Replace BSC Address
+        </button>
+      )}
     </div>
   );
 }
@@ -135,6 +152,9 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
   const [assignNetwork, setAssignNetwork] = useState<AssignNetwork>("TRON");
   const [assignAddress, setAssignAddress] = useState("");
   const [assignTronActivationStatus, setAssignTronActivationStatus] = useState<TronActivationStatus>("inactive");
+  const [rotationTarget, setRotationTarget] = useState<AdminCryptoAddressInventoryRow | null>(null);
+  const [replacementAddress, setReplacementAddress] = useState("");
+  const [rotating, setRotating] = useState(false);
 
   const mountedRef = useRef(true);
   const loadingRef = useRef(false);
@@ -341,6 +361,53 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
     }
   };
 
+  const handleRotateAddress = async () => {
+    if (!userId || !rotationTarget || rotating) return;
+
+    const newAddress = replacementAddress.trim();
+    if (!accessToken) {
+      toast.error("Session expired. Please sign in again.");
+      return;
+    }
+
+    if (!isValidAddressForNetwork("BSC", newAddress)) {
+      toast.error("Enter a valid BSC public address starting with 0x.");
+      return;
+    }
+
+    if (newAddress.toLowerCase() === rotationTarget.address.toLowerCase()) {
+      toast.error("Enter a different BSC address.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Replace this user's active BSC address? The old public address will be disabled and kept for deposit history. BSC user deposits must remain disabled during this operation.",
+    );
+    if (!confirmed) return;
+
+    setRotating(true);
+    try {
+      await rotateAdminBscDepositAddressFn({
+        data: {
+          accessToken,
+          userId: rotationTarget.userId,
+          currentAddressId: rotationTarget.id,
+          expectedCurrentAddress: rotationTarget.address,
+          newAddress,
+        },
+      });
+
+      toast.success("BSC address replaced. The old address remains in history as disabled.");
+      setRotationTarget(null);
+      setReplacementAddress("");
+      await loadInventory({ resetRetryCount: true, resetLoaded: true });
+    } catch (err) {
+      toast.error(getSafeErrorMessage(err, "ADMIN").message);
+    } finally {
+      setRotating(false);
+    }
+  };
+
   return (
     <div className="rounded-xl border border-[rgba(0,255,65,0.15)] bg-[#111] p-4 space-y-4">
       <div className="flex items-start justify-between gap-3">
@@ -435,6 +502,46 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
         </div>
       </div>
 
+      {rotationTarget && (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 space-y-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <RotateCw size={13} className="text-amber-300" />
+              <p className="text-xs font-semibold text-amber-100">Replace active BSC address</p>
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed text-amber-200/70">
+              @{rotationTarget.username}: {shortAddress(rotationTarget.address)}. The old public address will be disabled,
+              not deleted, so existing deposit history remains linked correctly. Never enter a private key or seed phrase.
+            </p>
+          </div>
+
+          <Input
+            label="New BSC public address"
+            placeholder="0x..."
+            value={replacementAddress}
+            onChange={(event) => setReplacementAddress(event.target.value)}
+            hint="Trust Wallet-controlled BEP20 receive address. User exposure must be disabled and the watcher must be healthy."
+          />
+
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" loading={rotating} onClick={handleRotateAddress}>
+              Replace Address Safely
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={rotating}
+              onClick={() => {
+                setRotationTarget(null);
+                setReplacementAddress("");
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
         <Input
           label="Search inventory"
@@ -483,7 +590,14 @@ export function AdminCryptoAddressInventoryPanel({ userId }: { userId: string | 
       ) : (
         <div className="grid gap-2 lg:grid-cols-2">
           {rows.map((row) => (
-            <AddressInventoryRow key={row.id} row={row} />
+            <AddressInventoryRow
+              key={row.id}
+              row={row}
+              onRotate={(selectedRow) => {
+                setRotationTarget(selectedRow);
+                setReplacementAddress("");
+              }}
+            />
           ))}
         </div>
       )}
