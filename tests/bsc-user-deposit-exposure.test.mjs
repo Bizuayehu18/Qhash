@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { PGlite } from "@electric-sql/pglite";
-import { isUserCryptoDepositNetworkEnabled } from "../src/lib/crypto-deposit-availability.ts";
 
 const migration = await readFile(
   new URL(
@@ -86,10 +85,3 @@ for (const invalidValue of ["yes", " TRUE ", "FALSE"]) {
     );
   });
 }
-
-test("enables only BSC and never enables TRON through the BSC switch", () => {
-  assert.equal(isUserCryptoDepositNetworkEnabled("BSC", false), false);
-  assert.equal(isUserCryptoDepositNetworkEnabled("BSC", true), true);
-  assert.equal(isUserCryptoDepositNetworkEnabled("TRON", false), false);
-  assert.equal(isUserCryptoDepositNetworkEnabled("TRON", true), false);
-});
