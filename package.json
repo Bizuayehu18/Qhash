@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite dev --port 3000",
     "clean": "rimraf dist .tanstack/tmp",
-    "prebuild": "npm run clean",
+    "typecheck:netlify": "tsc --noEmit --project tsconfig.netlify.json",
+    "prebuild": "rimraf dist .tanstack/tmp && tsc --noEmit --project tsconfig.netlify.json",
     "db:migrate": "node scripts/apply-migrations.mjs",
     "build": "vite build"
   },

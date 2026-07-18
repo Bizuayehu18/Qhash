@@ -419,13 +419,25 @@ export interface Database {
         Row: {
           id: string
           user_id: string
-          provider_payment_id: string
-          provider_payment_status: string
+          provider_payment_id: string | null
+          provider_payment_status: NowpaymentsProviderPaymentStatus | null
           verification_status: NowpaymentsVerificationStatus
           asset: 'USDT'
           network: 'BEP20'
           provider_currency: 'usdtbsc'
-          requested_amount_usdt: number
+          qhash_order_id: string
+          session_status: NowpaymentsDepositSessionStatus
+          pay_address: string | null
+          technical_reference_amount_usdt: number
+          provider_minimum_usdt: number
+          provider_created_at: string | null
+          provider_valid_until: string | null
+          provisioning_started_at: string
+          provisioned_at: string | null
+          manual_recovery_at: string | null
+          manual_recovery_reason: NowpaymentsManualRecoveryReason | null
+          terminal_at: string | null
+          terminal_reason: string | null
           outcome_amount: number | null
           outcome_currency: 'USDT'
           verified_at: string | null
@@ -437,24 +449,54 @@ export interface Database {
         Insert: {
           id?: string
           user_id: string
-          provider_payment_id: string
-          provider_payment_status?: string
+          provider_payment_id?: string | null
+          provider_payment_status?: NowpaymentsProviderPaymentStatus | null
           verification_status?: NowpaymentsVerificationStatus
           asset?: 'USDT'
           network?: 'BEP20'
           provider_currency?: 'usdtbsc'
-          requested_amount_usdt: number
+          qhash_order_id?: string
+          session_status?: NowpaymentsDepositSessionStatus
+          pay_address?: string | null
+          technical_reference_amount_usdt: number
+          provider_minimum_usdt: number
+          provider_created_at?: string | null
+          provider_valid_until?: string | null
+          provisioning_started_at?: string
+          provisioned_at?: string | null
+          manual_recovery_at?: string | null
+          manual_recovery_reason?: NowpaymentsManualRecoveryReason | null
+          terminal_at?: string | null
+          terminal_reason?: string | null
           outcome_amount?: number | null
           outcome_currency?: 'USDT'
           verified_at?: string | null
+          credited_amount_usdt?: number | null
+          credited_at?: string | null
           created_at?: string
           updated_at?: string
         }
         Update: {
-          provider_payment_status?: string
+          provider_payment_id?: string | null
+          provider_payment_status?: NowpaymentsProviderPaymentStatus | null
           verification_status?: NowpaymentsVerificationStatus
+          qhash_order_id?: string
+          session_status?: NowpaymentsDepositSessionStatus
+          pay_address?: string | null
+          technical_reference_amount_usdt?: number
+          provider_minimum_usdt?: number
+          provider_created_at?: string | null
+          provider_valid_until?: string | null
+          provisioning_started_at?: string
+          provisioned_at?: string | null
+          manual_recovery_at?: string | null
+          manual_recovery_reason?: NowpaymentsManualRecoveryReason | null
+          terminal_at?: string | null
+          terminal_reason?: string | null
           outcome_amount?: number | null
           verified_at?: string | null
+          credited_amount_usdt?: number | null
+          credited_at?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -789,6 +831,52 @@ export interface Database {
         }
         Returns: Json
       }
+      get_current_nowpayments_usdt_deposit_session: {
+        Args: { p_user_id: string }
+        Returns: Json
+      }
+      claim_nowpayments_usdt_deposit_session: {
+        Args: {
+          p_user_id: string
+          p_provider_minimum_usdt: string
+          p_technical_reference_amount_usdt: string
+        }
+        Returns: Json
+      }
+      complete_nowpayments_usdt_deposit_session: {
+        Args: {
+          p_session_id: string
+          p_qhash_order_id: string
+          p_provider_payment_id: string
+          p_pay_address: string
+          p_provider_payment_status: NowpaymentsProviderPaymentStatus
+          p_provider_created_at: string
+          p_provider_valid_until: string
+        }
+        Returns: Json
+      }
+      mark_nowpayments_usdt_deposit_session_manual_recovery: {
+        Args: {
+          p_session_id: string
+          p_qhash_order_id: string
+          p_reason: NowpaymentsManualRecoveryReason
+          p_provider_payment_id: string | null
+          p_pay_address: string | null
+          p_provider_payment_status: NowpaymentsProviderPaymentStatus | null
+          p_provider_created_at: string | null
+          p_provider_valid_until: string | null
+        }
+        Returns: Json
+      }
+      record_nowpayments_usdt_deposit_session_status: {
+        Args: {
+          p_session_id: string
+          p_qhash_order_id: string
+          p_provider_payment_id: string
+          p_provider_payment_status: NowpaymentsProviderPaymentStatus
+        }
+        Returns: Json
+      }
     }
     Enums: {
       transaction_type: TransactionType
@@ -829,5 +917,8 @@ export type DepositStatus = 'pending' | 'approved' | 'rejected'
 export type WithdrawalStatus = 'pending' | 'approved' | 'rejected'
 export type PaymentMethodType = 'cbe' | 'telebirr'
 export type NowpaymentsVerificationStatus = 'pending' | 'verified' | 'rejected'
+export type NowpaymentsProviderPaymentStatus = 'waiting' | 'partially_paid' | 'confirming' | 'confirmed' | 'sending' | 'finished' | 'failed' | 'refunded' | 'expired'
+export type NowpaymentsDepositSessionStatus = 'provisioning' | 'ready' | 'manual_recovery' | 'terminal'
+export type NowpaymentsManualRecoveryReason = 'stale_provisioning_claim' | 'create_payment_timeout' | 'create_payment_network_error' | 'create_payment_http_error' | 'create_payment_invalid_response' | 'create_payment_finalize_failed' | 'payment_status_invalid_response'
 export type NowpaymentsWithdrawalStatus = 'requested' | 'reserved' | 'submitted' | 'finished' | 'failed' | 'refunded' | 'cancelled'
 export type NowpaymentsUsdtLedgerEntryType = 'deposit_credit' | 'withdrawal_reserve' | 'withdrawal_release' | 'withdrawal_settlement' | 'admin_adjustment'
