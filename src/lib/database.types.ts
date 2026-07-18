@@ -475,67 +475,6 @@ export interface Database {
         }
         Relationships: []
       }
-      crypto_sweep_jobs: {
-        Row: {
-          id: string
-          crypto_deposit_id: string
-          network: string
-          from_address: string
-          to_treasury_address: string
-          amount_usdt: number
-          status: string
-          gas_topup_tx_hash: string | null
-          sweep_tx_hash: string | null
-          error_message: string | null
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          crypto_deposit_id: string
-          network: string
-          from_address: string
-          to_treasury_address: string
-          amount_usdt: number
-          status?: string
-          gas_topup_tx_hash?: string | null
-          sweep_tx_hash?: string | null
-          error_message?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          crypto_deposit_id?: string
-          network?: string
-          from_address?: string
-          to_treasury_address?: string
-          amount_usdt?: number
-          status?: string
-          gas_topup_tx_hash?: string | null
-          sweep_tx_hash?: string | null
-          error_message?: string | null
-          updated_at?: string
-        }
-        Relationships: []
-      }
-      crypto_watcher_state: {
-        Row: {
-          network: string
-          last_scanned_block: number
-          updated_at: string
-        }
-        Insert: {
-          network: string
-          last_scanned_block?: number
-          updated_at?: string
-        }
-        Update: {
-          network?: string
-          last_scanned_block?: number
-          updated_at?: string
-        }
-        Relationships: []
-      }
       referral_reward_logs: {
         Row: {
           id: string
@@ -652,54 +591,6 @@ export interface Database {
         Args: { p_investment_id: string; p_run_id?: string | null; p_trigger_type?: string | null }
         Returns: Json
       }
-      apply_bsc_crypto_deposit_confirmation: {
-        Args: {
-          p_deposit_id: string
-          p_expected_user_id: string
-          p_expected_address_id: string
-          p_expected_tx_hash: string
-          p_expected_event_index: number
-          p_expected_from_address: string
-          p_expected_to_address: string
-          p_expected_amount_raw_text: string
-          p_expected_amount_usdt_text: string
-          p_expected_block_number: number
-          p_expected_confirmations: number
-          p_calculated_confirmations: number
-          p_confirmation_threshold: number
-        }
-        Returns: Json
-      }
-      credit_confirmed_bsc_crypto_deposit: {
-        Args: {
-          p_deposit_id: string
-          p_admin_id: string
-          p_expected_user_id: string
-          p_expected_address_id: string
-          p_expected_tx_hash: string
-          p_expected_event_index: number
-          p_expected_from_address: string
-          p_expected_to_address: string
-          p_expected_amount_raw_text: string
-          p_expected_amount_usdt_text: string
-          p_expected_block_number: number
-          p_expected_confirmations: number
-          p_calculated_confirmations: number
-          p_expected_exchange_rate_etb_text: string
-          p_expected_credited_amount_etb_text: string
-        }
-        Returns: Json
-      }
-      rotate_bsc_crypto_deposit_address: {
-        Args: {
-          p_user_id: string
-          p_admin_id: string
-          p_expected_current_address_id: string
-          p_expected_current_address: string
-          p_new_address: string
-        }
-        Returns: Json
-      }
     }
     Enums: {
       transaction_type: TransactionType
@@ -724,8 +615,6 @@ export type Notification = Database['public']['Tables']['notifications']['Row']
 export type AppSetting = Database['public']['Tables']['app_settings']['Row']
 export type CryptoDepositAddress = Database['public']['Tables']['crypto_deposit_addresses']['Row']
 export type CryptoDeposit = Database['public']['Tables']['crypto_deposits']['Row']
-export type CryptoSweepJob = Database['public']['Tables']['crypto_sweep_jobs']['Row']
-export type CryptoWatcherState = Database['public']['Tables']['crypto_watcher_state']['Row']
 export type Referral = Database['public']['Tables']['referrals']['Row']
 export type ReferralRewardLog = Database['public']['Tables']['referral_reward_logs']['Row']
 export type EarningRunLog = Database['public']['Tables']['earning_run_logs']['Row']
