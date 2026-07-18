@@ -359,6 +359,196 @@ export interface Database {
         }
         Relationships: []
       }
+      nowpayments_usdt_config: {
+        Row: {
+          id: 'USDT-BEP20'
+          enabled: boolean
+          asset: 'USDT'
+          network: 'BEP20'
+          provider_currency: 'usdtbsc'
+          deposit_minimum_usdt: number
+          withdrawal_minimum_usdt: number
+          withdrawal_fee_percent: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: 'USDT-BEP20'
+          enabled?: boolean
+          asset?: 'USDT'
+          network?: 'BEP20'
+          provider_currency?: 'usdtbsc'
+          deposit_minimum_usdt?: number
+          withdrawal_minimum_usdt?: number
+          withdrawal_fee_percent?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          enabled?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      nowpayments_usdt_wallets: {
+        Row: {
+          user_id: string
+          asset: 'USDT'
+          available_balance_usdt: number
+          reserved_balance_usdt: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          user_id: string
+          asset?: 'USDT'
+          available_balance_usdt?: number
+          reserved_balance_usdt?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          asset?: 'USDT'
+          available_balance_usdt?: number
+          reserved_balance_usdt?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      nowpayments_usdt_payments: {
+        Row: {
+          id: string
+          user_id: string
+          provider_payment_id: string
+          provider_payment_status: string
+          verification_status: NowpaymentsVerificationStatus
+          asset: 'USDT'
+          network: 'BEP20'
+          provider_currency: 'usdtbsc'
+          requested_amount_usdt: number
+          outcome_amount: number | null
+          outcome_currency: 'USDT'
+          verified_at: string | null
+          credited_amount_usdt: number | null
+          credited_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          provider_payment_id: string
+          provider_payment_status?: string
+          verification_status?: NowpaymentsVerificationStatus
+          asset?: 'USDT'
+          network?: 'BEP20'
+          provider_currency?: 'usdtbsc'
+          requested_amount_usdt: number
+          outcome_amount?: number | null
+          outcome_currency?: 'USDT'
+          verified_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          provider_payment_status?: string
+          verification_status?: NowpaymentsVerificationStatus
+          outcome_amount?: number | null
+          verified_at?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      nowpayments_usdt_withdrawals: {
+        Row: {
+          id: string
+          user_id: string
+          destination_address: string
+          asset: 'USDT'
+          network: 'BEP20'
+          provider_currency: 'usdtbsc'
+          amount_usdt: number
+          fee_percent: number
+          fee_amount_usdt: number
+          net_amount_usdt: number
+          status: NowpaymentsWithdrawalStatus
+          provider_payout_id: string | null
+          requested_at: string
+          submitted_at: string | null
+          finished_at: string | null
+          failed_at: string | null
+          failure_code: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          destination_address: string
+          asset?: 'USDT'
+          network?: 'BEP20'
+          provider_currency?: 'usdtbsc'
+          amount_usdt: number
+          fee_percent?: number
+          status?: NowpaymentsWithdrawalStatus
+          provider_payout_id?: string | null
+          requested_at?: string
+          submitted_at?: string | null
+          finished_at?: string | null
+          failed_at?: string | null
+          failure_code?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          status?: NowpaymentsWithdrawalStatus
+          provider_payout_id?: string | null
+          submitted_at?: string | null
+          finished_at?: string | null
+          failed_at?: string | null
+          failure_code?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      nowpayments_usdt_ledger_entries: {
+        Row: {
+          id: string
+          user_id: string
+          entry_type: NowpaymentsUsdtLedgerEntryType
+          asset: 'USDT'
+          available_delta_usdt: number
+          reserved_delta_usdt: number
+          available_before_usdt: number
+          available_after_usdt: number
+          reserved_before_usdt: number
+          reserved_after_usdt: number
+          payment_id: string | null
+          withdrawal_id: string | null
+          description: string | null
+          metadata: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          entry_type: NowpaymentsUsdtLedgerEntryType
+          asset?: 'USDT'
+          available_delta_usdt?: number
+          reserved_delta_usdt?: number
+          available_before_usdt: number
+          available_after_usdt: number
+          reserved_before_usdt: number
+          reserved_after_usdt: number
+          payment_id?: string | null
+          withdrawal_id?: string | null
+          description?: string | null
+          metadata?: Json
+          created_at?: string
+        }
+        Update: Record<string, never>
+        Relationships: []
+      }
       crypto_deposit_addresses: {
         Row: {
           id: string
@@ -591,6 +781,14 @@ export interface Database {
         Args: { p_investment_id: string; p_run_id?: string | null; p_trigger_type?: string | null }
         Returns: Json
       }
+      credit_verified_nowpayments_usdt_payment: {
+        Args: {
+          p_payment_id: string
+          p_expected_provider_payment_id: string
+          p_expected_outcome_amount: string
+        }
+        Returns: Json
+      }
     }
     Enums: {
       transaction_type: TransactionType
@@ -613,6 +811,11 @@ export type Deposit = Database['public']['Tables']['deposits']['Row']
 export type Withdrawal = Database['public']['Tables']['withdrawals']['Row']
 export type Notification = Database['public']['Tables']['notifications']['Row']
 export type AppSetting = Database['public']['Tables']['app_settings']['Row']
+export type NowpaymentsUsdtConfig = Database['public']['Tables']['nowpayments_usdt_config']['Row']
+export type NowpaymentsUsdtWallet = Database['public']['Tables']['nowpayments_usdt_wallets']['Row']
+export type NowpaymentsUsdtPayment = Database['public']['Tables']['nowpayments_usdt_payments']['Row']
+export type NowpaymentsUsdtWithdrawal = Database['public']['Tables']['nowpayments_usdt_withdrawals']['Row']
+export type NowpaymentsUsdtLedgerEntry = Database['public']['Tables']['nowpayments_usdt_ledger_entries']['Row']
 export type CryptoDepositAddress = Database['public']['Tables']['crypto_deposit_addresses']['Row']
 export type CryptoDeposit = Database['public']['Tables']['crypto_deposits']['Row']
 export type Referral = Database['public']['Tables']['referrals']['Row']
@@ -625,3 +828,6 @@ export type InvestmentStatus = 'active' | 'completed' | 'cancelled'
 export type DepositStatus = 'pending' | 'approved' | 'rejected'
 export type WithdrawalStatus = 'pending' | 'approved' | 'rejected'
 export type PaymentMethodType = 'cbe' | 'telebirr'
+export type NowpaymentsVerificationStatus = 'pending' | 'verified' | 'rejected'
+export type NowpaymentsWithdrawalStatus = 'requested' | 'reserved' | 'submitted' | 'finished' | 'failed' | 'refunded' | 'cancelled'
+export type NowpaymentsUsdtLedgerEntryType = 'deposit_credit' | 'withdrawal_reserve' | 'withdrawal_release' | 'withdrawal_settlement' | 'admin_adjustment'
