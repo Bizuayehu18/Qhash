@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
-import { AdminCryptoSettingsPanel } from "@/components/admin/AdminCryptoSettingsPanel.js";
 import { CurrencyUnit } from "@/components/ui/AmountText.js";
 import { Spinner } from "@/components/ui/Spinner.js";
 import {
@@ -1786,7 +1785,7 @@ function AdminSecurityTab({ userId }: { userId: string | undefined }) {
 }
 
 function SettingsTab({ userId }: { userId: string | undefined }) {
-  const [activeSettingsTab, setActiveSettingsTab] = useState<"support" | "payment" | "crypto">("support");
+  const [activeSettingsTab, setActiveSettingsTab] = useState<"support" | "payment">("support");
   const [settings, setSettings] = useState<SupportSettings | null>(null);
   const [telegramUsername, setTelegramUsername] = useState("");
   const [loading, setLoading] = useState(true);
@@ -1859,7 +1858,6 @@ function SettingsTab({ userId }: { userId: string | undefined }) {
         {([
           { key: "support", label: "Support" },
           { key: "payment", label: "Payment" },
-          { key: "crypto", label: "Crypto" },
         ] as const).map((tab) => (
           <button
             key={tab.key}
@@ -1925,10 +1923,8 @@ function SettingsTab({ userId }: { userId: string | undefined }) {
             <p>The public Support page builds the link as t.me/username from this setting.</p>
           </div>
         </>
-      ) : activeSettingsTab === "payment" ? (
-        <PaymentMethodsTab userId={userId} />
       ) : (
-        <AdminCryptoSettingsPanel userId={userId} />
+        <PaymentMethodsTab userId={userId} />
       )}
     </div>
   );
