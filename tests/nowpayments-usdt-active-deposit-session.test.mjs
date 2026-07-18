@@ -955,6 +955,14 @@ test("types and endpoint expose only the hidden server-side session contract", (
   }
   assert.match(environmentExample, /^NOWPAYMENTS_API_KEY=$/m);
   assert.doesNotMatch(environmentExample, /^VITE_NOWPAYMENTS/m);
+  assert.match(environmentExample, /Netlify scope: Functions\/runtime only/);
+  assert.match(environmentExample, /Netlify deploy context: Production only/);
+  assert.match(environmentExample, /No value for Deploy Previews, Branch deploys/);
+  assert.match(endpointSource, /Netlify\.env\.get\("CONTEXT"\) === "production"/);
+  assert.ok(
+    endpointSource.indexOf('Netlify.env.get("CONTEXT")')
+      < endpointSource.indexOf('Netlify.env.get("VITE_SUPABASE_URL")'),
+  );
   assert.match(endpointSource, /if \(!config\.enabled\)/);
   assert.ok(
     endpointSource.indexOf('if (!config.enabled)')
@@ -964,7 +972,7 @@ test("types and endpoint expose only the hidden server-side session contract", (
   assert.match(endpointSource, /path: "\/api\/crypto\/nowpayments\/deposit-session"/);
 });
 
-test("disabled endpoint never reads the provider key or calls NOWPayments", async (t) => {
+async function invokeNonProductionEndpoint(deployContext) {
   const originalFetch = globalThis.fetch;
   const originalNetlify = globalThis.Netlify;
   const environmentReads = [];
@@ -973,6 +981,70 @@ test("disabled endpoint never reads the provider key or calls NOWPayments", asyn
     env: {
       get(name) {
         environmentReads.push(name);
+        if (name === "CONTEXT") return deployContext;
+        throw new Error(`Non-production runtime read forbidden variable: ${name}`);
+      },
+    },
+  };
+  globalThis.fetch = async (input) => {
+    requests.push(String(input));
+    throw new Error("Non-production runtime must not make a network request");
+  };
+
+  try {
+    const response = await nowpaymentsDepositSessionHandler(
+      new Request("https://qhash.mock/api/crypto/nowpayments/deposit-session", {
+        method: "POST",
+        headers: { authorization: "Bearer must-not-be-used" },
+      }),
+    );
+    return {
+      status: response.status,
+      body: await response.json(),
+      environmentReads,
+      requests,
+    };
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalNetlify === undefined) delete globalThis.Netlify;
+    else globalThis.Netlify = originalNetlify;
+  }
+}
+
+function assertNonProductionRejected(result) {
+  assert.equal(result.status, 503);
+  assert.deepEqual(result.body, {
+    error: "crypto_runtime_unavailable",
+    message: "Crypto deposits are unavailable.",
+  });
+  assert.deepEqual(result.environmentReads, ["CONTEXT"]);
+  assert.deepEqual(result.requests, []);
+}
+
+test("deploy-preview is rejected before secrets, database, or provider access", async () => {
+  assertNonProductionRejected(await invokeNonProductionEndpoint("deploy-preview"));
+});
+
+test("branch-deploy is rejected before secrets, database, or provider access", async () => {
+  assertNonProductionRejected(await invokeNonProductionEndpoint("branch-deploy"));
+});
+
+test("dev, missing, and unknown deploy contexts fail closed", async () => {
+  for (const deployContext of ["dev", undefined, "unknown-context"]) {
+    assertNonProductionRejected(await invokeNonProductionEndpoint(deployContext));
+  }
+});
+
+test("production context reaches authentication, configuration, and disabled gate", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const originalNetlify = globalThis.Netlify;
+  const environmentReads = [];
+  const requests = [];
+  globalThis.Netlify = {
+    env: {
+      get(name) {
+        environmentReads.push(name);
+        if (name === "CONTEXT") return "production";
         if (name === "VITE_SUPABASE_URL") return "https://supabase.mock";
         if (name === "SUPABASE_SERVICE_ROLE_KEY") return "service-role-mock";
         if (name === "NOWPAYMENTS_API_KEY") return "must-not-be-read";
@@ -1032,7 +1104,10 @@ test("disabled endpoint never reads the provider key or calls NOWPayments", asyn
     message: "Crypto deposits are disabled.",
   });
   assert.ok(requests.some((url) => url.includes("/auth/v1/user")));
+  assert.ok(requests.some((url) => url.includes("/rest/v1/profiles")));
   assert.ok(requests.some((url) => url.includes("/rest/v1/nowpayments_usdt_config")));
   assert.ok(!requests.some((url) => url.startsWith("https://api.nowpayments.io")));
+  assert.equal(environmentReads[0], "CONTEXT");
+  assert.ok(environmentReads.includes("SUPABASE_SERVICE_ROLE_KEY"));
   assert.ok(!environmentReads.includes("NOWPAYMENTS_API_KEY"));
 });

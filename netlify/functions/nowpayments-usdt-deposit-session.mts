@@ -42,6 +42,14 @@ const PROVIDER_STATUSES = new Set<NowpaymentsProviderStatus>([
   "expired",
 ]);
 
+function isProductionDeployContext(): boolean {
+  try {
+    return Netlify.env.get("CONTEXT") === "production";
+  } catch {
+    return false;
+  }
+}
+
 function json(body: Record<string, unknown>, status: number): Response {
   return Response.json(body, {
     status,
@@ -243,6 +251,13 @@ function safeSessionError(error: unknown): Response {
 }
 
 export default async (req: Request): Promise<Response> => {
+  if (!isProductionDeployContext()) {
+    return json(
+      { error: "crypto_runtime_unavailable", message: "Crypto deposits are unavailable." },
+      503,
+    );
+  }
+
   if (req.method !== "POST") {
     return json({ error: "method_not_allowed", message: "POST only." }, 405);
   }
