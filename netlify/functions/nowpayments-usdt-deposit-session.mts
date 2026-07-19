@@ -319,6 +319,15 @@ export default async (req: Request): Promise<Response> => {
 
   // Read the provider secret only after authentication and both disable gates pass.
   const apiKey = Netlify.env.get("NOWPAYMENTS_API_KEY") ?? "";
+  const productionSiteUrl = Netlify.env.get("URL") ?? "";
+  let ipnCallbackUrl = "";
+  try {
+    const parsedSiteUrl = new URL(productionSiteUrl);
+    if (parsedSiteUrl.protocol !== "https:") throw new Error("invalid_site_url");
+    ipnCallbackUrl = new URL("/api/crypto/nowpayments/ipn", parsedSiteUrl).toString();
+  } catch {
+    return json({ error: "provider_config", message: "Crypto deposits are unavailable." }, 503);
+  }
   if (!apiKey) {
     return json({ error: "provider_config", message: "Crypto deposits are unavailable." }, 503);
   }
@@ -327,7 +336,7 @@ export default async (req: Request): Promise<Response> => {
     const session = await getOrCreateNowpaymentsDepositSession({
       userId: authData.user.id,
       store: createSessionStore(admin as unknown as SessionRpcClient, authData.user.id),
-      provider: createNowpaymentsClient({ apiKey }),
+      provider: createNowpaymentsClient({ apiKey, ipnCallbackUrl }),
     });
 
     return json(

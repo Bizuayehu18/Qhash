@@ -45,6 +45,15 @@ export type NowpaymentsPaymentStatusResult = {
   providerPaymentStatus: NowpaymentsPaymentStatus;
 };
 
+export type NowpaymentsVerifiedPayment = NowpaymentsPaymentStatusResult & {
+  parentProviderPaymentId: string | null;
+  qhashOrderId: string | null;
+  payAddress: string;
+  payCurrency: "usdtbsc";
+  outcomeAmountUsdt: string | null;
+  outcomeCurrency: "usdtbsc" | null;
+};
+
 export class NowpaymentsClientError extends Error {
   readonly code: string;
 
@@ -179,6 +188,20 @@ function normalizeProviderPaymentId(value: unknown, code: string): string {
   return normalized;
 }
 
+function normalizeNullableProviderPaymentId(value: unknown, code: string): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  return normalizeProviderPaymentId(value, code);
+}
+
+function normalizeNullableOrderId(value: unknown, code: string): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  const normalized = normalizeIdentifier(value, code);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized)) {
+    throw new NowpaymentsClientError(code);
+  }
+  return normalized.toLowerCase();
+}
+
 function normalizeStatus(value: unknown): NowpaymentsPaymentStatus {
   if (typeof value !== "string") {
     throw new NowpaymentsClientError("invalid_payment_status");
@@ -214,10 +237,15 @@ async function fetchTextWithTimeout(
   }
 }
 
-function createPaymentBody(technicalAmount: string, qhashOrderId: string): string {
+function createPaymentBody(
+  technicalAmount: string,
+  qhashOrderId: string,
+  ipnCallbackUrl: string | null,
+): string {
   const staticFields = {
     price_currency: "usd",
     pay_currency: PROVIDER_CURRENCY,
+    ...(ipnCallbackUrl ? { ipn_callback_url: ipnCallbackUrl } : {}),
     order_id: qhashOrderId,
     order_description: "QHash USDTBSC deposit address session",
     is_fixed_rate: false,
@@ -231,14 +259,35 @@ export function createNowpaymentsClient({
   apiKey,
   fetchImpl = fetch,
   timeoutMs = 15_000,
+  ipnCallbackUrl,
 }: {
   apiKey: string;
   fetchImpl?: FetchLike;
   timeoutMs?: number;
+  ipnCallbackUrl?: string;
 }) {
   if (!apiKey) throw new NowpaymentsClientError("missing_api_key");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 60_000) {
     throw new NowpaymentsClientError("invalid_timeout");
+  }
+
+  let normalizedIpnCallbackUrl: string | null = null;
+  if (ipnCallbackUrl !== undefined) {
+    try {
+      const parsed = new URL(ipnCallbackUrl);
+      if (
+        parsed.protocol !== "https:"
+        || parsed.username
+        || parsed.password
+        || parsed.hash
+        || parsed.pathname !== "/api/crypto/nowpayments/ipn"
+      ) {
+        throw new Error("invalid_ipn_callback_url");
+      }
+      normalizedIpnCallbackUrl = parsed.toString();
+    } catch {
+      throw new NowpaymentsClientError("invalid_ipn_callback_url");
+    }
   }
 
   const headers = { "x-api-key": apiKey };
@@ -291,7 +340,7 @@ export function createNowpaymentsClient({
           {
             method: "POST",
             headers: { ...headers, "Content-Type": "application/json" },
-            body: createPaymentBody(amount, qhashOrderId),
+            body: createPaymentBody(amount, qhashOrderId, normalizedIpnCallbackUrl),
           },
           timeoutMs,
         );
@@ -408,6 +457,100 @@ export function createNowpaymentsClient({
         return {
           providerPaymentId: returnedPaymentId,
           providerPaymentStatus: normalizeStatus(body.payment_status),
+        };
+      } catch {
+        throw new NowpaymentsClientError("payment_status_invalid_response");
+      }
+    },
+
+    async getPaymentDetails(providerPaymentId: string): Promise<NowpaymentsVerifiedPayment> {
+      const expectedPaymentId = normalizeProviderPaymentId(
+        providerPaymentId,
+        "invalid_provider_payment_id",
+      );
+      let result: { response: Response; text: string };
+      try {
+        result = await fetchTextWithTimeout(
+          fetchImpl,
+          `${NOWPAYMENTS_API_BASE}/payment/${encodeURIComponent(expectedPaymentId)}`,
+          { method: "GET", headers },
+          timeoutMs,
+        );
+      } catch {
+        throw new NowpaymentsClientError("payment_status_request_failed");
+      }
+      if (!result.response.ok || result.text.length > 65_536) {
+        throw new NowpaymentsClientError("payment_status_request_failed");
+      }
+
+      try {
+        const body = parseJson(result.text, "payment_status_invalid_response");
+        const returnedPaymentId = normalizeProviderPaymentId(
+          lexicalNumber(
+            result.text,
+            body,
+            "payment_id",
+            "payment_status_invalid_response",
+          ),
+          "payment_status_invalid_response",
+        );
+        if (returnedPaymentId !== expectedPaymentId) {
+          throw new NowpaymentsClientError("payment_status_invalid_response");
+        }
+
+        const providerPaymentStatus = normalizeStatus(body.payment_status);
+        const parentProviderPaymentId = normalizeNullableProviderPaymentId(
+          lexicalNumber(
+            result.text,
+            body,
+            "parent_payment_id",
+            "payment_status_invalid_response",
+          ),
+          "payment_status_invalid_response",
+        );
+        const qhashOrderId = normalizeNullableOrderId(
+          body.order_id,
+          "payment_status_invalid_response",
+        );
+        const payAddress = normalizeIdentifier(
+          body.pay_address,
+          "payment_status_invalid_response",
+        );
+        const payCurrency = String(body.pay_currency ?? "").trim().toLowerCase();
+
+        if (!/^0x[0-9A-Fa-f]{40}$/.test(payAddress) || payCurrency !== PROVIDER_CURRENCY) {
+          throw new NowpaymentsClientError("payment_status_invalid_response");
+        }
+
+        let outcomeAmountUsdt: string | null = null;
+        let outcomeCurrency: "usdtbsc" | null = null;
+        if (providerPaymentStatus === "finished") {
+          outcomeAmountUsdt = normalizePositiveDecimal(
+            lexicalNumber(
+              result.text,
+              body,
+              "outcome_amount",
+              "payment_status_invalid_response",
+            ),
+          );
+          const returnedOutcomeCurrency = String(body.outcome_currency ?? "")
+            .trim()
+            .toLowerCase();
+          if (returnedOutcomeCurrency !== PROVIDER_CURRENCY) {
+            throw new NowpaymentsClientError("payment_status_invalid_response");
+          }
+          outcomeCurrency = PROVIDER_CURRENCY;
+        }
+
+        return {
+          providerPaymentId: returnedPaymentId,
+          parentProviderPaymentId,
+          qhashOrderId,
+          payAddress,
+          payCurrency: PROVIDER_CURRENCY,
+          providerPaymentStatus,
+          outcomeAmountUsdt,
+          outcomeCurrency,
         };
       } catch {
         throw new NowpaymentsClientError("payment_status_invalid_response");

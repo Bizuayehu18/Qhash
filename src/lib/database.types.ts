@@ -438,6 +438,7 @@ export interface Database {
           manual_recovery_reason: NowpaymentsManualRecoveryReason | null
           terminal_at: string | null
           terminal_reason: string | null
+          settled_by_provider_payment_id: string | null
           outcome_amount: number | null
           outcome_currency: 'USDT'
           verified_at: string | null
@@ -468,6 +469,7 @@ export interface Database {
           manual_recovery_reason?: NowpaymentsManualRecoveryReason | null
           terminal_at?: string | null
           terminal_reason?: string | null
+          settled_by_provider_payment_id?: string | null
           outcome_amount?: number | null
           outcome_currency?: 'USDT'
           verified_at?: string | null
@@ -493,9 +495,57 @@ export interface Database {
           manual_recovery_reason?: NowpaymentsManualRecoveryReason | null
           terminal_at?: string | null
           terminal_reason?: string | null
+          settled_by_provider_payment_id?: string | null
           outcome_amount?: number | null
           verified_at?: string | null
           credited_amount_usdt?: number | null
+          credited_at?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      nowpayments_usdt_provider_payments: {
+        Row: {
+          id: string
+          session_id: string
+          user_id: string
+          provider_payment_id: string
+          parent_provider_payment_id: string | null
+          payment_kind: NowpaymentsProviderPaymentKind
+          qhash_order_id: string
+          pay_address: string
+          pay_currency: 'usdtbsc'
+          provider_payment_status: NowpaymentsProviderPaymentStatus
+          outcome_amount_usdt: number | null
+          outcome_currency: 'usdtbsc' | null
+          provider_verified_at: string
+          credited_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          session_id: string
+          user_id: string
+          provider_payment_id: string
+          parent_provider_payment_id?: string | null
+          payment_kind: NowpaymentsProviderPaymentKind
+          qhash_order_id: string
+          pay_address: string
+          pay_currency?: 'usdtbsc'
+          provider_payment_status: NowpaymentsProviderPaymentStatus
+          outcome_amount_usdt?: number | null
+          outcome_currency?: 'usdtbsc' | null
+          provider_verified_at?: string
+          credited_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          provider_payment_status?: NowpaymentsProviderPaymentStatus
+          outcome_amount_usdt?: number | null
+          outcome_currency?: 'usdtbsc' | null
+          provider_verified_at?: string
           credited_at?: string | null
           updated_at?: string
         }
@@ -566,6 +616,7 @@ export interface Database {
           reserved_before_usdt: number
           reserved_after_usdt: number
           payment_id: string | null
+          provider_payment_record_id: string | null
           withdrawal_id: string | null
           description: string | null
           metadata: Json
@@ -583,6 +634,7 @@ export interface Database {
           reserved_before_usdt: number
           reserved_after_usdt: number
           payment_id?: string | null
+          provider_payment_record_id?: string | null
           withdrawal_id?: string | null
           description?: string | null
           metadata?: Json
@@ -831,6 +883,19 @@ export interface Database {
         }
         Returns: Json
       }
+      settle_verified_nowpayments_usdt_payment: {
+        Args: {
+          p_provider_payment_id: string
+          p_parent_provider_payment_id: string | null
+          p_qhash_order_id: string | null
+          p_pay_address: string
+          p_pay_currency: 'usdtbsc'
+          p_provider_payment_status: NowpaymentsProviderPaymentStatus
+          p_outcome_amount: string | null
+          p_outcome_currency: 'usdtbsc' | null
+        }
+        Returns: Json
+      }
       get_current_nowpayments_usdt_deposit_session: {
         Args: { p_user_id: string }
         Returns: Json
@@ -902,6 +967,7 @@ export type AppSetting = Database['public']['Tables']['app_settings']['Row']
 export type NowpaymentsUsdtConfig = Database['public']['Tables']['nowpayments_usdt_config']['Row']
 export type NowpaymentsUsdtWallet = Database['public']['Tables']['nowpayments_usdt_wallets']['Row']
 export type NowpaymentsUsdtPayment = Database['public']['Tables']['nowpayments_usdt_payments']['Row']
+export type NowpaymentsUsdtProviderPayment = Database['public']['Tables']['nowpayments_usdt_provider_payments']['Row']
 export type NowpaymentsUsdtWithdrawal = Database['public']['Tables']['nowpayments_usdt_withdrawals']['Row']
 export type NowpaymentsUsdtLedgerEntry = Database['public']['Tables']['nowpayments_usdt_ledger_entries']['Row']
 export type CryptoDepositAddress = Database['public']['Tables']['crypto_deposit_addresses']['Row']
@@ -917,6 +983,7 @@ export type DepositStatus = 'pending' | 'approved' | 'rejected'
 export type WithdrawalStatus = 'pending' | 'approved' | 'rejected'
 export type PaymentMethodType = 'cbe' | 'telebirr'
 export type NowpaymentsVerificationStatus = 'pending' | 'verified' | 'rejected'
+export type NowpaymentsProviderPaymentKind = 'original' | 'repeated'
 export type NowpaymentsProviderPaymentStatus = 'waiting' | 'partially_paid' | 'confirming' | 'confirmed' | 'sending' | 'finished' | 'failed' | 'refunded' | 'expired'
 export type NowpaymentsDepositSessionStatus = 'provisioning' | 'ready' | 'manual_recovery' | 'terminal'
 export type NowpaymentsManualRecoveryReason = 'stale_provisioning_claim' | 'create_payment_timeout' | 'create_payment_network_error' | 'create_payment_http_error' | 'create_payment_invalid_response' | 'create_payment_finalize_failed' | 'payment_status_invalid_response'
