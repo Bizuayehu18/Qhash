@@ -22,6 +22,10 @@ import { ListPanel } from "@/components/ui/ListPanel.js";
 import { ListRow } from "@/components/ui/ListRow.js";
 import { SectionHeader } from "@/components/ui/SectionHeader.js";
 import { CurrencyUnit } from "@/components/ui/AmountText.js";
+import {
+  CryptoDepositMethodIcon,
+  NowpaymentsUsdtDeposit,
+} from "@/components/deposit/NowpaymentsUsdtDeposit.js";
 import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
 import { getPaymentMethodsFn } from "@/lib/server/payment-methods.js";
@@ -45,7 +49,7 @@ type PaymentMethod = {
 };
 
 type UserDeposit = Awaited<ReturnType<typeof getUserDepositsFn>>[number];
-type DepositStep = "select" | "form";
+type DepositStep = "select" | "form" | "crypto";
 type MethodType = Extract<PaymentMethodType, "cbe" | "telebirr">;
 
 type MethodMeta = {
@@ -399,7 +403,7 @@ function DepositPage() {
     [methods],
   );
 
-  const isFormView = step === "form" && selectedMethod !== null;
+  const isFormView = step === "crypto" || (step === "form" && selectedMethod !== null);
 
   return (
     <div
@@ -412,7 +416,7 @@ function DepositPage() {
       <div className={isFormView ? "space-y-3" : "space-y-3 lg:col-span-7 xl:col-span-8"}>
         <DepositPageHeader />
 
-        {step === "select" || !selectedMethod ? (
+        {step === "select" ? (
           <DepositMethodSelection
             methodsLoaded={methodsLoaded}
             methodsCount={methods.length}
@@ -421,8 +425,14 @@ function DepositPage() {
               setSelectedMethod(method);
               setStep("form");
             }}
+            onSelectCrypto={() => {
+              setSelectedMethod(null);
+              setStep("crypto");
+            }}
           />
-        ) : (
+        ) : step === "crypto" ? (
+          <NowpaymentsUsdtDeposit accessToken={accessToken} onBack={resetForm} />
+        ) : selectedMethod ? (
           <MethodDepositSection
             method={selectedMethod}
             amount={amount}
@@ -433,7 +443,7 @@ function DepositPage() {
             onBack={resetForm}
             onSubmit={handleSubmit}
           />
-        )}
+        ) : null}
       </div>
 
       {!isFormView && (
@@ -452,7 +462,7 @@ function DepositPageHeader() {
         Deposit Center
       </p>
       <h1 className="mt-1 text-lg font-bold leading-tight text-gray-100">Deposit</h1>
-      <p className="mt-1 text-xs text-gray-500">Add funds via CBE or TeleBirr</p>
+      <p className="mt-1 text-xs text-gray-500">Add funds via CBE, TeleBirr, or USDT BEP20</p>
     </div>
   );
 }
@@ -462,21 +472,21 @@ function DepositMethodSelection({
   methodsCount,
   methodOptions,
   onSelect,
+  onSelectCrypto,
 }: {
   methodsLoaded: boolean;
   methodsCount: number;
   methodOptions: Array<{ method: PaymentMethod; index: number; total: number }>;
   onSelect: (method: PaymentMethod) => void;
+  onSelectCrypto: () => void;
 }) {
   return (
     <section className="space-y-2.5">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-bold text-gray-100">Choose Deposit Method</h2>
-        {methodsCount > 0 && (
-          <Badge variant="default" className="shrink-0 text-[9px]">
-            {methodsCount} option{methodsCount === 1 ? "" : "s"}
-          </Badge>
-        )}
+        <Badge variant="default" className="shrink-0 text-[9px]">
+          {methodsCount + 1} option{methodsCount + 1 === 1 ? "" : "s"}
+        </Badge>
       </div>
 
       {!methodsLoaded && methodsCount === 0 ? (
@@ -538,6 +548,31 @@ function DepositMethodSelection({
           })}
         </div>
       )}
+
+      <button
+        type="button"
+        onClick={onSelectCrypto}
+        className="group w-full rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111] px-3.5 py-3 text-left transition-colors hover:bg-[rgba(0,255,65,0.035)] card-press"
+      >
+        <span className="flex items-center gap-3">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[rgba(0,255,65,0.18)] bg-[linear-gradient(145deg,rgba(0,255,65,0.12),rgba(0,255,65,0.04))] text-[#00ff41]">
+            <CryptoDepositMethodIcon />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-black leading-tight text-gray-100">
+              Crypto Deposit
+            </span>
+            <span className="mt-0.5 block truncate text-[11px] text-gray-500">
+              USDT · BNB Smart Chain (BEP20)
+            </span>
+          </span>
+          <Badge variant="neon" className="shrink-0 text-[9px]">USDT</Badge>
+          <ChevronRight
+            size={15}
+            className="shrink-0 text-gray-600 transition-colors group-hover:text-[#00ff41]"
+          />
+        </span>
+      </button>
 
       <DepositNoticeLine />
     </section>
