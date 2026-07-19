@@ -5,6 +5,7 @@ import test from "node:test";
 import { PGlite } from "@electric-sql/pglite";
 import {
   createNowpaymentsClient,
+  NowpaymentsClientError,
 } from "../netlify/functions/lib/nowpayments-client.mts";
 import {
   canonicalizeNowpaymentsIpn,
@@ -14,6 +15,12 @@ import {
 import {
   createNowpaymentsUsdtIpnHandler,
 } from "../netlify/functions/nowpayments-usdt-ipn.mts";
+import {
+  createNowpaymentsUsdtReconcilePaymentHandler,
+} from "../netlify/functions/nowpayments-usdt-reconcile-payment.mts";
+import {
+  NowpaymentsSettlementStoreError,
+} from "../netlify/functions/lib/nowpayments-settlement.mts";
 
 const repositoryRoot = new URL("../", import.meta.url);
 const foundationMigration = await readFile(
@@ -43,6 +50,17 @@ const databaseTypes = await readFile(
 );
 const endpointSource = await readFile(
   new URL("netlify/functions/nowpayments-usdt-ipn.mts", repositoryRoot),
+  "utf8",
+);
+const recoveryEndpointSource = await readFile(
+  new URL(
+    "netlify/functions/nowpayments-usdt-reconcile-payment.mts",
+    repositoryRoot,
+  ),
+  "utf8",
+);
+const recoveryDocumentation = await readFile(
+  new URL("docs/nowpayments-late-deposit-recovery.md", repositoryRoot),
   "utf8",
 );
 const environmentExample = await readFile(
@@ -291,6 +309,43 @@ function createSignedRequest(payload, secret = IPN_SECRET) {
   });
 }
 
+function createRecoveryRequest(providerPaymentId, accessToken = "admin-session-token") {
+  return new Request(
+    "https://qhash.mock/api/admin/crypto/nowpayments/reconcile-payment",
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ payment_id: providerPaymentId }),
+    },
+  );
+}
+
+function verifiedFinishedPayment(overrides = {}) {
+  return {
+    providerPaymentId: ORIGINAL_PROVIDER_ID,
+    parentProviderPaymentId: null,
+    qhashOrderId: "77777777-7777-4777-8777-777777777777",
+    payAddress: PAY_ADDRESS,
+    payCurrency: "usdtbsc",
+    providerPaymentStatus: "finished",
+    outcomeAmountUsdt: "1",
+    outcomeCurrency: "usdtbsc",
+    ...overrides,
+  };
+}
+
+function recoveryEnvironment(name) {
+  return {
+    CONTEXT: "production",
+    VITE_SUPABASE_URL: "https://supabase.mock",
+    SUPABASE_SERVICE_ROLE_KEY: "mock-service-role-key",
+    NOWPAYMENTS_API_KEY: "mock-nowpayments-api-key",
+  }[name];
+}
+
 test("migration keeps crypto disabled, private, precise, and separate from ETB", async (t) => {
   const db = await createMigratedDatabase(t);
   const state = await db.query(`
@@ -470,6 +525,48 @@ test("stores and credits each safely matched repeated child separately", async (
     child_count: 1,
     ledger_count: 2,
     distinct_credits: 2,
+  }]);
+});
+
+test("preserves the child as first settlement when the original finishes later", async (t) => {
+  const db = await createMigratedDatabase(t);
+  const session = await createReadySession(db);
+
+  const child = await settle(db, {
+    providerPaymentId: CHILD_PROVIDER_ID,
+    parentProviderPaymentId: ORIGINAL_PROVIDER_ID,
+    qhashOrderId: null,
+    outcomeAmount: "0.200000000000000002",
+  });
+  assert.equal(child.status, "credited");
+  assert.equal(child.payment_kind, "repeated");
+
+  const original = await settle(db, {
+    qhashOrderId: session.qhash_order_id,
+    outcomeAmount: "0.100000000000000001",
+  });
+  assert.equal(original.status, "credited");
+
+  const state = await db.query(`
+    select
+      session.settled_by_provider_payment_id,
+      session.provider_payment_status,
+      session.session_status,
+      wallet.available_balance_usdt::text,
+      wallet.reserved_balance_usdt::text,
+      (select count(*)::integer from public.nowpayments_usdt_provider_payments) as provider_count,
+      (select count(*)::integer from public.nowpayments_usdt_ledger_entries) as ledger_count
+    from public.nowpayments_usdt_payments as session
+    join public.nowpayments_usdt_wallets as wallet on wallet.user_id = session.user_id
+  `);
+  assert.deepEqual(state.rows, [{
+    settled_by_provider_payment_id: CHILD_PROVIDER_ID,
+    provider_payment_status: "finished",
+    session_status: "terminal",
+    available_balance_usdt: "0.300000000000000003",
+    reserved_balance_usdt: "0.000000000000000000",
+    provider_count: 2,
+    ledger_count: 2,
   }]);
 });
 
@@ -779,6 +876,365 @@ test("provider status parsing preserves lexical decimals and callback creation i
   assert.equal(body.pay_currency, "usdtbsc");
 });
 
+test("authorized admin recovery settles verified original and repeated child payments", async () => {
+  for (const payment of [
+    verifiedFinishedPayment(),
+    verifiedFinishedPayment({
+      providerPaymentId: CHILD_PROVIDER_ID,
+      parentProviderPaymentId: ORIGINAL_PROVIDER_ID,
+      qhashOrderId: null,
+      outcomeAmountUsdt: "0.25",
+    }),
+  ]) {
+    const events = [];
+    const settlements = [];
+    const handler = createNowpaymentsUsdtReconcilePaymentHandler({
+      getEnvironment(name) {
+        events.push(`environment:${name}`);
+        return recoveryEnvironment(name);
+      },
+      async authorizeAdmin(url, key, token) {
+        events.push("authorized-admin");
+        assert.equal(url, "https://supabase.mock");
+        assert.equal(key, "mock-service-role-key");
+        assert.equal(token, "admin-session-token");
+        return "authorized";
+      },
+      createProvider(apiKey) {
+        events.push("provider-created");
+        assert.equal(apiKey, "mock-nowpayments-api-key");
+        return {
+          async getPaymentDetails(providerPaymentId) {
+            assert.equal(providerPaymentId, payment.providerPaymentId);
+            return payment;
+          },
+        };
+      },
+      createStore() {
+        return {
+          async settle(verifiedPayment) {
+            settlements.push(verifiedPayment);
+            return { status: "credited" };
+          },
+        };
+      },
+    });
+
+    const response = await handler(createRecoveryRequest(payment.providerPaymentId));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      status: "credited",
+      payment_id: payment.providerPaymentId,
+    });
+    assert.deepEqual(settlements, [payment]);
+    assert.ok(events.indexOf("authorized-admin") < events.indexOf("environment:NOWPAYMENTS_API_KEY"));
+    assert.ok(events.indexOf("environment:NOWPAYMENTS_API_KEY") < events.indexOf("provider-created"));
+  }
+});
+
+test("duplicate and concurrent admin recovery attempts return safe idempotent results", async () => {
+  let firstCreditAvailable = true;
+  let settlementCalls = 0;
+  const handler = createNowpaymentsUsdtReconcilePaymentHandler({
+    getEnvironment: recoveryEnvironment,
+    async authorizeAdmin() {
+      return "authorized";
+    },
+    createProvider() {
+      return {
+        async getPaymentDetails() {
+          return verifiedFinishedPayment({ outcomeAmountUsdt: "0.75" });
+        },
+      };
+    },
+    createStore() {
+      return {
+        async settle() {
+          settlementCalls += 1;
+          await Promise.resolve();
+          if (firstCreditAvailable) {
+            firstCreditAvailable = false;
+            return { status: "credited" };
+          }
+          return { status: "already_credited" };
+        },
+      };
+    },
+  });
+
+  const responses = await Promise.all([
+    handler(createRecoveryRequest(ORIGINAL_PROVIDER_ID)),
+    handler(createRecoveryRequest(ORIGINAL_PROVIDER_ID)),
+    handler(createRecoveryRequest(ORIGINAL_PROVIDER_ID)),
+  ]);
+  const bodies = await Promise.all(responses.map((response) => response.json()));
+  assert.equal(settlementCalls, 3);
+  assert.equal(bodies.filter((body) => body.status === "credited").length, 1);
+  assert.equal(bodies.filter((body) => body.status === "already_credited").length, 2);
+});
+
+test("manual recovery rejects non-production, unauthorized, and non-admin requests", async () => {
+  for (const context of ["deploy-preview", "branch-deploy", "dev", undefined, "unknown"]) {
+    const reads = [];
+    const handler = createNowpaymentsUsdtReconcilePaymentHandler({
+      getEnvironment(name) {
+        reads.push(name);
+        if (name === "CONTEXT") return context;
+        throw new Error("non-production credential read");
+      },
+    });
+    const response = await handler(createRecoveryRequest(ORIGINAL_PROVIDER_ID));
+    assert.equal(response.status, 503);
+    assert.deepEqual(reads, ["CONTEXT"]);
+  }
+
+  const missingTokenHandler = createNowpaymentsUsdtReconcilePaymentHandler({
+    getEnvironment(name) {
+      if (name === "CONTEXT") return "production";
+      throw new Error(`unexpected credential read: ${name}`);
+    },
+  });
+  const missingTokenResponse = await missingTokenHandler(new Request(
+    "https://qhash.mock/api/admin/crypto/nowpayments/reconcile-payment",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ payment_id: ORIGINAL_PROVIDER_ID }),
+    },
+  ));
+  assert.equal(missingTokenResponse.status, 401);
+
+  for (const [authorization, expectedStatus] of [
+    ["unauthorized", 401],
+    ["forbidden", 403],
+  ]) {
+    const reads = [];
+    let providerCalls = 0;
+    const handler = createNowpaymentsUsdtReconcilePaymentHandler({
+      getEnvironment(name) {
+        reads.push(name);
+        return recoveryEnvironment(name);
+      },
+      async authorizeAdmin() {
+        return authorization;
+      },
+      createProvider() {
+        providerCalls += 1;
+        throw new Error("provider must not be created");
+      },
+    });
+    const response = await handler(createRecoveryRequest(ORIGINAL_PROVIDER_ID));
+    assert.equal(response.status, expectedStatus);
+    assert.equal(providerCalls, 0);
+    assert.ok(!reads.includes("NOWPAYMENTS_API_KEY"));
+  }
+});
+
+test("manual recovery accepts only strict POST JSON containing one provider payment ID", async () => {
+  let authorizationCalls = 0;
+  let providerCalls = 0;
+  const handler = createNowpaymentsUsdtReconcilePaymentHandler({
+    getEnvironment: recoveryEnvironment,
+    async authorizeAdmin() {
+      authorizationCalls += 1;
+      return "authorized";
+    },
+    createProvider() {
+      providerCalls += 1;
+      throw new Error("provider must not be reached");
+    },
+  });
+  const url = "https://qhash.mock/api/admin/crypto/nowpayments/reconcile-payment";
+  const headers = {
+    authorization: "Bearer admin-session-token",
+    "content-type": "application/json",
+  };
+
+  const invalidRequests = [
+    new Request(url, { method: "GET", headers }),
+    new Request(url, {
+      method: "POST",
+      headers: { ...headers, "content-type": "text/plain" },
+      body: JSON.stringify({ payment_id: ORIGINAL_PROVIDER_ID }),
+    }),
+    new Request(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ payment_id: Number(ORIGINAL_PROVIDER_ID) }),
+    }),
+    new Request(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ payment_id: ` ${ORIGINAL_PROVIDER_ID}` }),
+    }),
+    new Request(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ payment_id: ORIGINAL_PROVIDER_ID, user_id: USER_ID }),
+    }),
+    new Request(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ payment_id: "1".repeat(4_097) }),
+    }),
+  ];
+
+  const responses = [];
+  for (const request of invalidRequests) responses.push(await handler(request));
+  assert.deepEqual(
+    responses.map((response) => response.status),
+    [405, 415, 400, 400, 400, 413],
+  );
+  assert.equal(authorizationCalls, 0);
+  assert.equal(providerCalls, 0);
+});
+
+test("manual recovery rejects unknown, mismatched, non-finished, wrong-currency, and invalid payments", async () => {
+  const cases = [
+    {
+      payment: verifiedFinishedPayment({ providerPaymentStatus: "confirming", outcomeAmountUsdt: null, outcomeCurrency: null }),
+      expectedStatus: 409,
+    },
+    {
+      payment: verifiedFinishedPayment({ payCurrency: "usdttrc20" }),
+      expectedStatus: 422,
+    },
+    {
+      payment: verifiedFinishedPayment({ outcomeAmountUsdt: "0" }),
+      expectedStatus: 422,
+    },
+    {
+      payment: verifiedFinishedPayment({ providerPaymentId: CHILD_PROVIDER_ID }),
+      expectedStatus: 422,
+    },
+  ];
+
+  for (const { payment, expectedStatus } of cases) {
+    let settlementCalls = 0;
+    const handler = createNowpaymentsUsdtReconcilePaymentHandler({
+      getEnvironment: recoveryEnvironment,
+      async authorizeAdmin() {
+        return "authorized";
+      },
+      createProvider() {
+        return { async getPaymentDetails() { return payment; } };
+      },
+      createStore() {
+        return {
+          async settle() {
+            settlementCalls += 1;
+            return { status: "credited" };
+          },
+        };
+      },
+    });
+    const response = await handler(createRecoveryRequest(ORIGINAL_PROVIDER_ID));
+    assert.equal(response.status, expectedStatus);
+    assert.equal(settlementCalls, 0);
+  }
+
+  const unknownProviderHandler = createNowpaymentsUsdtReconcilePaymentHandler({
+    getEnvironment: recoveryEnvironment,
+    async authorizeAdmin() {
+      return "authorized";
+    },
+    createProvider() {
+      return {
+        async getPaymentDetails() {
+          throw new NowpaymentsClientError("payment_status_request_failed");
+        },
+      };
+    },
+    createStore() {
+      throw new Error("unknown provider payment must not settle");
+    },
+  });
+  assert.equal(
+    (await unknownProviderHandler(createRecoveryRequest(ORIGINAL_PROVIDER_ID))).status,
+    503,
+  );
+
+  const mismatchedMerchantHandler = createNowpaymentsUsdtReconcilePaymentHandler({
+    getEnvironment: recoveryEnvironment,
+    async authorizeAdmin() {
+      return "authorized";
+    },
+    createProvider() {
+      return { async getPaymentDetails() { return verifiedFinishedPayment(); } };
+    },
+    createStore() {
+      return {
+        async settle() {
+          throw new NowpaymentsSettlementStoreError("settlement_rpc_failed", true);
+        },
+      };
+    },
+  });
+  assert.equal(
+    (await mismatchedMerchantHandler(createRecoveryRequest(ORIGINAL_PROVIDER_ID))).status,
+    422,
+  );
+});
+
+test("manual recovery preserves exact sub-one-USDT outcomes and fails safely", async () => {
+  const exactAmount = "0.000000000000000123";
+  let settledAmount = null;
+  const exactHandler = createNowpaymentsUsdtReconcilePaymentHandler({
+    getEnvironment: recoveryEnvironment,
+    async authorizeAdmin() {
+      return "authorized";
+    },
+    createProvider() {
+      return {
+        async getPaymentDetails() {
+          return verifiedFinishedPayment({ outcomeAmountUsdt: exactAmount });
+        },
+      };
+    },
+    createStore() {
+      return {
+        async settle(payment) {
+          settledAmount = payment.outcomeAmountUsdt;
+          return { status: "credited" };
+        },
+      };
+    },
+  });
+  assert.equal((await exactHandler(createRecoveryRequest(ORIGINAL_PROVIDER_ID))).status, 200);
+  assert.equal(settledAmount, exactAmount);
+
+  const providerFailureHandler = createNowpaymentsUsdtReconcilePaymentHandler({
+    getEnvironment: recoveryEnvironment,
+    async authorizeAdmin() {
+      return "authorized";
+    },
+    createProvider() {
+      return { async getPaymentDetails() { throw new Error("mock provider failure"); } };
+    },
+  });
+  assert.equal(
+    (await providerFailureHandler(createRecoveryRequest(ORIGINAL_PROVIDER_ID))).status,
+    503,
+  );
+
+  const databaseFailureHandler = createNowpaymentsUsdtReconcilePaymentHandler({
+    getEnvironment: recoveryEnvironment,
+    async authorizeAdmin() {
+      return "authorized";
+    },
+    createProvider() {
+      return { async getPaymentDetails() { return verifiedFinishedPayment(); } };
+    },
+    createStore() {
+      return { async settle() { throw new Error("mock database failure"); } };
+    },
+  });
+  assert.equal(
+    (await databaseFailureHandler(createRecoveryRequest(ORIGINAL_PROVIDER_ID))).status,
+    503,
+  );
+});
+
 test("types, endpoint source, and secret documentation stay server-only", () => {
   assert.match(databaseTypes, /\bnowpayments_usdt_provider_payments:\s*\{/);
   assert.match(databaseTypes, /\bsettle_verified_nowpayments_usdt_payment:\s*\{/);
@@ -794,4 +1250,10 @@ test("types, endpoint source, and secret documentation stay server-only", () => 
       < endpointSource.indexOf('getEnvironment("NOWPAYMENTS_API_KEY")'),
   );
   assert.doesNotMatch(endpointSource, /console\.(log|info|warn|error)/);
+  assert.doesNotMatch(recoveryEndpointSource, /console\.(log|info|warn|error)/);
+  assert.match(recoveryEndpointSource, /\.select\("is_admin, is_frozen"\)/);
+  assert.match(recoveryEndpointSource, /providerPaymentStatus !== "finished"/);
+  assert.match(recoveryDocumentation, /cannot automatically discover/i);
+  assert.match(recoveryDocumentation, /contacts NOWPayments support/i);
+  assert.match(recoveryDocumentation, /manual reconciliation, not automatic discovery/i);
 });

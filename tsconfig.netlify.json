@@ -3,9 +3,11 @@
   "include": [
     "netlify/functions/nowpayments-usdt-deposit-session.mts",
     "netlify/functions/nowpayments-usdt-ipn.mts",
+    "netlify/functions/nowpayments-usdt-reconcile-payment.mts",
     "netlify/functions/lib/nowpayments-client.mts",
     "netlify/functions/lib/nowpayments-deposit-session.mts",
     "netlify/functions/lib/nowpayments-ipn.mts",
+    "netlify/functions/lib/nowpayments-settlement.mts",
     "src/lib/database.types.ts"
   ],
   "compilerOptions": {

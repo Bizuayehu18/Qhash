@@ -1,6 +1,4 @@
 import type { Config } from "@netlify/functions";
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "../../src/lib/database.types.ts";
 import {
   createNowpaymentsClient,
   NowpaymentsClientError,
@@ -13,19 +11,11 @@ import {
   readBoundedNowpaymentsIpnBody,
   verifyNowpaymentsIpn,
 } from "./lib/nowpayments-ipn.mts";
-
-type SettlementResult = {
-  status:
-    | "credited"
-    | "already_credited"
-    | "preserved_credited"
-    | "recorded_no_credit"
-    | "preserved_newer_status";
-};
-
-type SettlementStore = {
-  settle(payment: NowpaymentsVerifiedPayment): Promise<SettlementResult>;
-};
+import {
+  createNowpaymentsSettlementStore,
+  NowpaymentsSettlementStoreError,
+  type NowpaymentsSettlementStore,
+} from "./lib/nowpayments-settlement.mts";
 
 type Provider = {
   getPaymentDetails(providerPaymentId: string): Promise<NowpaymentsVerifiedPayment>;
@@ -34,18 +24,11 @@ type Provider = {
 type HandlerDependencies = {
   getEnvironment?: (name: string) => string | undefined;
   createProvider?: (apiKey: string) => Provider;
-  createStore?: (supabaseUrl: string, serviceRoleKey: string) => SettlementStore;
+  createStore?: (
+    supabaseUrl: string,
+    serviceRoleKey: string,
+  ) => NowpaymentsSettlementStore;
 };
-
-class SettlementStoreError extends Error {
-  readonly safeToIgnore: boolean;
-
-  constructor(message: string, safeToIgnore: boolean) {
-    super(message);
-    this.name = "SettlementStoreError";
-    this.safeToIgnore = safeToIgnore;
-  }
-}
 
 function json(body: Record<string, unknown>, status: number): Response {
   return Response.json(body, {
@@ -60,59 +43,6 @@ function isProductionDeployContext(getEnvironment: (name: string) => string | un
   } catch {
     return false;
   }
-}
-
-function isSafeSettlementRejection(message: string): boolean {
-  return [
-    "invalid_nowpayments_settlement_input",
-    "invalid_nowpayments_settlement_outcome",
-    "unexpected_nowpayments_settlement_outcome",
-    "nowpayments_settlement_ownership_mismatch",
-    "nowpayments_settlement_record_mismatch",
-  ].some((code) => message.includes(code));
-}
-
-function defaultStore(supabaseUrl: string, serviceRoleKey: string): SettlementStore {
-  const admin = createClient<Database>(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-  return {
-    async settle(payment) {
-      const { data, error } = await admin.rpc(
-        "settle_verified_nowpayments_usdt_payment",
-        {
-          p_provider_payment_id: payment.providerPaymentId,
-          p_parent_provider_payment_id: payment.parentProviderPaymentId,
-          p_qhash_order_id: payment.qhashOrderId,
-          p_pay_address: payment.payAddress,
-          p_pay_currency: payment.payCurrency,
-          p_provider_payment_status: payment.providerPaymentStatus,
-          p_outcome_amount: payment.outcomeAmountUsdt,
-          p_outcome_currency: payment.outcomeCurrency,
-        },
-      );
-      if (error) {
-        throw new SettlementStoreError(
-          "settlement_rpc_failed",
-          isSafeSettlementRejection(error.message),
-        );
-      }
-      if (!data || typeof data !== "object" || Array.isArray(data)) {
-        throw new SettlementStoreError("settlement_rpc_invalid_response", false);
-      }
-      const status = (data as Record<string, unknown>).status;
-      if (
-        status !== "credited"
-        && status !== "already_credited"
-        && status !== "preserved_credited"
-        && status !== "recorded_no_credit"
-        && status !== "preserved_newer_status"
-      ) {
-        throw new SettlementStoreError("settlement_rpc_invalid_response", false);
-      }
-      return { status };
-    },
-  };
 }
 
 export function createNowpaymentsUsdtIpnHandler(
@@ -212,7 +142,7 @@ export function createNowpaymentsUsdtIpnHandler(
 
     try {
       const store = dependencies.createStore?.(supabaseUrl, serviceRoleKey)
-        ?? defaultStore(supabaseUrl, serviceRoleKey);
+        ?? createNowpaymentsSettlementStore(supabaseUrl, serviceRoleKey);
       const result = await store.settle(verifiedPayment);
       return json(
         {
@@ -223,7 +153,7 @@ export function createNowpaymentsUsdtIpnHandler(
         200,
       );
     } catch (error) {
-      if (error instanceof SettlementStoreError && error.safeToIgnore) {
+      if (error instanceof NowpaymentsSettlementStoreError && error.safeToIgnore) {
         return json({ status: "ignored" }, 202);
       }
       return json(

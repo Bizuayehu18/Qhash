@@ -656,7 +656,10 @@ begin
         credited_amount_usdt = v_outcome_amount,
         credited_at = now(),
         session_status = 'terminal',
-        settled_by_provider_payment_id = p_provider_payment_id,
+        settled_by_provider_payment_id = coalesce(
+          settled_by_provider_payment_id,
+          p_provider_payment_id
+        ),
         terminal_at = coalesce(terminal_at, now()),
         terminal_reason = 'verified_finished_payment',
         manual_recovery_at = null,
