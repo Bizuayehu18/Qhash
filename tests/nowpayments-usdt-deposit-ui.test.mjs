@@ -3,7 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { tsImport } from "tsx/esm/api";
-import overviewHandler from "../netlify/functions/nowpayments-usdt-deposit-overview.mts";
+import overviewHandler, {
+  createOverviewHandler,
+} from "../netlify/functions/nowpayments-usdt-deposit-overview.mts";
 import {
   fetchNowpaymentsDepositOverview,
   createSingleFlight,
@@ -19,6 +21,47 @@ const USER_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_USER_ID = "22222222-2222-4222-8222-222222222222";
 const SESSION_ID = "33333333-3333-4333-8333-333333333333";
 const ADDRESS = "0x1111111111111111111111111111111111111111";
+const REQUEST_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const TERMINAL_LOG_FIELDS = [
+  "diagnostic_code",
+  "event",
+  "http_status",
+  "outcome",
+  "request_id",
+  "stage",
+];
+const TERMINAL_LOG_STAGES = new Set([
+  "runtime_gate",
+  "method_gate",
+  "server_config",
+  "authentication",
+  "profile_config_query",
+  "overview_queries",
+  "wallet_validation",
+  "response_validation",
+  "complete",
+]);
+const FORBIDDEN_TERMINAL_LOG_FRAGMENTS = [
+  "valid-token",
+  "service-role-mock",
+  "supabase.mock",
+  "VITE_SUPABASE_URL",
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "authorization",
+  "cookie",
+  "pay_address",
+  "provider_payment_id",
+  "request body",
+  "raw error",
+  "stack",
+  "sensitive",
+  USER_ID,
+  OTHER_USER_ID,
+  SESSION_ID,
+  ADDRESS,
+  "90071992547409931234",
+];
 const {
   IDLE_COPY_FEEDBACK,
   copyButtonAccessibleName,
@@ -72,32 +115,59 @@ function validProviderPayment(overrides = {}) {
 }
 
 async function invokeOverview({
+  handler = overviewHandler,
   context = "production",
+  method = "GET",
   authorization = `Bearer valid-token`,
+  incomingRequestId = null,
+  viteSupabaseUrl = "https://supabase.mock",
+  supabaseUrl,
+  serviceRoleKey = "service-role-mock",
+  environmentThrowName = null,
   configEnabled = false,
+  configOverrides = {},
+  profile = { is_frozen: false },
   sessions = [],
   providerPayments = [],
   wallet = null,
   authValid = true,
+  queryFailure = null,
+  loggerThrows = false,
 } = {}) {
   const originalFetch = globalThis.fetch;
   const originalNetlify = globalThis.Netlify;
+  const originalConsoleInfo = console.info;
   const environmentReads = [];
   const requests = [];
+  const terminalLogs = [];
   globalThis.Netlify = {
     env: {
       get(name) {
         environmentReads.push(name);
+        if (name === environmentThrowName) {
+          throw new Error("sensitive environment lookup detail");
+        }
         if (name === "CONTEXT") return context;
-        if (name === "VITE_SUPABASE_URL") return "https://supabase.mock";
-        if (name === "SUPABASE_SERVICE_ROLE_KEY") return "service-role-mock";
+        if (name === "VITE_SUPABASE_URL") return viteSupabaseUrl;
+        if (name === "SUPABASE_URL") return supabaseUrl;
+        if (name === "SUPABASE_SERVICE_ROLE_KEY") return serviceRoleKey;
         throw new Error(`Unexpected environment read: ${name}`);
       },
     },
   };
+  console.info = (...args) => {
+    terminalLogs.push(args);
+    if (loggerThrows) throw new Error("sensitive logger failure detail");
+  };
   globalThis.fetch = async (input) => {
     const url = String(input);
     requests.push(url);
+    if (queryFailure && url.includes(queryFailure)) {
+      return Response.json(
+        { message: "sensitive database response detail" },
+        { status: 500 },
+      );
+    }
     if (url.startsWith("https://api.nowpayments.io")) {
       throw new Error("A UI overview test must never contact NOWPayments");
     }
@@ -112,9 +182,9 @@ async function invokeOverview({
             user_metadata: {},
             created_at: "2030-01-01T00:00:00Z",
           })
-        : Response.json({ message: "invalid" }, { status: 401 });
+        : Response.json({ message: "sensitive auth response detail" }, { status: 401 });
     }
-    if (url.includes("/rest/v1/profiles")) return Response.json({ is_frozen: false });
+    if (url.includes("/rest/v1/profiles")) return Response.json(profile);
     if (url.includes("/rest/v1/nowpayments_usdt_config")) {
       return Response.json({
         id: "USDT-BEP20",
@@ -125,6 +195,7 @@ async function invokeOverview({
         deposit_minimum_usdt: "1.000000",
         withdrawal_minimum_usdt: "2.000000",
         withdrawal_fee_percent: "5.000000",
+        ...configOverrides,
       });
     }
     if (url.includes("/rest/v1/nowpayments_usdt_wallets")) return Response.json(wallet);
@@ -136,21 +207,58 @@ async function invokeOverview({
   };
 
   try {
-    const response = await overviewHandler(new Request(
-      "https://qhash.mock/api/crypto/nowpayments/deposit-overview",
-      { method: "GET", headers: authorization ? { authorization } : {} },
-    ));
+    const headers = {};
+    if (authorization) headers.authorization = authorization;
+    if (incomingRequestId) headers["x-qhash-request-id"] = incomingRequestId;
+    let response = null;
+    let body = null;
+    let thrown = null;
+    try {
+      response = await handler(new Request(
+        "https://qhash.mock/api/crypto/nowpayments/deposit-overview",
+        { method, headers },
+      ));
+      body = await response.json();
+    } catch (error) {
+      thrown = error;
+    }
     return {
       response,
-      body: await response.json(),
+      body,
+      thrown,
       environmentReads,
       requests,
+      terminalLogs,
     };
   } finally {
     globalThis.fetch = originalFetch;
+    console.info = originalConsoleInfo;
     if (originalNetlify === undefined) delete globalThis.Netlify;
     else globalThis.Netlify = originalNetlify;
   }
+}
+
+function readTerminalLog(result) {
+  assert.equal(result.terminalLogs.length, 1, "expected exactly one terminal log attempt");
+  assert.equal(result.terminalLogs[0].length, 1, "terminal log must use one structured argument");
+  assert.equal(typeof result.terminalLogs[0][0], "string");
+  const terminalLog = JSON.parse(result.terminalLogs[0][0]);
+  assert.deepEqual(Object.keys(terminalLog).sort(), TERMINAL_LOG_FIELDS);
+  assert.equal(TERMINAL_LOG_STAGES.has(terminalLog.stage), true);
+  return terminalLog;
+}
+
+function emptyOverviewBody(featureEnabled) {
+  return {
+    feature_enabled: featureEnabled,
+    asset: "USDT",
+    network: "BEP20",
+    minimum_deposit_usdt: "1.000000",
+    wallet: { available_balance_usdt: "0", reserved_balance_usdt: "0" },
+    session_state: "none",
+    active_session: null,
+    history: [],
+  };
 }
 
 test("overview rejects every non-production context before secrets or network", async () => {
@@ -243,6 +351,239 @@ test("finished sub-one-USDT credit is displayed exactly and expired addresses ar
   });
   assert.equal(expired.body.active_session, null);
   assert.equal(expired.body.history[0].status, "expired");
+});
+
+test("overview preserves every handled terminal response and emits one allowlisted correlated log", async (t) => {
+  const cases = [
+    {
+      name: "runtime context rejection",
+      options: { context: "deploy-preview" },
+      status: 503,
+      body: { error: "crypto_runtime_unavailable", message: "Crypto deposits are unavailable." },
+      stage: "runtime_gate",
+      diagnosticCode: "crypto_runtime_unavailable",
+    },
+    {
+      name: "runtime context lookup failure",
+      options: { environmentThrowName: "CONTEXT" },
+      status: 503,
+      body: { error: "crypto_runtime_unavailable", message: "Crypto deposits are unavailable." },
+      stage: "runtime_gate",
+      diagnosticCode: "crypto_runtime_unavailable",
+    },
+    {
+      name: "method rejection",
+      options: { method: "POST" },
+      status: 405,
+      body: { error: "method_not_allowed", message: "GET only." },
+      stage: "method_gate",
+      diagnosticCode: "method_not_allowed",
+    },
+    {
+      name: "server configuration rejection",
+      options: { serviceRoleKey: "" },
+      status: 500,
+      body: { error: "server_config", message: "Server is not configured." },
+      stage: "server_config",
+      diagnosticCode: "server_config",
+    },
+    {
+      name: "authentication requirement",
+      options: { authorization: "" },
+      status: 401,
+      body: { error: "authentication_required", message: "Authentication required." },
+      stage: "authentication",
+      diagnosticCode: "authentication_required",
+    },
+    {
+      name: "invalid session",
+      options: { authValid: false },
+      status: 401,
+      body: { error: "invalid_session", message: "Invalid or expired session." },
+      stage: "authentication",
+      diagnosticCode: "invalid_session",
+    },
+    {
+      name: "account rejection",
+      options: { profile: { is_frozen: true } },
+      status: 403,
+      body: { error: "account_unavailable", message: "Account is unavailable." },
+      stage: "profile_config_query",
+      diagnosticCode: "account_unavailable",
+    },
+    {
+      name: "configuration validation rejection",
+      options: { configOverrides: { asset: "BTC" } },
+      status: 503,
+      body: { error: "crypto_config_unavailable", message: "Crypto deposits are unavailable." },
+      stage: "profile_config_query",
+      diagnosticCode: "crypto_config_unavailable",
+    },
+    {
+      name: "overview query rejection",
+      options: { queryFailure: "/rest/v1/nowpayments_usdt_wallets" },
+      status: 503,
+      body: { error: "deposit_overview_unavailable", message: "Crypto deposits are unavailable." },
+      stage: "overview_queries",
+      diagnosticCode: "deposit_overview_unavailable",
+    },
+    {
+      name: "wallet validation rejection",
+      options: {
+        wallet: {
+          user_id: OTHER_USER_ID,
+          asset: "USDT",
+          available_balance_usdt: "0",
+          reserved_balance_usdt: "0",
+        },
+      },
+      status: 503,
+      body: { error: "deposit_overview_unavailable", message: "Crypto deposits are unavailable." },
+      stage: "wallet_validation",
+      diagnosticCode: "deposit_overview_unavailable",
+    },
+    {
+      name: "session validation rejection",
+      options: { sessions: [validSession({ id: "invalid" })] },
+      status: 503,
+      body: { error: "deposit_overview_unavailable", message: "Crypto deposits are unavailable." },
+      stage: "response_validation",
+      diagnosticCode: "deposit_overview_unavailable",
+    },
+    {
+      name: "provider-payment validation rejection",
+      options: { providerPayments: [validProviderPayment({ provider_payment_id: "invalid" })] },
+      status: 503,
+      body: { error: "deposit_overview_unavailable", message: "Crypto deposits are unavailable." },
+      stage: "response_validation",
+      diagnosticCode: "deposit_overview_unavailable",
+    },
+    {
+      name: "disabled success",
+      options: { configEnabled: false },
+      status: 200,
+      body: emptyOverviewBody(false),
+      stage: "complete",
+      diagnosticCode: "overview_success",
+      outcome: "success",
+    },
+    {
+      name: "enabled success",
+      options: { configEnabled: true },
+      status: 200,
+      body: emptyOverviewBody(true),
+      stage: "complete",
+      diagnosticCode: "overview_success",
+      outcome: "success",
+    },
+  ];
+
+  for (const entry of cases) {
+    await t.test(entry.name, async () => {
+      const result = await invokeOverview(entry.options);
+      assert.equal(result.thrown, null);
+      assert.equal(result.response.status, entry.status);
+      assert.deepEqual(result.body, entry.body);
+      assert.equal(Object.hasOwn(result.body, "request_id"), false);
+      assert.equal(result.response.headers.get("cache-control"), "no-store");
+      assert.deepEqual(
+        [...result.response.headers.keys()].sort(),
+        ["cache-control", "content-type", "x-qhash-request-id"],
+      );
+
+      const requestId = result.response.headers.get("x-qhash-request-id");
+      assert.match(requestId, REQUEST_ID_PATTERN);
+      const terminalLog = readTerminalLog(result);
+      assert.deepEqual(terminalLog, {
+        event: "nowpayments_usdt_deposit_overview",
+        request_id: requestId,
+        stage: entry.stage,
+        http_status: entry.status,
+        diagnostic_code: entry.diagnosticCode,
+        outcome: entry.outcome ?? "failure",
+      });
+
+      const serializedLog = JSON.stringify(terminalLog);
+      for (const forbidden of FORBIDDEN_TERMINAL_LOG_FRAGMENTS) {
+        assert.equal(serializedLog.includes(forbidden), false, `terminal log leaked ${forbidden}`);
+      }
+    });
+  }
+});
+
+test("overview request IDs are server-owned, random, and correlated only by response header", async () => {
+  const spoofedRequestId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const first = await invokeOverview({ incomingRequestId: spoofedRequestId });
+  const second = await invokeOverview();
+  const firstHeader = first.response.headers.get("x-qhash-request-id");
+  const secondHeader = second.response.headers.get("x-qhash-request-id");
+  assert.match(firstHeader, REQUEST_ID_PATTERN);
+  assert.match(secondHeader, REQUEST_ID_PATTERN);
+  assert.notEqual(firstHeader, spoofedRequestId);
+  assert.notEqual(firstHeader, secondHeader);
+  assert.equal(readTerminalLog(first).request_id, firstHeader);
+  assert.equal(readTerminalLog(second).request_id, secondHeader);
+  assert.equal(JSON.stringify(first.body).includes(firstHeader), false);
+  assert.equal(JSON.stringify(second.body).includes(secondHeader), false);
+});
+
+test("request ID factory failures use a fresh server-owned fallback without leaking details", async () => {
+  const handler = createOverviewHandler(() => {
+    throw new Error("sensitive request ID generator detail");
+  });
+  const first = await invokeOverview({ handler });
+  const second = await invokeOverview({ handler });
+
+  for (const result of [first, second]) {
+    assert.equal(result.thrown, null);
+    assert.equal(result.response.status, 200);
+    assert.deepEqual(result.body, emptyOverviewBody(false));
+    const requestId = result.response.headers.get("x-qhash-request-id");
+    assert.match(requestId, REQUEST_ID_PATTERN);
+    const terminalLog = readTerminalLog(result);
+    assert.equal(terminalLog.request_id, requestId);
+    const publicOutput = `${JSON.stringify(result.body)}${JSON.stringify(terminalLog)}`;
+    assert.equal(publicOutput.includes("sensitive request ID generator detail"), false);
+  }
+
+  assert.notEqual(
+    first.response.headers.get("x-qhash-request-id"),
+    second.response.headers.get("x-qhash-request-id"),
+  );
+});
+
+test("invalid request ID factory output uses a canonical server-owned UUID", async () => {
+  const result = await invokeOverview({
+    handler: createOverviewHandler(() => "not-a-request-id"),
+    incomingRequestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  });
+  const requestId = result.response.headers.get("x-qhash-request-id");
+  assert.match(requestId, REQUEST_ID_PATTERN);
+  assert.notEqual(requestId, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+  assert.equal(readTerminalLog(result).request_id, requestId);
+});
+
+test("unexpected exceptions keep propagating and still emit one sanitized terminal log", async () => {
+  const result = await invokeOverview({ environmentThrowName: "VITE_SUPABASE_URL" });
+  assert.equal(result.response, null);
+  assert.equal(result.body, null);
+  assert.ok(result.thrown instanceof Error);
+  const terminalLog = readTerminalLog(result);
+  assert.equal(terminalLog.stage, "server_config");
+  assert.equal(terminalLog.http_status, 500);
+  assert.equal(terminalLog.diagnostic_code, "unexpected_exception");
+  assert.equal(terminalLog.outcome, "failure");
+  const serializedLog = JSON.stringify(terminalLog);
+  assert.equal(serializedLog.includes(result.thrown.message), false);
+  assert.equal(serializedLog.includes("sensitive"), false);
+});
+
+test("terminal logger failure cannot change the existing response", async () => {
+  const result = await invokeOverview({ loggerThrows: true });
+  assert.equal(result.thrown, null);
+  assert.equal(result.response.status, 200);
+  assert.deepEqual(result.body, emptyOverviewBody(false));
+  assert.equal(result.terminalLogs.length, 1);
 });
 
 test("client validation, countdown boundary, and decimal rendering avoid floating-point arithmetic", () => {
@@ -430,6 +771,17 @@ test("overview source keeps production and authentication gates before database 
   assert.match(overviewSource, /\.eq\("user_id", userId\)/);
   assert.match(overviewSource, /available_balance_usdt::text/);
   assert.match(overviewSource, /credited_amount_usdt::text/);
+});
+
+test("overview source limits observability to the request-ID header and one sanitized terminal log", () => {
+  assert.equal((overviewSource.match(/console\.info\(/g) ?? []).length, 1);
+  assert.doesNotMatch(overviewSource, /console\.(?:log|warn|error|debug)\(/);
+  assert.match(overviewSource, /"X-QHash-Request-ID": requestId/);
+  assert.doesNotMatch(
+    overviewSource,
+    /(?:error\.message|error\.stack|String\(\s*error\s*\)|JSON\.stringify\(\s*(?:error|req|body|response)\s*\))/,
+  );
+  assert.doesNotMatch(overviewSource, /request_id:\s*(?:authorization|token|userId)/);
 });
 
 test("test file itself contains no live credential or provider call", () => {

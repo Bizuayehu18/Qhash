@@ -1,8 +1,10 @@
 import type { Config } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
+import { randomBytes, randomUUID } from "node:crypto";
 import type { Database } from "../../src/lib/database.types.ts";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const REQUEST_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const PROVIDER_ID_PATTERN = /^\d{1,200}$/;
 const DECIMAL_PATTERN = /^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/;
@@ -16,6 +18,47 @@ const ACTIVE_STATUSES = new Set([
 const TERMINAL_STATUSES = new Set(["finished", "failed", "refunded", "expired"]);
 const PROVIDER_STATUSES = new Set([...ACTIVE_STATUSES, ...TERMINAL_STATUSES]);
 const HISTORY_LIMIT = 250;
+const OVERVIEW_LOG_EVENT = "nowpayments_usdt_deposit_overview";
+
+type OverviewStage =
+  | "runtime_gate"
+  | "method_gate"
+  | "server_config"
+  | "authentication"
+  | "profile_config_query"
+  | "overview_queries"
+  | "wallet_validation"
+  | "response_validation"
+  | "complete";
+
+type OverviewDiagnosticCode =
+  | "crypto_runtime_unavailable"
+  | "method_not_allowed"
+  | "server_config"
+  | "authentication_required"
+  | "invalid_session"
+  | "account_unavailable"
+  | "crypto_config_unavailable"
+  | "deposit_overview_unavailable"
+  | "overview_success"
+  | "unexpected_exception";
+
+type OverviewTerminalLog = {
+  event: typeof OVERVIEW_LOG_EVENT;
+  request_id: string;
+  stage: OverviewStage;
+  http_status: number;
+  diagnostic_code: OverviewDiagnosticCode;
+  outcome: "success" | "failure";
+};
+
+type OverviewInvocation = {
+  requestId: string;
+  currentStage: OverviewStage;
+  terminalLog: OverviewTerminalLog | null;
+};
+
+type RequestIdFactory = () => string;
 
 type SessionRow = {
   id: string;
@@ -64,11 +107,67 @@ function isProductionDeployContext(): boolean {
   }
 }
 
-function json(body: Record<string, unknown>, status: number): Response {
+function json(body: Record<string, unknown>, status: number, requestId: string): Response {
   return Response.json(body, {
     status,
-    headers: { "Cache-Control": "no-store" },
+    headers: {
+      "Cache-Control": "no-store",
+      "X-QHash-Request-ID": requestId,
+    },
   });
+}
+
+function terminalResponse(
+  invocation: OverviewInvocation,
+  body: Record<string, unknown>,
+  status: number,
+  stage: OverviewStage,
+  diagnosticCode: OverviewDiagnosticCode,
+  outcome: "success" | "failure" = "failure",
+): Response {
+  const response = json(body, status, invocation.requestId);
+  invocation.currentStage = stage;
+  invocation.terminalLog = {
+    event: OVERVIEW_LOG_EVENT,
+    request_id: invocation.requestId,
+    stage,
+    http_status: status,
+    diagnostic_code: diagnosticCode,
+    outcome,
+  };
+  return response;
+}
+
+function writeTerminalLog(terminalLog: OverviewTerminalLog): void {
+  try {
+    console.info(JSON.stringify(terminalLog));
+  } catch {
+    // Observability must never change the existing response behavior.
+  }
+}
+
+function randomBytesRequestId(): string {
+  const bytes = randomBytes(16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20),
+  ].join("-");
+}
+
+function createRequestId(requestIdFactory: RequestIdFactory): string {
+  try {
+    const requestId = requestIdFactory();
+    if (REQUEST_ID_PATTERN.test(requestId)) return requestId;
+  } catch {
+    // A request ID remains available without exposing generator failures.
+  }
+  return randomBytesRequestId();
 }
 
 function isTimestamp(value: unknown): value is string {
@@ -218,31 +317,58 @@ function buildHistory(
     .slice(0, HISTORY_LIMIT);
 }
 
-export default async (req: Request): Promise<Response> => {
+async function handleOverview(
+  req: Request,
+  invocation: OverviewInvocation,
+): Promise<Response> {
   if (!isProductionDeployContext()) {
-    return json(
+    return terminalResponse(
+      invocation,
       { error: "crypto_runtime_unavailable", message: "Crypto deposits are unavailable." },
       503,
+      "runtime_gate",
+      "crypto_runtime_unavailable",
     );
   }
 
+  invocation.currentStage = "method_gate";
   if (req.method !== "GET") {
-    return json({ error: "method_not_allowed", message: "GET only." }, 405);
+    return terminalResponse(
+      invocation,
+      { error: "method_not_allowed", message: "GET only." },
+      405,
+      "method_gate",
+      "method_not_allowed",
+    );
   }
 
+  invocation.currentStage = "server_config";
   const supabaseUrl =
     Netlify.env.get("VITE_SUPABASE_URL")
     ?? Netlify.env.get("SUPABASE_URL")
     ?? "";
   const serviceRoleKey = Netlify.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   if (!supabaseUrl || !serviceRoleKey) {
-    return json({ error: "server_config", message: "Server is not configured." }, 500);
+    return terminalResponse(
+      invocation,
+      { error: "server_config", message: "Server is not configured." },
+      500,
+      "server_config",
+      "server_config",
+    );
   }
 
+  invocation.currentStage = "authentication";
   const authorization = req.headers.get("authorization") ?? "";
   const token = authorization.replace(/^Bearer\s+/i, "");
   if (!token || token === authorization) {
-    return json({ error: "authentication_required", message: "Authentication required." }, 401);
+    return terminalResponse(
+      invocation,
+      { error: "authentication_required", message: "Authentication required." },
+      401,
+      "authentication",
+      "authentication_required",
+    );
   }
 
   const admin = createClient<Database>(supabaseUrl, serviceRoleKey, {
@@ -250,10 +376,17 @@ export default async (req: Request): Promise<Response> => {
   });
   const { data: authData, error: authError } = await admin.auth.getUser(token);
   if (authError || !authData.user) {
-    return json({ error: "invalid_session", message: "Invalid or expired session." }, 401);
+    return terminalResponse(
+      invocation,
+      { error: "invalid_session", message: "Invalid or expired session." },
+      401,
+      "authentication",
+      "invalid_session",
+    );
   }
 
   const userId = authData.user.id;
+  invocation.currentStage = "profile_config_query";
   const [{ data: profile, error: profileError }, { data: config, error: configError }] =
     await Promise.all([
       admin.from("profiles").select("is_frozen").eq("id", userId).maybeSingle(),
@@ -267,7 +400,13 @@ export default async (req: Request): Promise<Response> => {
     ]);
 
   if (profileError || !profile || profile.is_frozen) {
-    return json({ error: "account_unavailable", message: "Account is unavailable." }, 403);
+    return terminalResponse(
+      invocation,
+      { error: "account_unavailable", message: "Account is unavailable." },
+      403,
+      "profile_config_query",
+      "account_unavailable",
+    );
   }
   const configRow = config as unknown as Record<string, unknown> | null;
   if (
@@ -285,9 +424,16 @@ export default async (req: Request): Promise<Response> => {
     || canonicalDecimal(configRow.withdrawal_fee_percent) !== "5"
     || typeof configRow.enabled !== "boolean"
   ) {
-    return json({ error: "crypto_config_unavailable", message: "Crypto deposits are unavailable." }, 503);
+    return terminalResponse(
+      invocation,
+      { error: "crypto_config_unavailable", message: "Crypto deposits are unavailable." },
+      503,
+      "profile_config_query",
+      "crypto_config_unavailable",
+    );
   }
 
+  invocation.currentStage = "overview_queries";
   const [walletResult, sessionsResult, providerPaymentsResult] = await Promise.all([
     admin
       .from("nowpayments_usdt_wallets")
@@ -313,9 +459,16 @@ export default async (req: Request): Promise<Response> => {
   ]);
 
   if (walletResult.error || sessionsResult.error || providerPaymentsResult.error) {
-    return json({ error: "deposit_overview_unavailable", message: "Crypto deposits are unavailable." }, 503);
+    return terminalResponse(
+      invocation,
+      { error: "deposit_overview_unavailable", message: "Crypto deposits are unavailable." },
+      503,
+      "overview_queries",
+      "deposit_overview_unavailable",
+    );
   }
 
+  invocation.currentStage = "wallet_validation";
   const walletRow = walletResult.data as unknown as Record<string, unknown> | null;
   if (
     walletRow
@@ -326,9 +479,16 @@ export default async (req: Request): Promise<Response> => {
       || !isDecimal(walletRow.reserved_balance_usdt)
     )
   ) {
-    return json({ error: "deposit_overview_unavailable", message: "Crypto deposits are unavailable." }, 503);
+    return terminalResponse(
+      invocation,
+      { error: "deposit_overview_unavailable", message: "Crypto deposits are unavailable." },
+      503,
+      "wallet_validation",
+      "deposit_overview_unavailable",
+    );
   }
 
+  invocation.currentStage = "response_validation";
   try {
     const sessions = ((sessionsResult.data ?? []) as unknown[])
       .map((row) => validateSession(row, userId));
@@ -367,7 +527,8 @@ export default async (req: Request): Promise<Response> => {
           ? "manual_review"
           : "none";
 
-    return json(
+    return terminalResponse(
+      invocation,
       {
         feature_enabled: configRow.enabled,
         asset: "USDT",
@@ -382,11 +543,48 @@ export default async (req: Request): Promise<Response> => {
         history: buildHistory(sessions, providerPayments, nowMs),
       },
       200,
+      "complete",
+      "overview_success",
+      "success",
     );
   } catch {
-    return json({ error: "deposit_overview_unavailable", message: "Crypto deposits are unavailable." }, 503);
+    return terminalResponse(
+      invocation,
+      { error: "deposit_overview_unavailable", message: "Crypto deposits are unavailable." },
+      503,
+      "response_validation",
+      "deposit_overview_unavailable",
+    );
   }
-};
+}
+
+export function createOverviewHandler(
+  requestIdFactory: RequestIdFactory = randomUUID,
+): (req: Request) => Promise<Response> {
+  return async (req: Request): Promise<Response> => {
+    const requestId = createRequestId(requestIdFactory);
+    const invocation: OverviewInvocation = {
+      requestId,
+      currentStage: "runtime_gate",
+      terminalLog: null,
+    };
+
+    try {
+      return await handleOverview(req, invocation);
+    } finally {
+      writeTerminalLog(invocation.terminalLog ?? {
+        event: OVERVIEW_LOG_EVENT,
+        request_id: requestId,
+        stage: invocation.currentStage,
+        http_status: 500,
+        diagnostic_code: "unexpected_exception",
+        outcome: "failure",
+      });
+    }
+  };
+}
+
+export default createOverviewHandler();
 
 export const config: Config = {
   path: "/api/crypto/nowpayments/deposit-overview",
