@@ -36,8 +36,11 @@ test("native crypto runtime files are absent", async () => {
   }
 });
 
-test("traditional deposit flows remain and crypto UI stays removed", async () => {
+test("traditional deposit flows remain while retired native-crypto UI stays removed", async () => {
   const depositRoute = await readRepositoryFile("src/routes/_app/deposit.tsx");
+  const nowpaymentsDepositUi = await readRepositoryFile(
+    "src/components/deposit/NowpaymentsUsdtDeposit.tsx",
+  );
   const adminRoute = await readRepositoryFile("src/routes/_app/admin.tsx");
 
   assert.match(depositRoute, /getPaymentMethodsFn/);
@@ -47,7 +50,11 @@ test("traditional deposit flows remain and crypto UI stays removed", async () =>
   assert.match(depositRoute, /refPrefix: "FT"/);
   assert.match(depositRoute, /label: "TeleBirr"/);
   assert.match(depositRoute, /refPrefix: "D"/);
-  assert.doesNotMatch(depositRoute, /CryptoDeposit|USDT|TRC20|BEP20/);
+  assert.match(depositRoute, /NowpaymentsUsdtDeposit/);
+  assert.match(nowpaymentsDepositUi, /USDT/);
+  assert.match(nowpaymentsDepositUi, /BEP20/);
+  assert.doesNotMatch(depositRoute, /TRC20|crypto_deposit_addresses|crypto_deposits/);
+  assert.doesNotMatch(nowpaymentsDepositUi, /TRC20|crypto_deposit_addresses|crypto_deposits/);
 
   assert.match(adminRoute, /getPaymentMethodsFn/);
   assert.match(adminRoute, /PaymentMethodsTab/);
