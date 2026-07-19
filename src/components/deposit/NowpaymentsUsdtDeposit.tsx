@@ -31,6 +31,48 @@ import {
 } from "@/lib/nowpayments-deposit-ui.js";
 
 const OVERVIEW_TIMEOUT_MS = 12_000;
+const COPY_FEEDBACK_TIMEOUT_MS = 2_000;
+
+type CopyFeedback = {
+  copied: boolean;
+  announcement: string;
+};
+
+export const IDLE_COPY_FEEDBACK: CopyFeedback = {
+  copied: false,
+  announcement: "",
+};
+
+export function copyButtonAccessibleName({
+  addressSendable,
+  copied,
+}: {
+  addressSendable: boolean;
+  copied: boolean;
+}): string {
+  if (!addressSendable) return "Copy disabled for expired address.";
+  return copied
+    ? "USDT BEP20 deposit address copied."
+    : "Copy USDT BEP20 deposit address.";
+}
+
+export async function copyUsdtDepositAddress(
+  address: string,
+  writeText: (value: string) => Promise<void>,
+): Promise<CopyFeedback> {
+  try {
+    await writeText(address);
+    return {
+      copied: true,
+      announcement: "USDT BEP20 deposit address copied to clipboard.",
+    };
+  } catch {
+    return {
+      copied: false,
+      announcement: "Unable to copy the USDT BEP20 deposit address. Please copy it manually.",
+    };
+  }
+}
 
 async function withRequestTimeout<T>(operation: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -64,11 +106,12 @@ export function NowpaymentsUsdtDeposit({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState<CopyFeedback>(IDLE_COPY_FEEDBACK);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const mountedRef = useRef(true);
   const loadingRef = useRef(false);
+  const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadOverview = useCallback(async () => {
     if (!accessToken) {
@@ -103,6 +146,10 @@ export function NowpaymentsUsdtDeposit({
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 1_000);
     return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => () => {
+    if (copyResetTimerRef.current) clearTimeout(copyResetTimerRef.current);
   }, []);
 
   useEffect(() => {
@@ -163,11 +210,22 @@ export function NowpaymentsUsdtDeposit({
 
   const handleCopy = useCallback(async () => {
     if (!activeSession || !addressSendable) return;
-    try {
-      await navigator.clipboard.writeText(activeSession.pay_address);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2_000);
-    } catch {
+    if (copyResetTimerRef.current) {
+      clearTimeout(copyResetTimerRef.current);
+      copyResetTimerRef.current = null;
+    }
+    const feedback = await copyUsdtDepositAddress(
+      activeSession.pay_address,
+      (value) => navigator.clipboard.writeText(value),
+    );
+    if (!mountedRef.current) return;
+    setCopyFeedback(feedback);
+    if (feedback.copied) {
+      copyResetTimerRef.current = setTimeout(() => {
+        if (mountedRef.current) setCopyFeedback(IDLE_COPY_FEEDBACK);
+        copyResetTimerRef.current = null;
+      }, COPY_FEEDBACK_TIMEOUT_MS);
+    } else {
       toast.error("Unable to copy. Please copy the address manually.");
     }
   }, [activeSession, addressSendable]);
@@ -179,6 +237,9 @@ export function NowpaymentsUsdtDeposit({
 
   return (
     <section className="space-y-3" aria-labelledby="crypto-deposit-title">
+      <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {copyFeedback.announcement}
+      </p>
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <button
@@ -219,7 +280,7 @@ export function NowpaymentsUsdtDeposit({
               nowMs={nowMs}
               addressSendable={addressSendable}
               qrDataUrl={qrDataUrl}
-              copied={copied}
+              copied={copyFeedback.copied}
               generating={generating}
               onCopy={handleCopy}
               onGenerate={handleGenerate}
@@ -369,7 +430,7 @@ function ActiveDepositCard({
                   onClick={onCopy}
                   disabled={!addressSendable}
                   className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[#252525] text-gray-400 hover:text-[#00ff41] disabled:cursor-not-allowed disabled:opacity-35"
-                  aria-label={addressSendable ? "Copy USDT BEP20 deposit address" : "Copy disabled for expired address"}
+                  aria-label={copyButtonAccessibleName({ addressSendable, copied })}
                 >
                   {copied ? <Check size={14} /> : <Copy size={14} />}
                 </button>

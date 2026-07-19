@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { tsImport } from "tsx/esm/api";
 import overviewHandler from "../netlify/functions/nowpayments-usdt-deposit-overview.mts";
 import {
   fetchNowpaymentsDepositOverview,
@@ -18,6 +19,11 @@ const USER_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_USER_ID = "22222222-2222-4222-8222-222222222222";
 const SESSION_ID = "33333333-3333-4333-8333-333333333333";
 const ADDRESS = "0x1111111111111111111111111111111111111111";
+const {
+  IDLE_COPY_FEEDBACK,
+  copyButtonAccessibleName,
+  copyUsdtDepositAddress,
+} = await tsImport("../src/components/deposit/NowpaymentsUsdtDeposit.tsx", import.meta.url);
 
 const [
   overviewSource,
@@ -323,13 +329,84 @@ test("overview client uses bearer authentication and accepts only sanitized own-
   assert.equal(result.feature_enabled, false);
 });
 
+test("copy feedback announces success, updates its name, and resets to the action state", async () => {
+  const clipboardWrites = [];
+  assert.equal(
+    copyButtonAccessibleName({ addressSendable: true, copied: false }),
+    "Copy USDT BEP20 deposit address.",
+  );
+
+  const feedback = await copyUsdtDepositAddress(ADDRESS, async (value) => {
+    clipboardWrites.push(value);
+  });
+
+  assert.deepEqual(clipboardWrites, [ADDRESS]);
+  assert.deepEqual(feedback, {
+    copied: true,
+    announcement: "USDT BEP20 deposit address copied to clipboard.",
+  });
+  assert.equal(
+    copyButtonAccessibleName({ addressSendable: true, copied: feedback.copied }),
+    "USDT BEP20 deposit address copied.",
+  );
+  assert.match(uiSource, /role="status" aria-live="polite" aria-atomic="true"/);
+  assert.deepEqual(IDLE_COPY_FEEDBACK, { copied: false, announcement: "" });
+  assert.equal(
+    copyButtonAccessibleName({
+      addressSendable: true,
+      copied: IDLE_COPY_FEEDBACK.copied,
+    }),
+    "Copy USDT BEP20 deposit address.",
+  );
+  assert.match(
+    uiSource,
+    /setTimeout\([\s\S]*setCopyFeedback\(IDLE_COPY_FEEDBACK\)[\s\S]*COPY_FEEDBACK_TIMEOUT_MS/,
+  );
+});
+
+test("copy failure announces only a generic failure and keeps the action available", async () => {
+  let clipboardAttempts = 0;
+  const feedback = await copyUsdtDepositAddress(ADDRESS, async () => {
+    clipboardAttempts += 1;
+    throw new Error("sensitive browser clipboard detail");
+  });
+
+  assert.equal(clipboardAttempts, 1);
+  assert.deepEqual(feedback, {
+    copied: false,
+    announcement: "Unable to copy the USDT BEP20 deposit address. Please copy it manually.",
+  });
+  assert.doesNotMatch(feedback.announcement, /copied|sensitive|browser clipboard detail/i);
+  assert.equal(
+    copyButtonAccessibleName({ addressSendable: true, copied: feedback.copied }),
+    "Copy USDT BEP20 deposit address.",
+  );
+  assert.match(uiSource, /toast\.error\("Unable to copy\. Please copy the address manually\."\)/);
+  assert.doesNotMatch(uiSource, /clipboard detail|error\.message|String\(error\)/i);
+  assert.match(uiSource, /disabled=\{!addressSendable\}/);
+});
+
+test("expired addresses keep copy disabled without invoking clipboard or provider actions", () => {
+  assert.equal(
+    copyButtonAccessibleName({ addressSendable: false, copied: false }),
+    "Copy disabled for expired address.",
+  );
+  assert.match(uiSource, /if \(!activeSession \|\| !addressSendable\) return;/);
+  assert.match(uiSource, /disabled=\{!addressSendable\}/);
+  assert.equal((uiSource.match(/navigator\.clipboard\.writeText/g) ?? []).length, 1);
+  assert.match(uiSource, /createSingleFlight\(performGenerate\)/);
+  assert.doesNotMatch(uiSource, /NOWPAYMENTS_API_KEY|api\.nowpayments\.io/);
+});
+
 test("UI is backend-gated, duplicate-click guarded, local-QR-only, responsive, and accessible", () => {
   assert.match(uiSource, /createSingleFlight\(performGenerate\)/);
   assert.match(uiSource, /disabled=\{generating\}/);
   assert.match(uiSource, /QRCode\.toDataURL/);
   assert.doesNotMatch(uiSource, /api\.qrserver|chart\.google|NOWPAYMENTS_API_KEY/);
   assert.doesNotMatch(uiSource, /<Input|network selector/i);
-  assert.match(uiSource, /Copy USDT BEP20 deposit address/);
+  assert.match(uiSource, /role="status" aria-live="polite" aria-atomic="true"/);
+  assert.match(uiSource, /USDT BEP20 deposit address copied to clipboard\./);
+  assert.match(uiSource, /Copy USDT BEP20 deposit address\./);
   assert.match(uiSource, /alt="QR code for the USDT BEP20 deposit address"/);
   assert.match(uiSource, /sm:grid-cols/);
   assert.match(uiSource, /Expired — do not send/);
