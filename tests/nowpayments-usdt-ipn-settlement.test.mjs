@@ -346,6 +346,83 @@ function recoveryEnvironment(name) {
   }[name];
 }
 
+async function responseFingerprint(response) {
+  return {
+    status: response.status,
+    headers: Object.fromEntries([...response.headers.entries()].sort()),
+    body: await response.text(),
+  };
+}
+
+function databaseSettlementStore(db) {
+  return {
+    async settle(payment) {
+      return settle(db, {
+        providerPaymentId: payment.providerPaymentId,
+        parentProviderPaymentId: payment.parentProviderPaymentId,
+        qhashOrderId: payment.qhashOrderId,
+        payAddress: payment.payAddress,
+        payCurrency: payment.payCurrency,
+        providerPaymentStatus: payment.providerPaymentStatus,
+        outcomeAmount: payment.outcomeAmountUsdt,
+        outcomeCurrency: payment.outcomeCurrency,
+      });
+    },
+  };
+}
+
+function createCrossHandlerPair(db, payment) {
+  const store = databaseSettlementStore(db);
+  const ipn = createNowpaymentsUsdtIpnHandler({
+    getEnvironment(name) {
+      return {
+        CONTEXT: "production",
+        NOWPAYMENTS_IPN_SECRET: IPN_SECRET,
+        NOWPAYMENTS_API_KEY: "mock-api-key",
+        VITE_SUPABASE_URL: "https://supabase.mock",
+        SUPABASE_SERVICE_ROLE_KEY: "mock-service-role-key",
+      }[name];
+    },
+    createProvider() {
+      return { async getPaymentDetails() { return payment; } };
+    },
+    createStore() {
+      return store;
+    },
+  });
+  const recovery = createNowpaymentsUsdtReconcilePaymentHandler({
+    getEnvironment: recoveryEnvironment,
+    async authorizeAdmin() {
+      return "authorized";
+    },
+    createProvider() {
+      return { async getPaymentDetails() { return payment; } };
+    },
+    createStore() {
+      return store;
+    },
+  });
+  return { ipn, recovery };
+}
+
+async function assertSingleCrossHandlerCredit(db, expectedAmount) {
+  const result = await db.query(`
+    select
+      wallet.available_balance_usdt::text as available,
+      wallet.reserved_balance_usdt::text as reserved,
+      (select count(*)::integer from public.nowpayments_usdt_provider_payments) as provider_count,
+      (select count(*)::integer from public.nowpayments_usdt_ledger_entries) as ledger_count
+    from public.nowpayments_usdt_wallets as wallet
+    where wallet.user_id = '${USER_ID}'
+  `);
+  assert.deepEqual(result.rows, [{
+    available: expectedAmount,
+    reserved: "0.000000000000000000",
+    provider_count: 1,
+    ledger_count: 1,
+  }]);
+}
+
 test("migration keeps crypto disabled, private, precise, and separate from ETB", async (t) => {
   const db = await createMigratedDatabase(t);
   const state = await db.query(`
@@ -923,8 +1000,9 @@ test("authorized admin recovery settles verified original and repeated child pay
     const response = await handler(createRecoveryRequest(payment.providerPaymentId));
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), {
-      status: "credited",
-      payment_id: payment.providerPaymentId,
+      success: true,
+      code: "reconciliation_completed",
+      message: "The payment was reconciled successfully.",
     });
     assert.deepEqual(settlements, [payment]);
     assert.ok(events.indexOf("authorized-admin") < events.indexOf("environment:NOWPAYMENTS_API_KEY"));
@@ -969,8 +1047,67 @@ test("duplicate and concurrent admin recovery attempts return safe idempotent re
   ]);
   const bodies = await Promise.all(responses.map((response) => response.json()));
   assert.equal(settlementCalls, 3);
-  assert.equal(bodies.filter((body) => body.status === "credited").length, 1);
-  assert.equal(bodies.filter((body) => body.status === "already_credited").length, 2);
+  assert.deepEqual(bodies, Array(3).fill({
+    success: true,
+    code: "reconciliation_completed",
+    message: "The payment was reconciled successfully.",
+  }));
+});
+
+test("signed IPN followed by administrator recovery credits exactly once", async (t) => {
+  const db = await createMigratedDatabase(t);
+  const session = await createReadySession(db);
+  const payment = verifiedFinishedPayment({
+    qhashOrderId: session.qhash_order_id,
+    outcomeAmountUsdt: "0.123456789012345678",
+  });
+  const handlers = createCrossHandlerPair(db, payment);
+
+  const ipnResponse = await handlers.ipn(createSignedRequest({
+    payment_id: ORIGINAL_PROVIDER_ID,
+  }));
+  assert.equal(ipnResponse.status, 200);
+  assert.deepEqual(await ipnResponse.json(), { status: "processed" });
+
+  const recoveryResponse = await handlers.recovery(
+    createRecoveryRequest(ORIGINAL_PROVIDER_ID),
+  );
+  assert.equal(recoveryResponse.status, 200);
+  assert.deepEqual(await recoveryResponse.json(), {
+    success: true,
+    code: "reconciliation_completed",
+    message: "The payment was reconciled successfully.",
+  });
+
+  await assertSingleCrossHandlerCredit(db, "0.123456789012345678");
+});
+
+test("administrator recovery followed by signed IPN credits exactly once", async (t) => {
+  const db = await createMigratedDatabase(t);
+  const session = await createReadySession(db);
+  const payment = verifiedFinishedPayment({
+    qhashOrderId: session.qhash_order_id,
+    outcomeAmountUsdt: "0.123456789012345678",
+  });
+  const handlers = createCrossHandlerPair(db, payment);
+
+  const recoveryResponse = await handlers.recovery(
+    createRecoveryRequest(ORIGINAL_PROVIDER_ID),
+  );
+  assert.equal(recoveryResponse.status, 200);
+  assert.deepEqual(await recoveryResponse.json(), {
+    success: true,
+    code: "reconciliation_completed",
+    message: "The payment was reconciled successfully.",
+  });
+
+  const ipnResponse = await handlers.ipn(createSignedRequest({
+    payment_id: ORIGINAL_PROVIDER_ID,
+  }));
+  assert.equal(ipnResponse.status, 200);
+  assert.deepEqual(await ipnResponse.json(), { status: "processed" });
+
+  await assertSingleCrossHandlerCredit(db, "0.123456789012345678");
 });
 
 test("manual recovery rejects non-production, unauthorized, and non-admin requests", async () => {
@@ -1089,27 +1226,93 @@ test("manual recovery accepts only strict POST JSON containing one provider paym
   assert.equal(providerCalls, 0);
 });
 
-test("manual recovery rejects unknown, mismatched, non-finished, wrong-currency, and invalid payments", async () => {
+test("manual recovery failures are byte-for-byte indistinguishable", async () => {
+  const providerFailure = (code) => ({
+    async getPaymentDetails() {
+      throw new NowpaymentsClientError(code);
+    },
+  });
+  const providerPayment = (payment) => ({
+    async getPaymentDetails() {
+      return payment;
+    },
+  });
+  const rejectedStore = () => ({
+    async settle() {
+      throw new NowpaymentsSettlementStoreError("settlement_rpc_failed", true);
+    },
+  });
+
   const cases = [
+    { name: "unknown provider payment", provider: providerFailure("payment_status_request_failed") },
+    { name: "provider timeout", provider: providerFailure("payment_status_request_failed") },
     {
-      payment: verifiedFinishedPayment({ providerPaymentStatus: "confirming", outcomeAmountUsdt: null, outcomeCurrency: null }),
-      expectedStatus: 409,
+      name: "non-finished payment",
+      provider: providerPayment(verifiedFinishedPayment({
+        providerPaymentStatus: "confirming",
+        outcomeAmountUsdt: null,
+        outcomeCurrency: null,
+      })),
     },
     {
-      payment: verifiedFinishedPayment({ payCurrency: "usdttrc20" }),
-      expectedStatus: 422,
+      name: "wrong currency",
+      provider: providerPayment(verifiedFinishedPayment({ payCurrency: "usdttrc20" })),
     },
     {
-      payment: verifiedFinishedPayment({ outcomeAmountUsdt: "0" }),
-      expectedStatus: 422,
+      name: "invalid outcome amount",
+      provider: providerPayment(verifiedFinishedPayment({ outcomeAmountUsdt: "0" })),
     },
     {
-      payment: verifiedFinishedPayment({ providerPaymentId: CHILD_PROVIDER_ID }),
-      expectedStatus: 422,
+      name: "returned provider ID mismatch",
+      provider: providerPayment(verifiedFinishedPayment({ providerPaymentId: CHILD_PROVIDER_ID })),
+    },
+    {
+      name: "non-QHash-owned payment",
+      provider: providerPayment(verifiedFinishedPayment()),
+      store: rejectedStore(),
+    },
+    {
+      name: "parent ownership mismatch",
+      provider: providerPayment(verifiedFinishedPayment({
+        providerPaymentId: CHILD_PROVIDER_ID,
+        parentProviderPaymentId: "90071992547409939999",
+        qhashOrderId: null,
+      })),
+      requestPaymentId: CHILD_PROVIDER_ID,
+      store: rejectedStore(),
+    },
+    {
+      name: "address ownership mismatch",
+      provider: providerPayment(verifiedFinishedPayment({
+        payAddress: "0x8888888888888888888888888888888888888888",
+      })),
+      store: rejectedStore(),
+    },
+    {
+      name: "order ownership mismatch",
+      provider: providerPayment(verifiedFinishedPayment({
+        qhashOrderId: "88888888-8888-4888-8888-888888888888",
+      })),
+      store: rejectedStore(),
+    },
+    {
+      name: "session ownership mismatch",
+      provider: providerPayment(verifiedFinishedPayment()),
+      store: rejectedStore(),
+    },
+    {
+      name: "database settlement failure",
+      provider: providerPayment(verifiedFinishedPayment()),
+      store: {
+        async settle() {
+          throw new NowpaymentsSettlementStoreError("settlement_rpc_failed", false);
+        },
+      },
     },
   ];
 
-  for (const { payment, expectedStatus } of cases) {
+  const fingerprints = [];
+  for (const testCase of cases) {
     let settlementCalls = 0;
     const handler = createNowpaymentsUsdtReconcilePaymentHandler({
       getEnvironment: recoveryEnvironment,
@@ -1117,63 +1320,46 @@ test("manual recovery rejects unknown, mismatched, non-finished, wrong-currency,
         return "authorized";
       },
       createProvider() {
-        return { async getPaymentDetails() { return payment; } };
+        return testCase.provider;
       },
       createStore() {
-        return {
+        const store = testCase.store ?? {
           async settle() {
             settlementCalls += 1;
             return { status: "credited" };
           },
         };
+        return {
+          async settle(payment) {
+            settlementCalls += 1;
+            return store.settle(payment);
+          },
+        };
       },
     });
-    const response = await handler(createRecoveryRequest(ORIGINAL_PROVIDER_ID));
-    assert.equal(response.status, expectedStatus);
-    assert.equal(settlementCalls, 0);
+    const response = await handler(createRecoveryRequest(
+      testCase.requestPaymentId ?? ORIGINAL_PROVIDER_ID,
+    ));
+    fingerprints.push({ name: testCase.name, value: await responseFingerprint(response) });
+
+    if (!testCase.store) assert.equal(settlementCalls, 0, testCase.name);
   }
 
-  const unknownProviderHandler = createNowpaymentsUsdtReconcilePaymentHandler({
-    getEnvironment: recoveryEnvironment,
-    async authorizeAdmin() {
-      return "authorized";
+  const expected = {
+    status: 503,
+    headers: {
+      "cache-control": "no-store",
+      "content-type": "application/json",
     },
-    createProvider() {
-      return {
-        async getPaymentDetails() {
-          throw new NowpaymentsClientError("payment_status_request_failed");
-        },
-      };
-    },
-    createStore() {
-      throw new Error("unknown provider payment must not settle");
-    },
-  });
-  assert.equal(
-    (await unknownProviderHandler(createRecoveryRequest(ORIGINAL_PROVIDER_ID))).status,
-    503,
-  );
-
-  const mismatchedMerchantHandler = createNowpaymentsUsdtReconcilePaymentHandler({
-    getEnvironment: recoveryEnvironment,
-    async authorizeAdmin() {
-      return "authorized";
-    },
-    createProvider() {
-      return { async getPaymentDetails() { return verifiedFinishedPayment(); } };
-    },
-    createStore() {
-      return {
-        async settle() {
-          throw new NowpaymentsSettlementStoreError("settlement_rpc_failed", true);
-        },
-      };
-    },
-  });
-  assert.equal(
-    (await mismatchedMerchantHandler(createRecoveryRequest(ORIGINAL_PROVIDER_ID))).status,
-    422,
-  );
+    body: JSON.stringify({
+      success: false,
+      code: "reconciliation_not_completed",
+      message: "The payment could not be reconciled. Verify the payment ID or try again later.",
+    }),
+  };
+  for (const fingerprint of fingerprints) {
+    assert.deepEqual(fingerprint.value, expected, fingerprint.name);
+  }
 });
 
 test("manual recovery preserves exact sub-one-USDT outcomes and fails safely", async () => {
@@ -1251,6 +1437,11 @@ test("types, endpoint source, and secret documentation stay server-only", () => 
   );
   assert.doesNotMatch(endpointSource, /console\.(log|info|warn|error)/);
   assert.doesNotMatch(recoveryEndpointSource, /console\.(log|info|warn|error)/);
+  assert.doesNotMatch(
+    recoveryEndpointSource,
+    /(?:error|code):\s*"(?:payment_not_finished|provider_payment_invalid|provider_unavailable|payment_not_owned|settlement_unavailable)"/,
+  );
+  assert.match(recoveryEndpointSource, /code: "reconciliation_not_completed"/);
   assert.match(recoveryEndpointSource, /\.select\("is_admin, is_frozen"\)/);
   assert.match(recoveryEndpointSource, /providerPaymentStatus !== "finished"/);
   assert.match(recoveryDocumentation, /cannot automatically discover/i);

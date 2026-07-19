@@ -14,7 +14,6 @@ import {
 } from "./lib/nowpayments-ipn.mts";
 import {
   createNowpaymentsSettlementStore,
-  NowpaymentsSettlementStoreError,
   type NowpaymentsSettlementStore,
 } from "./lib/nowpayments-settlement.mts";
 
@@ -48,6 +47,28 @@ function json(body: Record<string, unknown>, status: number): Response {
     status,
     headers: { "Cache-Control": "no-store" },
   });
+}
+
+function reconciliationCompleted(): Response {
+  return json(
+    {
+      success: true,
+      code: "reconciliation_completed",
+      message: "The payment was reconciled successfully.",
+    },
+    200,
+  );
+}
+
+function reconciliationNotCompleted(): Response {
+  return json(
+    {
+      success: false,
+      code: "reconciliation_not_completed",
+      message: "The payment could not be reconciled. Verify the payment ID or try again later.",
+    },
+    503,
+  );
 }
 
 function isProductionDeployContext(
@@ -237,28 +258,8 @@ export function createNowpaymentsUsdtReconcilePaymentHandler(
         await provider.getPaymentDetails(providerPaymentId),
         providerPaymentId,
       );
-    } catch (error) {
-      if (error instanceof NowpaymentsClientError && error.code === "payment_not_finished") {
-        return json(
-          { error: "payment_not_finished", message: "Payment is not finished." },
-          409,
-        );
-      }
-      const invalidResponse = error instanceof NowpaymentsClientError
-        && (
-          error.code === "payment_status_invalid_response"
-          || error.code === "invalid_decimal"
-          || error.code === "decimal_out_of_range"
-        );
-      return json(
-        {
-          error: invalidResponse ? "provider_payment_invalid" : "provider_unavailable",
-          message: invalidResponse
-            ? "Provider payment is unsupported or invalid."
-            : "Provider verification is temporarily unavailable.",
-        },
-        invalidResponse ? 422 : 503,
-      );
+    } catch {
+      return reconciliationNotCompleted();
     }
 
     try {
@@ -266,26 +267,14 @@ export function createNowpaymentsUsdtReconcilePaymentHandler(
         ?? createNowpaymentsSettlementStore(supabaseUrl, serviceRoleKey);
       const result = await store.settle(verifiedPayment);
       if (result.status === "credited") {
-        return json({ status: "credited", payment_id: providerPaymentId }, 200);
+        return reconciliationCompleted();
       }
       if (result.status === "already_credited" || result.status === "preserved_credited") {
-        return json({ status: "already_credited", payment_id: providerPaymentId }, 200);
+        return reconciliationCompleted();
       }
-      return json(
-        { error: "settlement_unavailable", message: "Settlement is temporarily unavailable." },
-        503,
-      );
-    } catch (error) {
-      if (error instanceof NowpaymentsSettlementStoreError && error.safeToIgnore) {
-        return json(
-          { error: "payment_not_owned", message: "Payment does not match QHash records." },
-          422,
-        );
-      }
-      return json(
-        { error: "settlement_unavailable", message: "Settlement is temporarily unavailable." },
-        503,
-      );
+      return reconciliationNotCompleted();
+    } catch {
+      return reconciliationNotCompleted();
     }
   };
 }
