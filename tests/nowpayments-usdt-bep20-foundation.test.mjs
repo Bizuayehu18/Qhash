@@ -530,7 +530,10 @@ test("database types expose USDT foundation objects without changing ETB enums",
     assert.match(databaseTypes, new RegExp(`\\b${tableName}:\\s*\\{`));
   }
 
-  assert.match(databaseTypes, /\bcredit_verified_nowpayments_usdt_payment:\s*\{/);
+  assert.doesNotMatch(databaseTypes, /\bcredit_verified_nowpayments_usdt_payment:\s*\{/);
+  assert.match(databaseTypes, /\bsettle_verified_nowpayments_usdt_payment:\s*\{/);
+  assert.match(databaseTypes, /actually_paid_usdt: number \| null/);
+  assert.match(databaseTypes, /credited_amount_usdt: number \| null/);
   assert.match(databaseTypes, /available_balance_usdt: number/);
   assert.match(databaseTypes, /reserved_balance_usdt: number/);
   assert.match(databaseTypes, /outcome_amount: number \| null/);

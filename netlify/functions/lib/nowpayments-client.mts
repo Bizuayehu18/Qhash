@@ -50,6 +50,7 @@ export type NowpaymentsVerifiedPayment = NowpaymentsPaymentStatusResult & {
   qhashOrderId: string | null;
   payAddress: string;
   payCurrency: "usdtbsc";
+  actuallyPaidUsdt: string | null;
   outcomeAmountUsdt: string | null;
   outcomeCurrency: "usdtbsc" | null;
 };
@@ -119,6 +120,21 @@ export function normalizePositiveDecimal(value: unknown): string {
     throw new NowpaymentsClientError("invalid_decimal");
   }
   return normalized;
+}
+
+export function normalizeExactPositiveDecimal(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new NowpaymentsClientError("invalid_decimal");
+  }
+  const match = value.match(/^(0|[1-9]\d{0,17})(?:\.(\d{1,18}))?$/);
+  if (!match) throw new NowpaymentsClientError("invalid_decimal");
+
+  const fraction = match[2] ?? "";
+  if (BigInt(match[1] + fraction.padEnd(18, "0")) <= 0n) {
+    throw new NowpaymentsClientError("invalid_decimal");
+  }
+  const canonicalFraction = fraction.replace(/0+$/, "");
+  return canonicalFraction ? `${match[1]}.${canonicalFraction}` : match[1];
 }
 
 function compareDecimals(left: string, right: string): number {
@@ -522,9 +538,18 @@ export function createNowpaymentsClient({
           throw new NowpaymentsClientError("payment_status_invalid_response");
         }
 
+        let actuallyPaidUsdt: string | null = null;
         let outcomeAmountUsdt: string | null = null;
         let outcomeCurrency: "usdtbsc" | null = null;
         if (providerPaymentStatus === "finished") {
+          actuallyPaidUsdt = normalizeExactPositiveDecimal(
+            lexicalNumber(
+              result.text,
+              body,
+              "actually_paid",
+              "payment_status_invalid_response",
+            ),
+          );
           outcomeAmountUsdt = normalizePositiveDecimal(
             lexicalNumber(
               result.text,
@@ -549,6 +574,7 @@ export function createNowpaymentsClient({
           payAddress,
           payCurrency: PROVIDER_CURRENCY,
           providerPaymentStatus,
+          actuallyPaidUsdt,
           outcomeAmountUsdt,
           outcomeCurrency,
         };

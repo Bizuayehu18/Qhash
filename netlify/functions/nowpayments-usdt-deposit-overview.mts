@@ -82,9 +82,9 @@ type ProviderPaymentRow = {
   session_id: string;
   user_id: string;
   provider_payment_id: string;
-  payment_kind: "original" | "repeated_child";
+  payment_kind: "original" | "repeated";
   provider_payment_status: string;
-  outcome_amount_usdt: string | null;
+  credited_amount_usdt: string | null;
   credited_at: string | null;
   created_at: string;
 };
@@ -229,10 +229,10 @@ function validateProviderPayment(value: unknown, userId: string): ProviderPaymen
     || row.user_id !== userId
     || typeof row.provider_payment_id !== "string"
     || !PROVIDER_ID_PATTERN.test(row.provider_payment_id)
-    || (row.payment_kind !== "original" && row.payment_kind !== "repeated_child")
+    || (row.payment_kind !== "original" && row.payment_kind !== "repeated")
     || typeof row.provider_payment_status !== "string"
     || !PROVIDER_STATUSES.has(row.provider_payment_status)
-    || !isNullableDecimal(row.outcome_amount_usdt)
+    || !isNullableDecimal(row.credited_amount_usdt)
     || !isNullableTimestamp(row.credited_at)
     || !isTimestamp(row.created_at)
   ) {
@@ -268,7 +268,7 @@ function buildHistory(
       network: "BEP20",
       status: payment.provider_payment_status,
       pay_address: session.pay_address,
-      credited_amount_usdt: payment.credited_at ? payment.outcome_amount_usdt : null,
+      credited_amount_usdt: payment.credited_at ? payment.credited_amount_usdt : null,
       created_at: payment.created_at,
       valid_until: session.provider_valid_until,
       completed_at: payment.credited_at,
@@ -445,7 +445,7 @@ async function handleOverview(
     admin
       .from("nowpayments_usdt_provider_payments")
       .select(
-        "session_id,user_id,provider_payment_id,payment_kind,provider_payment_status,outcome_amount_usdt::text,credited_at,created_at",
+        "session_id,user_id,provider_payment_id,payment_kind,provider_payment_status,credited_amount_usdt::text,credited_at,created_at",
       )
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
