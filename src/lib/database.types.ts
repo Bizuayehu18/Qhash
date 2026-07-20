@@ -516,8 +516,10 @@ export interface Database {
           pay_address: string
           pay_currency: 'usdtbsc'
           provider_payment_status: NowpaymentsProviderPaymentStatus
+          actually_paid_usdt: number | null
           outcome_amount_usdt: number | null
           outcome_currency: 'usdtbsc' | null
+          credited_amount_usdt: number | null
           provider_verified_at: string
           credited_at: string | null
           created_at: string
@@ -534,8 +536,10 @@ export interface Database {
           pay_address: string
           pay_currency?: 'usdtbsc'
           provider_payment_status: NowpaymentsProviderPaymentStatus
+          actually_paid_usdt?: number | null
           outcome_amount_usdt?: number | null
           outcome_currency?: 'usdtbsc' | null
+          credited_amount_usdt?: number | null
           provider_verified_at?: string
           credited_at?: string | null
           created_at?: string
@@ -543,8 +547,10 @@ export interface Database {
         }
         Update: {
           provider_payment_status?: NowpaymentsProviderPaymentStatus
+          actually_paid_usdt?: number | null
           outcome_amount_usdt?: number | null
           outcome_currency?: 'usdtbsc' | null
+          credited_amount_usdt?: number | null
           provider_verified_at?: string
           credited_at?: string | null
           updated_at?: string
@@ -875,14 +881,6 @@ export interface Database {
         Args: { p_investment_id: string; p_run_id?: string | null; p_trigger_type?: string | null }
         Returns: Json
       }
-      credit_verified_nowpayments_usdt_payment: {
-        Args: {
-          p_payment_id: string
-          p_expected_provider_payment_id: string
-          p_expected_outcome_amount: string
-        }
-        Returns: Json
-      }
       settle_verified_nowpayments_usdt_payment: {
         Args: {
           p_provider_payment_id: string
@@ -891,6 +889,7 @@ export interface Database {
           p_pay_address: string
           p_pay_currency: 'usdtbsc'
           p_provider_payment_status: NowpaymentsProviderPaymentStatus
+          p_actually_paid: string | null
           p_outcome_amount: string | null
           p_outcome_currency: 'usdtbsc' | null
         }
@@ -988,4 +987,4 @@ export type NowpaymentsProviderPaymentStatus = 'waiting' | 'partially_paid' | 'c
 export type NowpaymentsDepositSessionStatus = 'provisioning' | 'ready' | 'manual_recovery' | 'terminal'
 export type NowpaymentsManualRecoveryReason = 'stale_provisioning_claim' | 'create_payment_timeout' | 'create_payment_network_error' | 'create_payment_http_error' | 'create_payment_invalid_response' | 'create_payment_finalize_failed' | 'payment_status_invalid_response'
 export type NowpaymentsWithdrawalStatus = 'requested' | 'reserved' | 'submitted' | 'finished' | 'failed' | 'refunded' | 'cancelled'
-export type NowpaymentsUsdtLedgerEntryType = 'deposit_credit' | 'withdrawal_reserve' | 'withdrawal_release' | 'withdrawal_settlement' | 'admin_adjustment'
+export type NowpaymentsUsdtLedgerEntryType = 'deposit_credit' | 'deposit_credit_correction' | 'withdrawal_reserve' | 'withdrawal_release' | 'withdrawal_settlement' | 'admin_adjustment'

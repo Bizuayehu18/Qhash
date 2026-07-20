@@ -54,6 +54,7 @@ export function createNowpaymentsSettlementStore(
           p_pay_address: payment.payAddress,
           p_pay_currency: payment.payCurrency,
           p_provider_payment_status: payment.providerPaymentStatus,
+          p_actually_paid: payment.actuallyPaidUsdt,
           p_outcome_amount: payment.outcomeAmountUsdt,
           p_outcome_currency: payment.outcomeCurrency,
         },

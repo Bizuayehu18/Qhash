@@ -44,6 +44,13 @@ const settlementMigration = await readFile(
   ),
   "utf8",
 );
+const grossCreditMigration = await readFile(
+  new URL(
+    "supabase/migrations/20260720213000_nowpayments_gross_deposit_credit/migration.sql",
+    repositoryRoot,
+  ),
+  "utf8",
+);
 const databaseTypes = await readFile(
   new URL("src/lib/database.types.ts", repositoryRoot),
   "utf8",
@@ -77,6 +84,8 @@ const ARCHIVE_DEPOSIT_ID = "66666666-6666-4666-8666-666666666666";
 const PAY_ADDRESS = "0x9999999999999999999999999999999999999999";
 const ORIGINAL_PROVIDER_ID = "90071992547409931234";
 const CHILD_PROVIDER_ID = "90071992547409931235";
+const PRODUCTION_ORIGINAL_PROVIDER_ID = "5649600523";
+const PRODUCTION_CHILD_PROVIDER_ID = "5470246076";
 const IPN_SECRET = "mock-ipn-secret-only";
 const PUBLISHED_PRODUCTION_CONTEXT = {
   deploy: { context: "production", published: true },
@@ -221,13 +230,19 @@ async function createFixture(db) {
   `);
 }
 
-async function createMigratedDatabase(t) {
+async function createPreGrossDatabase(t) {
   const db = new PGlite();
   t.after(() => db.close());
   await createFixture(db);
   await applyMigration(db, foundationMigration);
   await applyMigration(db, sessionMigration);
   await applyMigration(db, settlementMigration);
+  return db;
+}
+
+async function createMigratedDatabase(t) {
+  const db = await createPreGrossDatabase(t);
+  await applyMigration(db, grossCreditMigration);
   return db;
 }
 
@@ -278,11 +293,12 @@ async function settle(db, {
   payCurrency = "usdtbsc",
   providerPaymentStatus = "finished",
   outcomeAmount = "0.75",
+  actuallyPaid = outcomeAmount,
   outcomeCurrency = "usdtbsc",
 } = {}) {
   const result = await db.query(
     `select public.settle_verified_nowpayments_usdt_payment(
-       $1, $2, $3, $4, $5, $6, $7, $8
+       $1, $2, $3, $4, $5, $6, $7, $8, $9
      ) as result`,
     [
       providerPaymentId,
@@ -291,8 +307,30 @@ async function settle(db, {
       payAddress,
       payCurrency,
       providerPaymentStatus,
+      providerPaymentStatus === "finished" ? actuallyPaid : null,
       providerPaymentStatus === "finished" ? outcomeAmount : null,
       providerPaymentStatus === "finished" ? outcomeCurrency : null,
+    ],
+  );
+  return result.rows[0].result;
+}
+
+async function settleNetOutcome(db, {
+  providerPaymentId,
+  parentProviderPaymentId = null,
+  qhashOrderId = null,
+  outcomeAmount,
+}) {
+  const result = await db.query(
+    `select public.settle_verified_nowpayments_usdt_payment(
+       $1, $2, $3, $4, 'usdtbsc', 'finished', $5, 'usdtbsc'
+     ) as result`,
+    [
+      providerPaymentId,
+      parentProviderPaymentId,
+      qhashOrderId,
+      PAY_ADDRESS,
+      outcomeAmount,
     ],
   );
   return result.rows[0].result;
@@ -331,17 +369,24 @@ function createRecoveryRequest(providerPaymentId, accessToken = "admin-session-t
 }
 
 function verifiedFinishedPayment(overrides = {}) {
-  return {
+  const payment = {
     providerPaymentId: ORIGINAL_PROVIDER_ID,
     parentProviderPaymentId: null,
     qhashOrderId: "77777777-7777-4777-8777-777777777777",
     payAddress: PAY_ADDRESS,
     payCurrency: "usdtbsc",
     providerPaymentStatus: "finished",
+    actuallyPaidUsdt: "1",
     outcomeAmountUsdt: "1",
     outcomeCurrency: "usdtbsc",
     ...overrides,
   };
+  if (!Object.hasOwn(overrides, "actuallyPaidUsdt")) {
+    payment.actuallyPaidUsdt = payment.providerPaymentStatus === "finished"
+      ? payment.outcomeAmountUsdt
+      : null;
+  }
+  return payment;
 }
 
 function recoveryEnvironment(name) {
@@ -370,6 +415,7 @@ function databaseSettlementStore(db) {
         payAddress: payment.payAddress,
         payCurrency: payment.payCurrency,
         providerPaymentStatus: payment.providerPaymentStatus,
+        actuallyPaid: payment.actuallyPaidUsdt,
         outcomeAmount: payment.outcomeAmountUsdt,
         outcomeCurrency: payment.outcomeCurrency,
       });
@@ -473,19 +519,20 @@ test("migration keeps crypto disabled, private, precise, and separate from ETB",
       has_table_privilege('service_role', provider.oid, 'INSERT, UPDATE, DELETE') as service_write,
       has_function_privilege(
         'service_role',
-        'public.settle_verified_nowpayments_usdt_payment(text,text,text,text,text,text,text,text)',
+        'public.settle_verified_nowpayments_usdt_payment(text,text,text,text,text,text,text,text,text)',
         'EXECUTE'
       ) as service_settle,
       has_function_privilege(
         'authenticated',
-        'public.settle_verified_nowpayments_usdt_payment(text,text,text,text,text,text,text,text)',
+        'public.settle_verified_nowpayments_usdt_payment(text,text,text,text,text,text,text,text,text)',
         'EXECUTE'
       ) as authenticated_settle,
-      has_function_privilege(
-        'service_role',
-        'public.credit_verified_nowpayments_usdt_payment(uuid,text,text)',
-        'EXECUTE'
-      ) as legacy_credit
+      to_regprocedure(
+        'public.settle_verified_nowpayments_usdt_payment(text,text,text,text,text,text,text,text)'
+      ) is null as net_settle_dropped,
+      to_regprocedure(
+        'public.credit_verified_nowpayments_usdt_payment(uuid,text,text)'
+      ) is null as legacy_credit_dropped
     from pg_class as provider
     join pg_namespace as namespace on namespace.oid = provider.relnamespace
     where namespace.nspname = 'public'
@@ -497,7 +544,205 @@ test("migration keeps crypto disabled, private, precise, and separate from ETB",
     service_write: false,
     service_settle: true,
     authenticated_settle: false,
-    legacy_credit: false,
+    net_settle_dropped: true,
+    legacy_credit_dropped: true,
+  }]);
+});
+
+test("production fingerprint receives two immutable gross-credit corrections exactly once", async (t) => {
+  const db = await createPreGrossDatabase(t);
+  const session = await createReadySession(db, PRODUCTION_ORIGINAL_PROVIDER_ID);
+  await settleNetOutcome(db, {
+    providerPaymentId: PRODUCTION_ORIGINAL_PROVIDER_ID,
+    qhashOrderId: session.qhash_order_id,
+    outcomeAmount: "2.95192543",
+  });
+  await settleNetOutcome(db, {
+    providerPaymentId: PRODUCTION_CHILD_PROVIDER_ID,
+    parentProviderPaymentId: PRODUCTION_ORIGINAL_PROVIDER_ID,
+    outcomeAmount: "2.9519285",
+  });
+
+  const immutableBefore = await db.query(`
+    select
+      ledger.id::text,
+      provider.provider_payment_id,
+      ledger.entry_type,
+      ledger.available_before_usdt::text,
+      ledger.available_delta_usdt::text,
+      ledger.available_after_usdt::text,
+      ledger.reserved_before_usdt::text,
+      ledger.reserved_delta_usdt::text,
+      ledger.reserved_after_usdt::text,
+      ledger.created_at::text
+    from public.nowpayments_usdt_ledger_entries ledger
+    join public.nowpayments_usdt_provider_payments provider
+      on provider.id = ledger.provider_payment_record_id
+    order by ledger.created_at, ledger.id
+  `);
+
+  await applyMigration(db, grossCreditMigration);
+
+  const state = await db.query(`
+    select
+      (select enabled from public.nowpayments_usdt_config where id = 'USDT-BEP20') as enabled,
+      (select available_balance_usdt::text from public.nowpayments_usdt_wallets) as available,
+      (select reserved_balance_usdt::text from public.nowpayments_usdt_wallets) as reserved,
+      (select credited_amount_usdt::text from public.nowpayments_usdt_payments) as session_credited,
+      (select outcome_amount::text from public.nowpayments_usdt_payments) as session_outcome,
+      (select count(*)::integer from public.nowpayments_usdt_provider_payments) as providers,
+      (select count(*)::integer from public.nowpayments_usdt_ledger_entries) as ledger_entries,
+      (select count(*)::integer from public.nowpayments_usdt_ledger_entries where entry_type = 'deposit_credit') as original_credits,
+      (select count(*)::integer from public.nowpayments_usdt_ledger_entries where entry_type = 'deposit_credit_correction') as corrections,
+      (select sum(available_delta_usdt)::text from public.nowpayments_usdt_ledger_entries) as ledger_total,
+      (select count(*)::integer from public.nowpayments_usdt_withdrawals) as withdrawals,
+      (select balance::text from public.wallets where user_id = '${USER_ID}') as etb_balance,
+      (select count(*)::integer from public.transactions) as etb_transactions,
+      (select array_agg(type::text order by type::text) from public.payment_methods) as payment_types,
+      (select status from public.crypto_deposit_addresses where id = '${ARCHIVE_ADDRESS_ID}') as archive_status,
+      (select amount_usdt::text from public.crypto_deposits where id = '${ARCHIVE_DEPOSIT_ID}') as archive_amount
+  `);
+  assert.deepEqual(state.rows, [{
+    enabled: false,
+    available: "6.000000000000000000",
+    reserved: "0.000000000000000000",
+    session_credited: "3.000000000000000000",
+    session_outcome: "2.951925430000000000",
+    providers: 2,
+    ledger_entries: 4,
+    original_credits: 2,
+    corrections: 2,
+    ledger_total: "6.000000000000000000",
+    withdrawals: 0,
+    etb_balance: "1234.56",
+    etb_transactions: 1,
+    payment_types: ["cbe", "telebirr"],
+    archive_status: "disabled",
+    archive_amount: "9.990000",
+  }]);
+
+  const providers = await db.query(`
+    select
+      provider_payment_id,
+      parent_provider_payment_id,
+      payment_kind,
+      actually_paid_usdt::text,
+      outcome_amount_usdt::text,
+      credited_amount_usdt::text,
+      (actually_paid_usdt - outcome_amount_usdt)::text as merchant_fee_absorbed
+    from public.nowpayments_usdt_provider_payments
+    order by payment_kind, provider_payment_id
+  `);
+  assert.deepEqual(providers.rows, [
+    {
+      provider_payment_id: PRODUCTION_ORIGINAL_PROVIDER_ID,
+      parent_provider_payment_id: null,
+      payment_kind: "original",
+      actually_paid_usdt: "3.000000000000000000",
+      outcome_amount_usdt: "2.951925430000000000",
+      credited_amount_usdt: "3.000000000000000000",
+      merchant_fee_absorbed: "0.048074570000000000",
+    },
+    {
+      provider_payment_id: PRODUCTION_CHILD_PROVIDER_ID,
+      parent_provider_payment_id: PRODUCTION_ORIGINAL_PROVIDER_ID,
+      payment_kind: "repeated",
+      actually_paid_usdt: "3.000000000000000000",
+      outcome_amount_usdt: "2.951928500000000000",
+      credited_amount_usdt: "3.000000000000000000",
+      merchant_fee_absorbed: "0.048071500000000000",
+    },
+  ]);
+
+  const corrections = await db.query(`
+    select
+      provider.provider_payment_id,
+      ledger.available_before_usdt::text,
+      ledger.available_delta_usdt::text,
+      ledger.available_after_usdt::text,
+      ledger.metadata ->> 'source_amount_field' as source_amount_field
+    from public.nowpayments_usdt_ledger_entries ledger
+    join public.nowpayments_usdt_provider_payments provider
+      on provider.id = ledger.provider_payment_record_id
+    where ledger.entry_type = 'deposit_credit_correction'
+    order by ledger.available_before_usdt
+  `);
+  assert.deepEqual(corrections.rows, [
+    {
+      provider_payment_id: PRODUCTION_ORIGINAL_PROVIDER_ID,
+      available_before_usdt: "5.903853930000000000",
+      available_delta_usdt: "0.048074570000000000",
+      available_after_usdt: "5.951928500000000000",
+      source_amount_field: "actually_paid",
+    },
+    {
+      provider_payment_id: PRODUCTION_CHILD_PROVIDER_ID,
+      available_before_usdt: "5.951928500000000000",
+      available_delta_usdt: "0.048071500000000000",
+      available_after_usdt: "6.000000000000000000",
+      source_amount_field: "actually_paid",
+    },
+  ]);
+
+  const immutableAfter = await db.query(`
+    select
+      ledger.id::text,
+      provider.provider_payment_id,
+      ledger.entry_type,
+      ledger.available_before_usdt::text,
+      ledger.available_delta_usdt::text,
+      ledger.available_after_usdt::text,
+      ledger.reserved_before_usdt::text,
+      ledger.reserved_delta_usdt::text,
+      ledger.reserved_after_usdt::text,
+      ledger.created_at::text
+    from public.nowpayments_usdt_ledger_entries ledger
+    join public.nowpayments_usdt_provider_payments provider
+      on provider.id = ledger.provider_payment_record_id
+    where ledger.entry_type = 'deposit_credit'
+    order by ledger.created_at, ledger.id
+  `);
+  assert.deepEqual(immutableAfter.rows, immutableBefore.rows);
+
+  await assert.rejects(
+    applyMigration(db, grossCreditMigration),
+    /NOWPayments settlement foundation is incomplete|gross-credit objects already exist outside migration tracking/,
+  );
+  assert.equal(
+    (await db.query(`select count(*)::integer as count from public.nowpayments_usdt_ledger_entries`)).rows[0].count,
+    4,
+  );
+});
+
+test("gross-credit migration preflight refuses any unexpected populated fingerprint", async (t) => {
+  const db = await createPreGrossDatabase(t);
+  await createReadySession(db);
+
+  await assert.rejects(
+    applyMigration(db, grossCreditMigration),
+    /unexpected NOWPayments production row counts/,
+  );
+  const unchanged = await db.query(`
+    select
+      to_regprocedure(
+        'public.settle_verified_nowpayments_usdt_payment(text,text,text,text,text,text,text,text)'
+      ) is not null as net_settle_preserved,
+      to_regprocedure(
+        'public.settle_verified_nowpayments_usdt_payment(text,text,text,text,text,text,text,text,text)'
+      ) is null as gross_settle_absent,
+      not exists (
+        select 1 from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'nowpayments_usdt_provider_payments'
+          and column_name = 'actually_paid_usdt'
+      ) as schema_unchanged,
+      (select count(*)::integer from public.nowpayments_usdt_ledger_entries) as ledger_count
+  `);
+  assert.deepEqual(unchanged.rows, [{
+    net_settle_preserved: true,
+    gross_settle_absent: true,
+    schema_unchanged: true,
+    ledger_count: 0,
   }]);
 });
 
@@ -506,10 +751,11 @@ test("credits an independently verified finished payment while generation is dis
   const session = await createReadySession(db);
   const result = await settle(db, {
     qhashOrderId: session.qhash_order_id,
+    actuallyPaid: "0.2",
     outcomeAmount: "0.123456789012345678",
   });
   assert.equal(result.status, "credited");
-  assert.equal(result.credited_amount_usdt, "0.123456789012345678");
+  assert.equal(result.credited_amount_usdt, "0.200000000000000000");
 
   const state = await db.query(`
     select
@@ -518,7 +764,10 @@ test("credits an independently verified finished payment while generation is dis
       session.session_status,
       session.provider_payment_status,
       session.settled_by_provider_payment_id,
+      session.credited_amount_usdt::text as session_credited_amount_usdt,
+      provider.actually_paid_usdt::text,
       provider.outcome_amount_usdt::text,
+      provider.credited_amount_usdt::text as provider_credited_amount_usdt,
       provider.payment_kind,
       ledger.available_delta_usdt::text,
       ledger.reserved_delta_usdt::text,
@@ -531,14 +780,17 @@ test("credits an independently verified finished payment while generation is dis
       on ledger.provider_payment_record_id = provider.id
   `);
   assert.deepEqual(state.rows, [{
-    available_balance_usdt: "0.123456789012345678",
+    available_balance_usdt: "0.200000000000000000",
     reserved_balance_usdt: "0.000000000000000000",
     session_status: "terminal",
     provider_payment_status: "finished",
     settled_by_provider_payment_id: ORIGINAL_PROVIDER_ID,
+    session_credited_amount_usdt: "0.200000000000000000",
+    actually_paid_usdt: "0.200000000000000000",
     outcome_amount_usdt: "0.123456789012345678",
+    provider_credited_amount_usdt: "0.200000000000000000",
     payment_kind: "original",
-    available_delta_usdt: "0.123456789012345678",
+    available_delta_usdt: "0.200000000000000000",
     reserved_delta_usdt: "0.000000000000000000",
     etb_balance: "1234.56",
     etb_transaction_count: 1,
@@ -550,7 +802,8 @@ test("duplicate and concurrent settlement callbacks credit once", async (t) => {
   const session = await createReadySession(db);
   const input = {
     qhashOrderId: session.qhash_order_id,
-    outcomeAmount: "3.000000000000000001",
+    actuallyPaid: "3.000000000000000001",
+    outcomeAmount: "2.5",
   };
   const results = await Promise.all([
     settle(db, input),
@@ -580,12 +833,14 @@ test("stores and credits each safely matched repeated child separately", async (
   const session = await createReadySession(db);
   await settle(db, {
     qhashOrderId: session.qhash_order_id,
+    actuallyPaid: "0.3",
     outcomeAmount: "0.100000000000000001",
   });
   const child = await settle(db, {
     providerPaymentId: CHILD_PROVIDER_ID,
     parentProviderPaymentId: ORIGINAL_PROVIDER_ID,
     qhashOrderId: null,
+    actuallyPaid: "0.4",
     outcomeAmount: "0.200000000000000002",
   });
   assert.equal(child.status, "credited");
@@ -601,7 +856,7 @@ test("stores and credits each safely matched repeated child separately", async (
       (select count(distinct provider_payment_record_id)::integer from public.nowpayments_usdt_ledger_entries) as distinct_credits
   `);
   assert.deepEqual(state.rows, [{
-    available: "0.300000000000000003",
+    available: "0.700000000000000000",
     reserved: "0.000000000000000000",
     provider_count: 2,
     child_count: 1,
@@ -685,6 +940,26 @@ test("unknown, mismatched, unsupported, and non-positive payments never credit",
     }),
     /invalid_nowpayments_settlement_outcome/,
   );
+
+  for (const actuallyPaid of [
+    null,
+    "0",
+    "-1",
+    "not-a-decimal",
+    "1e0",
+    "1.0000000000000000001",
+    "1000000000000000000",
+  ]) {
+    await assert.rejects(
+      settle(db, {
+        qhashOrderId: session.qhash_order_id,
+        actuallyPaid,
+        outcomeAmount: "0.5",
+      }),
+      /invalid_nowpayments_settlement_outcome/,
+      `actually_paid=${String(actuallyPaid)}`,
+    );
+  }
 
   const counts = await db.query(`
     select
@@ -798,6 +1073,7 @@ test("valid signed IPN is independently verified before settlement", async () =>
             payAddress: PAY_ADDRESS,
             payCurrency: "usdtbsc",
             providerPaymentStatus: "finished",
+            actuallyPaidUsdt: "0.75",
             outcomeAmountUsdt: "0.5",
             outcomeCurrency: "usdtbsc",
           };
@@ -827,6 +1103,7 @@ test("valid signed IPN is independently verified before settlement", async () =>
   assert.deepEqual(providerCalls, [ORIGINAL_PROVIDER_ID]);
   assert.equal(settlements.length, 1);
   assert.equal(settlements[0].payCurrency, "usdtbsc");
+  assert.equal(settlements[0].actuallyPaidUsdt, "0.75");
   assert.equal(settlements[0].outcomeAmountUsdt, "0.5");
   assert.equal(environmentReads[0], "NOWPAYMENTS_IPN_SECRET");
   assert.ok(environmentReads.indexOf("NOWPAYMENTS_API_KEY") > environmentReads.indexOf("NOWPAYMENTS_IPN_SECRET"));
@@ -951,7 +1228,7 @@ test("provider status parsing preserves lexical decimals and callback creation i
       requests.push({ url: String(input), init });
       if (String(input).endsWith(`/payment/${CHILD_PROVIDER_ID}`)) {
         return new Response(
-          `{"payment_id":${CHILD_PROVIDER_ID},"parent_payment_id":${ORIGINAL_PROVIDER_ID},"payment_status":"finished","pay_address":"${PAY_ADDRESS}","pay_currency":"usdtbsc","order_id":null,"outcome_amount":0.000000000000000123,"outcome_currency":"usdtbsc"}`,
+          `{"payment_id":${CHILD_PROVIDER_ID},"parent_payment_id":${ORIGINAL_PROVIDER_ID},"payment_status":"finished","pay_address":"${PAY_ADDRESS}","pay_currency":"usdtbsc","order_id":null,"pay_amount":999999,"actually_paid":3.000000000000000123,"outcome_amount":0.000000000000000123,"outcome_currency":"usdtbsc"}`,
           { status: 200 },
         );
       }
@@ -979,6 +1256,7 @@ test("provider status parsing preserves lexical decimals and callback creation i
     payAddress: PAY_ADDRESS,
     payCurrency: "usdtbsc",
     providerPaymentStatus: "finished",
+    actuallyPaidUsdt: "3.000000000000000123",
     outcomeAmountUsdt: "0.000000000000000123",
     outcomeCurrency: "usdtbsc",
   });
@@ -991,6 +1269,33 @@ test("provider status parsing preserves lexical decimals and callback creation i
   const body = JSON.parse(String(createRequest.init.body));
   assert.equal(body.ipn_callback_url, "https://www.qhashmine.com/api/crypto/nowpayments/ipn");
   assert.equal(body.pay_currency, "usdtbsc");
+});
+
+test("provider status parsing rejects every non-exact actually_paid lexical form", async () => {
+  const invalidActuallyPaid = [
+    "null",
+    "0",
+    "-1",
+    '"not-a-decimal"',
+    "1e0",
+    "1.0000000000000000001",
+    "1000000000000000000",
+  ];
+
+  for (const rawActuallyPaid of invalidActuallyPaid) {
+    const client = createNowpaymentsClient({
+      apiKey: "mock-only",
+      fetchImpl: async () => new Response(
+        `{"payment_id":${ORIGINAL_PROVIDER_ID},"parent_payment_id":null,"payment_status":"finished","pay_address":"${PAY_ADDRESS}","pay_currency":"usdtbsc","order_id":"77777777-7777-4777-8777-777777777777","pay_amount":999999,"actually_paid":${rawActuallyPaid},"outcome_amount":0.5,"outcome_currency":"usdtbsc"}`,
+        { status: 200 },
+      ),
+    });
+    await assert.rejects(
+      client.getPaymentDetails(ORIGINAL_PROVIDER_ID),
+      /payment_status_invalid_response/,
+      rawActuallyPaid,
+    );
+  }
 });
 
 test("authorized admin recovery settles verified original and repeated child payments", async () => {
@@ -1102,6 +1407,7 @@ test("signed IPN followed by administrator recovery credits exactly once", async
   const session = await createReadySession(db);
   const payment = verifiedFinishedPayment({
     qhashOrderId: session.qhash_order_id,
+    actuallyPaidUsdt: "0.2",
     outcomeAmountUsdt: "0.123456789012345678",
   });
   const handlers = createCrossHandlerPair(db, payment);
@@ -1123,7 +1429,7 @@ test("signed IPN followed by administrator recovery credits exactly once", async
     message: "The payment was reconciled successfully.",
   });
 
-  await assertSingleCrossHandlerCredit(db, "0.123456789012345678");
+  await assertSingleCrossHandlerCredit(db, "0.200000000000000000");
 });
 
 test("administrator recovery followed by signed IPN credits exactly once", async (t) => {
@@ -1131,6 +1437,7 @@ test("administrator recovery followed by signed IPN credits exactly once", async
   const session = await createReadySession(db);
   const payment = verifiedFinishedPayment({
     qhashOrderId: session.qhash_order_id,
+    actuallyPaidUsdt: "0.2",
     outcomeAmountUsdt: "0.123456789012345678",
   });
   const handlers = createCrossHandlerPair(db, payment);
@@ -1152,7 +1459,7 @@ test("administrator recovery followed by signed IPN credits exactly once", async
   assert.equal(ipnResponse.status, 200);
   assert.deepEqual(await ipnResponse.json(), { status: "processed" });
 
-  await assertSingleCrossHandlerCredit(db, "0.123456789012345678");
+  await assertSingleCrossHandlerCredit(db, "0.200000000000000000");
 });
 
 test("manual recovery rejects non-production, unauthorized, and non-admin requests", async () => {
@@ -1531,6 +1838,15 @@ test("types, endpoint source, and secret documentation stay server-only", () => 
   assert.match(databaseTypes, /\bnowpayments_usdt_provider_payments:\s*\{/);
   assert.match(databaseTypes, /\bsettle_verified_nowpayments_usdt_payment:\s*\{/);
   assert.match(databaseTypes, /provider_payment_record_id: string \| null/);
+  assert.match(databaseTypes, /actually_paid_usdt: number \| null/);
+  assert.match(databaseTypes, /credited_amount_usdt: number \| null/);
+  assert.doesNotMatch(databaseTypes, /\bcredit_verified_nowpayments_usdt_payment:\s*\{/);
+  assert.match(grossCreditMigration, /drop function public\.credit_verified_nowpayments_usdt_payment/);
+  assert.match(grossCreditMigration, /v_available_after := v_wallet\.available_balance_usdt \+ v_actually_paid/);
+  assert.match(grossCreditMigration, /credited_amount_usdt = v_actually_paid/);
+  assert.match(grossCreditMigration, /'source_amount_field', 'actually_paid'/);
+  assert.match(grossCreditMigration, /set search_path = pg_catalog, public/);
+  assert.doesNotMatch(grossCreditMigration, /p_pay_amount|is_fee_paid_by_user/);
   assert.match(environmentExample, /^NOWPAYMENTS_IPN_SECRET=$/m);
   assert.doesNotMatch(environmentExample, /^VITE_NOWPAYMENTS/m);
   assert.doesNotMatch(endpointSource, /(?:Netlify\.env\.get|getEnvironment)\(["']CONTEXT["']\)/);

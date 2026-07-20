@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../../src/lib/database.types.ts";
 import {
   createNowpaymentsClient,
+  normalizeExactPositiveDecimal,
   normalizePositiveDecimal,
   NowpaymentsClientError,
   type NowpaymentsVerifiedPayment,
@@ -152,8 +153,9 @@ function requireFinishedUsdtbscPayment(
     throw new NowpaymentsClientError("payment_status_invalid_response");
   }
 
+  const actuallyPaidUsdt = normalizeExactPositiveDecimal(payment.actuallyPaidUsdt);
   const outcomeAmountUsdt = normalizePositiveDecimal(payment.outcomeAmountUsdt);
-  return { ...payment, outcomeAmountUsdt };
+  return { ...payment, actuallyPaidUsdt, outcomeAmountUsdt };
 }
 
 export function createNowpaymentsUsdtReconcilePaymentHandler(

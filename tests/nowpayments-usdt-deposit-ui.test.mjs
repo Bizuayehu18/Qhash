@@ -112,7 +112,7 @@ function validProviderPayment(overrides = {}) {
     provider_payment_id: "90071992547409931234",
     payment_kind: "original",
     provider_payment_status: "finished",
-    outcome_amount_usdt: "0.123456789012345678",
+    credited_amount_usdt: "0.2",
     credited_at: "2030-01-02T00:00:00.000Z",
     created_at: "2030-01-02T00:00:00.000Z",
     ...overrides,
@@ -359,12 +359,12 @@ test("active session and exact wallet decimals are returned without internal ide
   assert.ok(decodedUrls.every((url) => !url.includes(OTHER_USER_ID)));
 });
 
-test("finished sub-one-USDT credit is displayed exactly and expired addresses are history-only", async () => {
+test("finished gross actually_paid credit is displayed and provider outcome stays internal", async () => {
   const finished = validSession({
     provider_payment_status: "finished",
     session_status: "terminal",
     terminal_at: "2030-01-02T00:00:00.000Z",
-    credited_amount_usdt: "0.123456789012345678",
+    credited_amount_usdt: "0.2",
     credited_at: "2030-01-02T00:00:00.000Z",
   });
   const result = await invokeOverview({
@@ -375,7 +375,7 @@ test("finished sub-one-USDT credit is displayed exactly and expired addresses ar
   assert.equal(result.response.status, 200);
   assert.equal(result.body.active_session, null);
   assert.equal(result.body.history[0].status, "finished");
-  assert.equal(result.body.history[0].credited_amount_usdt, "0.123456789012345678");
+  assert.equal(result.body.history[0].credited_amount_usdt, "0.2");
 
   const expired = await invokeOverview({
     configEnabled: true,
@@ -808,6 +808,7 @@ test("overview source keeps production and authentication gates before database 
   assert.match(overviewSource, /\.eq\("user_id", userId\)/);
   assert.match(overviewSource, /available_balance_usdt::text/);
   assert.match(overviewSource, /credited_amount_usdt::text/);
+  assert.doesNotMatch(overviewSource, /outcome_amount_usdt::text/);
 });
 
 test("overview source limits observability to the request-ID header and one sanitized terminal log", () => {
