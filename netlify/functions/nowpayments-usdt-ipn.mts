@@ -1,4 +1,4 @@
-import type { Config } from "@netlify/functions";
+import type { Config, Context } from "@netlify/functions";
 import {
   createNowpaymentsClient,
   NowpaymentsClientError,
@@ -16,6 +16,7 @@ import {
   NowpaymentsSettlementStoreError,
   type NowpaymentsSettlementStore,
 } from "./lib/nowpayments-settlement.mts";
+import { isPublishedProductionDeployContext } from "./lib/nowpayments-deploy-context.mts";
 
 type Provider = {
   getPaymentDetails(providerPaymentId: string): Promise<NowpaymentsVerifiedPayment>;
@@ -37,24 +38,16 @@ function json(body: Record<string, unknown>, status: number): Response {
   });
 }
 
-function isProductionDeployContext(getEnvironment: (name: string) => string | undefined): boolean {
-  try {
-    return getEnvironment("CONTEXT") === "production";
-  } catch {
-    return false;
-  }
-}
-
 export function createNowpaymentsUsdtIpnHandler(
   dependencies: HandlerDependencies = {},
-): (request: Request) => Promise<Response> {
+): (request: Request, context?: Context) => Promise<Response> {
   const getEnvironment = dependencies.getEnvironment
     ?? ((name: string) => Netlify.env.get(name));
 
-  return async (request: Request): Promise<Response> => {
+  return async (request: Request, context?: Context): Promise<Response> => {
     // This must remain the first runtime gate. Non-production deploys may not
     // read credentials, access Supabase, or contact NOWPayments.
-    if (!isProductionDeployContext(getEnvironment)) {
+    if (!isPublishedProductionDeployContext(context)) {
       return json({ error: "crypto_runtime_unavailable", message: "Not available." }, 503);
     }
 

@@ -1,6 +1,7 @@
-import type { Config } from "@netlify/functions";
+import type { Config, Context } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../../src/lib/database.types.ts";
+import { isPublishedProductionDeployContext } from "./lib/nowpayments-deploy-context.mts";
 import {
   createNowpaymentsClient,
   normalizePositiveDecimal,
@@ -41,14 +42,6 @@ const PROVIDER_STATUSES = new Set<NowpaymentsProviderStatus>([
   "refunded",
   "expired",
 ]);
-
-function isProductionDeployContext(): boolean {
-  try {
-    return Netlify.env.get("CONTEXT") === "production";
-  } catch {
-    return false;
-  }
-}
 
 function json(body: Record<string, unknown>, status: number): Response {
   return Response.json(body, {
@@ -250,8 +243,8 @@ function safeSessionError(error: unknown): Response {
   );
 }
 
-export default async (req: Request): Promise<Response> => {
-  if (!isProductionDeployContext()) {
+export default async (req: Request, context?: Context): Promise<Response> => {
+  if (!isPublishedProductionDeployContext(context)) {
     return json(
       { error: "crypto_runtime_unavailable", message: "Crypto deposits are unavailable." },
       503,

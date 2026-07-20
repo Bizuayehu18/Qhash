@@ -43,6 +43,9 @@ const environmentExample = await readFile(
 );
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
+const PUBLISHED_PRODUCTION_CONTEXT = {
+  deploy: { context: "production", published: true },
+};
 const PLAN_TRANSACTION_ID = "22222222-2222-4222-8222-222222222222";
 const CBE_METHOD_ID = "33333333-3333-4333-8333-333333333333";
 const TELEBIRR_METHOD_ID = "44444444-4444-4444-8444-444444444444";
@@ -958,9 +961,10 @@ test("types and endpoint expose only the hidden server-side session contract", (
   assert.match(environmentExample, /Netlify scope: Functions\/runtime only/);
   assert.match(environmentExample, /Netlify deploy context: Production only/);
   assert.match(environmentExample, /No value for Deploy Previews, Branch deploys/);
-  assert.match(endpointSource, /Netlify\.env\.get\("CONTEXT"\) === "production"/);
+  assert.doesNotMatch(endpointSource, /Netlify\.env\.get\(["']CONTEXT["']\)/);
+  assert.match(endpointSource, /import type \{ Config, Context \} from "@netlify\/functions"/);
   assert.ok(
-    endpointSource.indexOf('Netlify.env.get("CONTEXT")')
+    endpointSource.indexOf("if (!isPublishedProductionDeployContext(context))")
       < endpointSource.indexOf('Netlify.env.get("VITE_SUPABASE_URL")'),
   );
   assert.match(endpointSource, /if \(!config\.enabled\)/);
@@ -972,7 +976,7 @@ test("types and endpoint expose only the hidden server-side session contract", (
   assert.match(endpointSource, /path: "\/api\/crypto\/nowpayments\/deposit-session"/);
 });
 
-async function invokeNonProductionEndpoint(deployContext) {
+async function invokeRejectedRuntimeEndpoint(runtimeContext) {
   const originalFetch = globalThis.fetch;
   const originalNetlify = globalThis.Netlify;
   const environmentReads = [];
@@ -981,8 +985,7 @@ async function invokeNonProductionEndpoint(deployContext) {
     env: {
       get(name) {
         environmentReads.push(name);
-        if (name === "CONTEXT") return deployContext;
-        throw new Error(`Non-production runtime read forbidden variable: ${name}`);
+        throw new Error(`Rejected runtime read forbidden variable: ${name}`);
       },
     },
   };
@@ -997,6 +1000,7 @@ async function invokeNonProductionEndpoint(deployContext) {
         method: "POST",
         headers: { authorization: "Bearer must-not-be-used" },
       }),
+      runtimeContext,
     );
     return {
       status: response.status,
@@ -1017,21 +1021,33 @@ function assertNonProductionRejected(result) {
     error: "crypto_runtime_unavailable",
     message: "Crypto deposits are unavailable.",
   });
-  assert.deepEqual(result.environmentReads, ["CONTEXT"]);
+  assert.deepEqual(result.environmentReads, []);
   assert.deepEqual(result.requests, []);
 }
 
-test("deploy-preview is rejected before secrets, database, or provider access", async () => {
-  assertNonProductionRejected(await invokeNonProductionEndpoint("deploy-preview"));
-});
+test("only a published production deploy reaches secrets, database, or provider access", async () => {
+  const rejectedContexts = [
+    { deploy: { context: "production", published: false } },
+    { deploy: { context: "deploy-preview", published: true } },
+    { deploy: { context: "branch-deploy", published: true } },
+    { deploy: { context: "preview-server", published: true } },
+    { deploy: { context: "dev", published: true } },
+    { deploy: { context: "custom-context", published: true } },
+    undefined,
+    null,
+    {},
+    { deploy: null },
+    { deploy: { published: true } },
+    { deploy: { context: "production" } },
+    { deploy: { context: "production", published: "true" } },
+    "production",
+    Object.defineProperty({}, "deploy", {
+      get() { throw new Error("sensitive malformed context detail"); },
+    }),
+  ];
 
-test("branch-deploy is rejected before secrets, database, or provider access", async () => {
-  assertNonProductionRejected(await invokeNonProductionEndpoint("branch-deploy"));
-});
-
-test("dev, missing, and unknown deploy contexts fail closed", async () => {
-  for (const deployContext of ["dev", undefined, "unknown-context"]) {
-    assertNonProductionRejected(await invokeNonProductionEndpoint(deployContext));
+  for (const runtimeContext of rejectedContexts) {
+    assertNonProductionRejected(await invokeRejectedRuntimeEndpoint(runtimeContext));
   }
 });
 
@@ -1044,7 +1060,6 @@ test("production context reaches authentication, configuration, and disabled gat
     env: {
       get(name) {
         environmentReads.push(name);
-        if (name === "CONTEXT") return "production";
         if (name === "VITE_SUPABASE_URL") return "https://supabase.mock";
         if (name === "SUPABASE_SERVICE_ROLE_KEY") return "service-role-mock";
         if (name === "NOWPAYMENTS_API_KEY") return "must-not-be-read";
@@ -1097,6 +1112,7 @@ test("production context reaches authentication, configuration, and disabled gat
       method: "POST",
       headers: { authorization: "Bearer mock-user-token" },
     }),
+    PUBLISHED_PRODUCTION_CONTEXT,
   );
   assert.equal(response.status, 503);
   assert.deepEqual(await response.json(), {
@@ -1107,7 +1123,7 @@ test("production context reaches authentication, configuration, and disabled gat
   assert.ok(requests.some((url) => url.includes("/rest/v1/profiles")));
   assert.ok(requests.some((url) => url.includes("/rest/v1/nowpayments_usdt_config")));
   assert.ok(!requests.some((url) => url.startsWith("https://api.nowpayments.io")));
-  assert.equal(environmentReads[0], "CONTEXT");
+  assert.equal(environmentReads[0], "VITE_SUPABASE_URL");
   assert.ok(environmentReads.includes("SUPABASE_SERVICE_ROLE_KEY"));
   assert.ok(!environmentReads.includes("NOWPAYMENTS_API_KEY"));
 });
