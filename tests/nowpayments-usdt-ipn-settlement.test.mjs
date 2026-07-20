@@ -78,6 +78,13 @@ const PAY_ADDRESS = "0x9999999999999999999999999999999999999999";
 const ORIGINAL_PROVIDER_ID = "90071992547409931234";
 const CHILD_PROVIDER_ID = "90071992547409931235";
 const IPN_SECRET = "mock-ipn-secret-only";
+const PUBLISHED_PRODUCTION_CONTEXT = {
+  deploy: { context: "production", published: true },
+};
+
+function invokePublished(handler, request) {
+  return handler(request, PUBLISHED_PRODUCTION_CONTEXT);
+}
 
 async function applyMigration(db, migration) {
   await db.exec("begin");
@@ -339,7 +346,6 @@ function verifiedFinishedPayment(overrides = {}) {
 
 function recoveryEnvironment(name) {
   return {
-    CONTEXT: "production",
     VITE_SUPABASE_URL: "https://supabase.mock",
     SUPABASE_SERVICE_ROLE_KEY: "mock-service-role-key",
     NOWPAYMENTS_API_KEY: "mock-nowpayments-api-key",
@@ -376,7 +382,6 @@ function createCrossHandlerPair(db, payment) {
   const ipn = createNowpaymentsUsdtIpnHandler({
     getEnvironment(name) {
       return {
-        CONTEXT: "production",
         NOWPAYMENTS_IPN_SECRET: IPN_SECRET,
         NOWPAYMENTS_API_KEY: "mock-api-key",
         VITE_SUPABASE_URL: "https://supabase.mock",
@@ -775,7 +780,6 @@ test("valid signed IPN is independently verified before settlement", async () =>
     getEnvironment(name) {
       environmentReads.push(name);
       return {
-        CONTEXT: "production",
         NOWPAYMENTS_IPN_SECRET: IPN_SECRET,
         NOWPAYMENTS_API_KEY: "mock-api-key",
         VITE_SUPABASE_URL: "https://supabase.mock",
@@ -812,7 +816,7 @@ test("valid signed IPN is independently verified before settlement", async () =>
     },
   });
 
-  const response = await handler(createSignedRequest({
+  const response = await invokePublished(handler, createSignedRequest({
     payment_id: ORIGINAL_PROVIDER_ID,
     payment_status: "finished",
     pay_currency: "forged-value-is-ignored",
@@ -824,7 +828,7 @@ test("valid signed IPN is independently verified before settlement", async () =>
   assert.equal(settlements.length, 1);
   assert.equal(settlements[0].payCurrency, "usdtbsc");
   assert.equal(settlements[0].outcomeAmountUsdt, "0.5");
-  assert.deepEqual(environmentReads.slice(0, 2), ["CONTEXT", "NOWPAYMENTS_IPN_SECRET"]);
+  assert.equal(environmentReads[0], "NOWPAYMENTS_IPN_SECRET");
   assert.ok(environmentReads.indexOf("NOWPAYMENTS_API_KEY") > environmentReads.indexOf("NOWPAYMENTS_IPN_SECRET"));
 });
 
@@ -835,7 +839,6 @@ test("invalid and forged signatures make no provider or database call", async ()
   const handler = createNowpaymentsUsdtIpnHandler({
     getEnvironment(name) {
       environmentReads.push(name);
-      if (name === "CONTEXT") return "production";
       if (name === "NOWPAYMENTS_IPN_SECRET") return IPN_SECRET;
       throw new Error(`unexpected secret read: ${name}`);
     },
@@ -849,7 +852,7 @@ test("invalid and forged signatures make no provider or database call", async ()
     },
   });
 
-  const response = await handler(createSignedRequest(
+  const response = await invokePublished(handler, createSignedRequest(
     { payment_id: ORIGINAL_PROVIDER_ID, payment_status: "finished" },
     "forged-secret",
   ));
@@ -860,37 +863,74 @@ test("invalid and forged signatures make no provider or database call", async ()
   });
   assert.equal(providerCalls, 0);
   assert.equal(storeCalls, 0);
-  assert.deepEqual(environmentReads, ["CONTEXT", "NOWPAYMENTS_IPN_SECRET"]);
+  assert.deepEqual(environmentReads, ["NOWPAYMENTS_IPN_SECRET"]);
 });
 
 test("non-production, method, content type, and payload-size gates fail closed", async () => {
-  for (const context of ["deploy-preview", "branch-deploy", "dev", undefined, "unknown"]) {
+  const rejectedContexts = [
+    { deploy: { context: "production", published: false } },
+    { deploy: { context: "deploy-preview", published: true } },
+    { deploy: { context: "branch-deploy", published: true } },
+    { deploy: { context: "preview-server", published: true } },
+    { deploy: { context: "dev", published: true } },
+    { deploy: { context: "custom-context", published: true } },
+    undefined,
+    null,
+    {},
+    { deploy: null },
+    { deploy: { published: true } },
+    { deploy: { context: "production" } },
+    { deploy: { context: "production", published: "true" } },
+    "production",
+    Object.defineProperty({}, "deploy", {
+      get() { throw new Error("sensitive malformed context detail"); },
+    }),
+  ];
+
+  for (const runtimeContext of rejectedContexts) {
     const reads = [];
+    let providerCalls = 0;
+    let storeCalls = 0;
     const handler = createNowpaymentsUsdtIpnHandler({
       getEnvironment(name) {
         reads.push(name);
-        if (name === "CONTEXT") return context;
         throw new Error("non-production secret read");
       },
+      createProvider() {
+        providerCalls += 1;
+        throw new Error("non-production provider access");
+      },
+      createStore() {
+        storeCalls += 1;
+        throw new Error("non-production store access");
+      },
     });
-    const response = await handler(createSignedRequest({ payment_id: "1" }));
+    const response = await handler(
+      createSignedRequest({ payment_id: "1" }),
+      runtimeContext,
+    );
     assert.equal(response.status, 503);
-    assert.deepEqual(reads, ["CONTEXT"]);
+    assert.deepEqual(await response.json(), {
+      error: "crypto_runtime_unavailable",
+      message: "Not available.",
+    });
+    assert.deepEqual(reads, []);
+    assert.equal(providerCalls, 0);
+    assert.equal(storeCalls, 0);
   }
 
   const productionHandler = createNowpaymentsUsdtIpnHandler({
     getEnvironment(name) {
-      if (name === "CONTEXT") return "production";
       throw new Error(`unexpected environment read: ${name}`);
     },
   });
-  assert.equal((await productionHandler(new Request("https://qhash.mock", { method: "GET" }))).status, 405);
-  assert.equal((await productionHandler(new Request("https://qhash.mock", {
+  assert.equal((await invokePublished(productionHandler, new Request("https://qhash.mock", { method: "GET" }))).status, 405);
+  assert.equal((await invokePublished(productionHandler, new Request("https://qhash.mock", {
     method: "POST",
     headers: { "content-type": "text/plain" },
     body: "{}",
   }))).status, 415);
-  assert.equal((await productionHandler(new Request("https://qhash.mock", {
+  assert.equal((await invokePublished(productionHandler, new Request("https://qhash.mock", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -997,7 +1037,10 @@ test("authorized admin recovery settles verified original and repeated child pay
       },
     });
 
-    const response = await handler(createRecoveryRequest(payment.providerPaymentId));
+    const response = await invokePublished(
+      handler,
+      createRecoveryRequest(payment.providerPaymentId),
+    );
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), {
       success: true,
@@ -1041,9 +1084,9 @@ test("duplicate and concurrent admin recovery attempts return safe idempotent re
   });
 
   const responses = await Promise.all([
-    handler(createRecoveryRequest(ORIGINAL_PROVIDER_ID)),
-    handler(createRecoveryRequest(ORIGINAL_PROVIDER_ID)),
-    handler(createRecoveryRequest(ORIGINAL_PROVIDER_ID)),
+    invokePublished(handler, createRecoveryRequest(ORIGINAL_PROVIDER_ID)),
+    invokePublished(handler, createRecoveryRequest(ORIGINAL_PROVIDER_ID)),
+    invokePublished(handler, createRecoveryRequest(ORIGINAL_PROVIDER_ID)),
   ]);
   const bodies = await Promise.all(responses.map((response) => response.json()));
   assert.equal(settlementCalls, 3);
@@ -1063,13 +1106,14 @@ test("signed IPN followed by administrator recovery credits exactly once", async
   });
   const handlers = createCrossHandlerPair(db, payment);
 
-  const ipnResponse = await handlers.ipn(createSignedRequest({
+  const ipnResponse = await invokePublished(handlers.ipn, createSignedRequest({
     payment_id: ORIGINAL_PROVIDER_ID,
   }));
   assert.equal(ipnResponse.status, 200);
   assert.deepEqual(await ipnResponse.json(), { status: "processed" });
 
-  const recoveryResponse = await handlers.recovery(
+  const recoveryResponse = await invokePublished(
+    handlers.recovery,
     createRecoveryRequest(ORIGINAL_PROVIDER_ID),
   );
   assert.equal(recoveryResponse.status, 200);
@@ -1091,7 +1135,8 @@ test("administrator recovery followed by signed IPN credits exactly once", async
   });
   const handlers = createCrossHandlerPair(db, payment);
 
-  const recoveryResponse = await handlers.recovery(
+  const recoveryResponse = await invokePublished(
+    handlers.recovery,
     createRecoveryRequest(ORIGINAL_PROVIDER_ID),
   );
   assert.equal(recoveryResponse.status, 200);
@@ -1101,7 +1146,7 @@ test("administrator recovery followed by signed IPN credits exactly once", async
     message: "The payment was reconciled successfully.",
   });
 
-  const ipnResponse = await handlers.ipn(createSignedRequest({
+  const ipnResponse = await invokePublished(handlers.ipn, createSignedRequest({
     payment_id: ORIGINAL_PROVIDER_ID,
   }));
   assert.equal(ipnResponse.status, 200);
@@ -1111,34 +1156,80 @@ test("administrator recovery followed by signed IPN credits exactly once", async
 });
 
 test("manual recovery rejects non-production, unauthorized, and non-admin requests", async () => {
-  for (const context of ["deploy-preview", "branch-deploy", "dev", undefined, "unknown"]) {
+  const rejectedContexts = [
+    { deploy: { context: "production", published: false } },
+    { deploy: { context: "deploy-preview", published: true } },
+    { deploy: { context: "branch-deploy", published: true } },
+    { deploy: { context: "preview-server", published: true } },
+    { deploy: { context: "dev", published: true } },
+    { deploy: { context: "custom-context", published: true } },
+    undefined,
+    null,
+    {},
+    { deploy: null },
+    { deploy: { published: true } },
+    { deploy: { context: "production" } },
+    { deploy: { context: "production", published: "true" } },
+    "production",
+    Object.defineProperty({}, "deploy", {
+      get() { throw new Error("sensitive malformed context detail"); },
+    }),
+  ];
+
+  for (const runtimeContext of rejectedContexts) {
     const reads = [];
+    let authorizationCalls = 0;
+    let providerCalls = 0;
+    let storeCalls = 0;
     const handler = createNowpaymentsUsdtReconcilePaymentHandler({
       getEnvironment(name) {
         reads.push(name);
-        if (name === "CONTEXT") return context;
         throw new Error("non-production credential read");
       },
+      async authorizeAdmin() {
+        authorizationCalls += 1;
+        return "authorized";
+      },
+      createProvider() {
+        providerCalls += 1;
+        throw new Error("non-production provider access");
+      },
+      createStore() {
+        storeCalls += 1;
+        throw new Error("non-production store access");
+      },
     });
-    const response = await handler(createRecoveryRequest(ORIGINAL_PROVIDER_ID));
+    const response = await handler(
+      createRecoveryRequest(ORIGINAL_PROVIDER_ID),
+      runtimeContext,
+    );
     assert.equal(response.status, 503);
-    assert.deepEqual(reads, ["CONTEXT"]);
+    assert.deepEqual(await response.json(), {
+      error: "crypto_runtime_unavailable",
+      message: "Not available.",
+    });
+    assert.deepEqual(reads, []);
+    assert.equal(authorizationCalls, 0);
+    assert.equal(providerCalls, 0);
+    assert.equal(storeCalls, 0);
   }
 
   const missingTokenHandler = createNowpaymentsUsdtReconcilePaymentHandler({
     getEnvironment(name) {
-      if (name === "CONTEXT") return "production";
       throw new Error(`unexpected credential read: ${name}`);
     },
   });
-  const missingTokenResponse = await missingTokenHandler(new Request(
-    "https://qhash.mock/api/admin/crypto/nowpayments/reconcile-payment",
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ payment_id: ORIGINAL_PROVIDER_ID }),
-    },
-  ));
+  const missingTokenResponse = await invokePublished(
+    missingTokenHandler,
+    new Request(
+      "https://qhash.mock/api/admin/crypto/nowpayments/reconcile-payment",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ payment_id: ORIGINAL_PROVIDER_ID }),
+      },
+    ),
+  );
   assert.equal(missingTokenResponse.status, 401);
 
   for (const [authorization, expectedStatus] of [
@@ -1160,7 +1251,10 @@ test("manual recovery rejects non-production, unauthorized, and non-admin reques
         throw new Error("provider must not be created");
       },
     });
-    const response = await handler(createRecoveryRequest(ORIGINAL_PROVIDER_ID));
+    const response = await invokePublished(
+      handler,
+      createRecoveryRequest(ORIGINAL_PROVIDER_ID),
+    );
     assert.equal(response.status, expectedStatus);
     assert.equal(providerCalls, 0);
     assert.ok(!reads.includes("NOWPAYMENTS_API_KEY"));
@@ -1217,7 +1311,9 @@ test("manual recovery accepts only strict POST JSON containing one provider paym
   ];
 
   const responses = [];
-  for (const request of invalidRequests) responses.push(await handler(request));
+  for (const request of invalidRequests) {
+    responses.push(await invokePublished(handler, request));
+  }
   assert.deepEqual(
     responses.map((response) => response.status),
     [405, 415, 400, 400, 400, 413],
@@ -1337,9 +1433,10 @@ test("manual recovery failures are byte-for-byte indistinguishable", async () =>
         };
       },
     });
-    const response = await handler(createRecoveryRequest(
-      testCase.requestPaymentId ?? ORIGINAL_PROVIDER_ID,
-    ));
+    const response = await invokePublished(
+      handler,
+      createRecoveryRequest(testCase.requestPaymentId ?? ORIGINAL_PROVIDER_ID),
+    );
     fingerprints.push({ name: testCase.name, value: await responseFingerprint(response) });
 
     if (!testCase.store) assert.equal(settlementCalls, 0, testCase.name);
@@ -1386,7 +1483,10 @@ test("manual recovery preserves exact sub-one-USDT outcomes and fails safely", a
       };
     },
   });
-  assert.equal((await exactHandler(createRecoveryRequest(ORIGINAL_PROVIDER_ID))).status, 200);
+  assert.equal(
+    (await invokePublished(exactHandler, createRecoveryRequest(ORIGINAL_PROVIDER_ID))).status,
+    200,
+  );
   assert.equal(settledAmount, exactAmount);
 
   const providerFailureHandler = createNowpaymentsUsdtReconcilePaymentHandler({
@@ -1399,7 +1499,10 @@ test("manual recovery preserves exact sub-one-USDT outcomes and fails safely", a
     },
   });
   assert.equal(
-    (await providerFailureHandler(createRecoveryRequest(ORIGINAL_PROVIDER_ID))).status,
+    (await invokePublished(
+      providerFailureHandler,
+      createRecoveryRequest(ORIGINAL_PROVIDER_ID),
+    )).status,
     503,
   );
 
@@ -1416,7 +1519,10 @@ test("manual recovery preserves exact sub-one-USDT outcomes and fails safely", a
     },
   });
   assert.equal(
-    (await databaseFailureHandler(createRecoveryRequest(ORIGINAL_PROVIDER_ID))).status,
+    (await invokePublished(
+      databaseFailureHandler,
+      createRecoveryRequest(ORIGINAL_PROVIDER_ID),
+    )).status,
     503,
   );
 });
@@ -1427,9 +1533,17 @@ test("types, endpoint source, and secret documentation stay server-only", () => 
   assert.match(databaseTypes, /provider_payment_record_id: string \| null/);
   assert.match(environmentExample, /^NOWPAYMENTS_IPN_SECRET=$/m);
   assert.doesNotMatch(environmentExample, /^VITE_NOWPAYMENTS/m);
+  assert.doesNotMatch(endpointSource, /(?:Netlify\.env\.get|getEnvironment)\(["']CONTEXT["']\)/);
+  assert.doesNotMatch(recoveryEndpointSource, /(?:Netlify\.env\.get|getEnvironment)\(["']CONTEXT["']\)/);
+  assert.match(endpointSource, /import type \{ Config, Context \} from "@netlify\/functions"/);
+  assert.match(recoveryEndpointSource, /import type \{ Config, Context \} from "@netlify\/functions"/);
   assert.ok(
-    endpointSource.indexOf('getEnvironment("CONTEXT")')
+    endpointSource.indexOf("if (!isPublishedProductionDeployContext(context))")
       < endpointSource.indexOf('getEnvironment("NOWPAYMENTS_IPN_SECRET")'),
+  );
+  assert.ok(
+    recoveryEndpointSource.indexOf("if (!isPublishedProductionDeployContext(context))")
+      < recoveryEndpointSource.indexOf('getEnvironment("VITE_SUPABASE_URL")'),
   );
   assert.ok(
     endpointSource.indexOf('getEnvironment("NOWPAYMENTS_IPN_SECRET")')

@@ -21,6 +21,9 @@ const USER_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_USER_ID = "22222222-2222-4222-8222-222222222222";
 const SESSION_ID = "33333333-3333-4333-8333-333333333333";
 const ADDRESS = "0x1111111111111111111111111111111111111111";
+const PUBLISHED_PRODUCTION_CONTEXT = {
+  deploy: { context: "production", published: true },
+};
 const REQUEST_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TERMINAL_LOG_FIELDS = [
   "diagnostic_code",
@@ -70,11 +73,13 @@ const {
 
 const [
   overviewSource,
+  deployContextSource,
   uiSource,
   depositRouteSource,
   netlifyTypecheck,
 ] = await Promise.all([
   readFile(new URL("netlify/functions/nowpayments-usdt-deposit-overview.mts", repositoryRoot), "utf8"),
+  readFile(new URL("netlify/functions/lib/nowpayments-deploy-context.mts", repositoryRoot), "utf8"),
   readFile(new URL("src/components/deposit/NowpaymentsUsdtDeposit.tsx", repositoryRoot), "utf8"),
   readFile(new URL("src/routes/_app/deposit.tsx", repositoryRoot), "utf8"),
   readFile(new URL("tsconfig.netlify.json", repositoryRoot), "utf8"),
@@ -116,7 +121,8 @@ function validProviderPayment(overrides = {}) {
 
 async function invokeOverview({
   handler = overviewHandler,
-  context = "production",
+  runtimeContext = PUBLISHED_PRODUCTION_CONTEXT,
+  omitRuntimeContext = false,
   method = "GET",
   authorization = `Bearer valid-token`,
   incomingRequestId = null,
@@ -147,7 +153,6 @@ async function invokeOverview({
         if (name === environmentThrowName) {
           throw new Error("sensitive environment lookup detail");
         }
-        if (name === "CONTEXT") return context;
         if (name === "VITE_SUPABASE_URL") return viteSupabaseUrl;
         if (name === "SUPABASE_URL") return supabaseUrl;
         if (name === "SUPABASE_SERVICE_ROLE_KEY") return serviceRoleKey;
@@ -214,10 +219,13 @@ async function invokeOverview({
     let body = null;
     let thrown = null;
     try {
-      response = await handler(new Request(
+      const request = new Request(
         "https://qhash.mock/api/crypto/nowpayments/deposit-overview",
         { method, headers },
-      ));
+      );
+      response = omitRuntimeContext
+        ? await handler(request)
+        : await handler(request, runtimeContext);
       body = await response.json();
     } catch (error) {
       thrown = error;
@@ -262,15 +270,39 @@ function emptyOverviewBody(featureEnabled) {
 }
 
 test("overview rejects every non-production context before secrets or network", async () => {
-  for (const context of ["deploy-preview", "branch-deploy", "dev", "unknown", null]) {
-    const result = await invokeOverview({ context });
-    assert.equal(result.response.status, 503);
+  const rejectedContexts = [
+    ["unpublished production", { deploy: { context: "production", published: false } }],
+    ["deploy preview", { deploy: { context: "deploy-preview", published: true } }],
+    ["branch deploy", { deploy: { context: "branch-deploy", published: true } }],
+    ["preview server", { deploy: { context: "preview-server", published: true } }],
+    ["dev", { deploy: { context: "dev", published: true } }],
+    ["custom", { deploy: { context: "custom-context", published: true } }],
+    ["missing context", null, true],
+    ["null context", null],
+    ["missing deploy", {}],
+    ["null deploy", { deploy: null }],
+    ["missing context name", { deploy: { published: true } }],
+    ["missing published flag", { deploy: { context: "production" } }],
+    ["malformed published flag", { deploy: { context: "production", published: "true" } }],
+    ["malformed context", "production"],
+    ["throwing deploy getter", Object.defineProperty({}, "deploy", {
+      get() { throw new Error("sensitive malformed context detail"); },
+    })],
+  ];
+
+  for (const [name, runtimeContext, omitRuntimeContext = false] of rejectedContexts) {
+    const result = await invokeOverview({ runtimeContext, omitRuntimeContext });
+    assert.equal(result.response.status, 503, name);
     assert.deepEqual(result.body, {
       error: "crypto_runtime_unavailable",
       message: "Crypto deposits are unavailable.",
     });
-    assert.deepEqual(result.environmentReads, ["CONTEXT"]);
+    assert.deepEqual(result.environmentReads, [], name);
     assert.deepEqual(result.requests, []);
+    const terminalLog = readTerminalLog(result);
+    assert.equal(terminalLog.stage, "runtime_gate", name);
+    assert.equal(terminalLog.http_status, 503, name);
+    assert.equal(terminalLog.diagnostic_code, "crypto_runtime_unavailable", name);
   }
 });
 
@@ -357,15 +389,15 @@ test("overview preserves every handled terminal response and emits one allowlist
   const cases = [
     {
       name: "runtime context rejection",
-      options: { context: "deploy-preview" },
+      options: { runtimeContext: { deploy: { context: "deploy-preview", published: true } } },
       status: 503,
       body: { error: "crypto_runtime_unavailable", message: "Crypto deposits are unavailable." },
       stage: "runtime_gate",
       diagnosticCode: "crypto_runtime_unavailable",
     },
     {
-      name: "runtime context lookup failure",
-      options: { environmentThrowName: "CONTEXT" },
+      name: "unpublished production context",
+      options: { runtimeContext: { deploy: { context: "production", published: false } } },
       status: 503,
       body: { error: "crypto_runtime_unavailable", message: "Crypto deposits are unavailable." },
       stage: "runtime_gate",
@@ -765,7 +797,12 @@ test("CBE and TeleBirr deposit paths remain present and crypto is a parallel opt
 });
 
 test("overview source keeps production and authentication gates before database reads", () => {
-  assert.ok(overviewSource.indexOf('Netlify.env.get("CONTEXT")') < overviewSource.indexOf('Netlify.env.get("SUPABASE_SERVICE_ROLE_KEY")'));
+  assert.doesNotMatch(overviewSource, /Netlify\.env\.get\(["']CONTEXT["']\)/);
+  assert.match(overviewSource, /import type \{ Config, Context \} from "@netlify\/functions"/);
+  assert.ok(overviewSource.indexOf("if (!isPublishedProductionDeployContext(context))") < overviewSource.indexOf('Netlify.env.get("VITE_SUPABASE_URL")'));
+  assert.match(deployContextSource, /deploy\?\.context === "production"/);
+  assert.match(deployContextSource, /deploy\?\.published === true/);
+  assert.doesNotMatch(deployContextSource, /Netlify\.env|getEnvironment|process\.env/);
   assert.ok(overviewSource.indexOf("if (!token || token === authorization)") < overviewSource.indexOf("admin.auth.getUser(token)"));
   assert.doesNotMatch(overviewSource, /NOWPAYMENTS_API_KEY|api\.nowpayments\.io/);
   assert.match(overviewSource, /\.eq\("user_id", userId\)/);

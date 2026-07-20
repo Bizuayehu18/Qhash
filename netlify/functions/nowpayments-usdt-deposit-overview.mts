@@ -1,7 +1,8 @@
-import type { Config } from "@netlify/functions";
+import type { Config, Context } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { Database } from "../../src/lib/database.types.ts";
+import { isPublishedProductionDeployContext } from "./lib/nowpayments-deploy-context.mts";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const REQUEST_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -98,14 +99,6 @@ type HistoryView = {
   valid_until: string | null;
   completed_at: string | null;
 };
-
-function isProductionDeployContext(): boolean {
-  try {
-    return Netlify.env.get("CONTEXT") === "production";
-  } catch {
-    return false;
-  }
-}
 
 function json(body: Record<string, unknown>, status: number, requestId: string): Response {
   return Response.json(body, {
@@ -319,9 +312,10 @@ function buildHistory(
 
 async function handleOverview(
   req: Request,
+  context: Context | undefined,
   invocation: OverviewInvocation,
 ): Promise<Response> {
-  if (!isProductionDeployContext()) {
+  if (!isPublishedProductionDeployContext(context)) {
     return terminalResponse(
       invocation,
       { error: "crypto_runtime_unavailable", message: "Crypto deposits are unavailable." },
@@ -560,8 +554,8 @@ async function handleOverview(
 
 export function createOverviewHandler(
   requestIdFactory: RequestIdFactory = randomUUID,
-): (req: Request) => Promise<Response> {
-  return async (req: Request): Promise<Response> => {
+): (req: Request, context?: Context) => Promise<Response> {
+  return async (req: Request, context?: Context): Promise<Response> => {
     const requestId = createRequestId(requestIdFactory);
     const invocation: OverviewInvocation = {
       requestId,
@@ -570,7 +564,7 @@ export function createOverviewHandler(
     };
 
     try {
-      return await handleOverview(req, invocation);
+      return await handleOverview(req, context, invocation);
     } finally {
       writeTerminalLog(invocation.terminalLog ?? {
         event: OVERVIEW_LOG_EVENT,

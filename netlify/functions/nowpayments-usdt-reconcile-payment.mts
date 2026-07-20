@@ -1,4 +1,4 @@
-import type { Config } from "@netlify/functions";
+import type { Config, Context } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../../src/lib/database.types.ts";
 import {
@@ -16,6 +16,7 @@ import {
   createNowpaymentsSettlementStore,
   type NowpaymentsSettlementStore,
 } from "./lib/nowpayments-settlement.mts";
+import { isPublishedProductionDeployContext } from "./lib/nowpayments-deploy-context.mts";
 
 const RECOVERY_MAX_BODY_BYTES = 4_096;
 const PROVIDER_PAYMENT_ID_PATTERN = /^[0-9]{1,200}$/;
@@ -69,16 +70,6 @@ function reconciliationNotCompleted(): Response {
     },
     503,
   );
-}
-
-function isProductionDeployContext(
-  getEnvironment: (name: string) => string | undefined,
-): boolean {
-  try {
-    return getEnvironment("CONTEXT") === "production";
-  } catch {
-    return false;
-  }
 }
 
 function bearerToken(request: Request): string | null {
@@ -167,14 +158,14 @@ function requireFinishedUsdtbscPayment(
 
 export function createNowpaymentsUsdtReconcilePaymentHandler(
   dependencies: HandlerDependencies = {},
-): (request: Request) => Promise<Response> {
+): (request: Request, context?: Context) => Promise<Response> {
   const getEnvironment = dependencies.getEnvironment
     ?? ((name: string) => Netlify.env.get(name));
 
-  return async (request: Request): Promise<Response> => {
+  return async (request: Request, context?: Context): Promise<Response> => {
     // Keep this as the first runtime gate. Preview, branch, dev, missing, and
     // unknown contexts must not read credentials or contact external systems.
-    if (!isProductionDeployContext(getEnvironment)) {
+    if (!isPublishedProductionDeployContext(context)) {
       return json({ error: "crypto_runtime_unavailable", message: "Not available." }, 503);
     }
     if (request.method !== "POST") {
