@@ -21,12 +21,13 @@ export type NowpaymentsHistoryStatus = (typeof NOWPAYMENTS_HISTORY_STATUSES)[num
 export type NowpaymentsDepositSessionView = {
   asset: "USDT";
   network: "BEP20";
-  status: NowpaymentsActiveStatus;
+  status: NowpaymentsHistoryStatus;
   pay_address: string;
   minimum_deposit_usdt: string;
   provider_minimum_usdt: string;
   created_at: string;
-  valid_until: string;
+  address_lifecycle: "pending_activation" | "permanently_activated";
+  valid_until: string | null;
 };
 
 export type NowpaymentsDepositHistoryView = {
@@ -49,7 +50,13 @@ export type NowpaymentsDepositOverview = {
     available_balance_usdt: string;
     reserved_balance_usdt: string;
   };
-  session_state: "none" | "active" | "provisioning" | "manual_review";
+  session_state:
+    | "none"
+    | "pending_activation"
+    | "permanently_activated"
+    | "expired_unactivated"
+    | "provisioning"
+    | "manual_review";
   active_session: NowpaymentsDepositSessionView | null;
   history: NowpaymentsDepositHistoryView[];
 };
@@ -111,13 +118,20 @@ function parseSession(value: unknown): NowpaymentsDepositSessionView | null {
     value.asset !== "USDT"
     || value.network !== "BEP20"
     || typeof value.status !== "string"
-    || !ACTIVE_STATUS_SET.has(value.status)
+    || !HISTORY_STATUS_SET.has(value.status)
     || typeof value.pay_address !== "string"
     || !ADDRESS_PATTERN.test(value.pay_address)
     || !isDecimal(value.minimum_deposit_usdt)
     || !isDecimal(value.provider_minimum_usdt)
     || !isTimestamp(value.created_at)
-    || !isTimestamp(value.valid_until)
+    || !["pending_activation", "permanently_activated"].includes(
+      String(value.address_lifecycle),
+    )
+    || !isNullableTimestamp(value.valid_until)
+    || (value.address_lifecycle === "pending_activation"
+      && (!ACTIVE_STATUS_SET.has(value.status) || value.valid_until === null))
+    || (value.address_lifecycle === "permanently_activated"
+      && (value.status !== "finished" || value.valid_until !== null))
   ) {
     throw new NowpaymentsDepositUiError("unavailable");
   }
@@ -155,10 +169,20 @@ export function parseNowpaymentsDepositOverview(value: unknown): NowpaymentsDepo
     || !isDecimal(value.minimum_deposit_usdt)
     || !isDecimal(value.wallet.available_balance_usdt)
     || !isDecimal(value.wallet.reserved_balance_usdt)
-    || !["none", "active", "provisioning", "manual_review"].includes(
+    || ![
+      "none",
+      "pending_activation",
+      "permanently_activated",
+      "expired_unactivated",
+      "provisioning",
+      "manual_review",
+    ].includes(
       String(value.session_state),
     )
-    || (value.session_state === "active") !== Boolean(activeSession)
+    || (["pending_activation", "permanently_activated"].includes(
+      String(value.session_state),
+    )) !== Boolean(activeSession)
+    || (activeSession !== null && value.session_state !== activeSession.address_lifecycle)
   ) {
     throw new NowpaymentsDepositUiError("unavailable");
   }
@@ -228,7 +252,12 @@ export async function requestNowpaymentsDepositSession(
     || typeof body.pay_address !== "string"
     || !ADDRESS_PATTERN.test(body.pay_address)
     || !isDecimal(body.minimum_deposit_usdt)
-    || !isTimestamp(body.valid_until)
+    || !["pending_activation", "permanently_activated"].includes(
+      String(body.address_lifecycle),
+    )
+    || !isNullableTimestamp(body.valid_until)
+    || (body.address_lifecycle === "pending_activation" && body.valid_until === null)
+    || (body.address_lifecycle === "permanently_activated" && body.valid_until !== null)
   ) {
     throw new NowpaymentsDepositUiError("unavailable");
   }
@@ -246,7 +275,8 @@ export function isDepositAddressSendable(
   session: NowpaymentsDepositSessionView,
   nowMs: number,
 ): boolean {
-  return new Date(session.valid_until).getTime() > nowMs;
+  return session.address_lifecycle === "permanently_activated"
+    || (session.valid_until !== null && new Date(session.valid_until).getTime() > nowMs);
 }
 
 export function formatDepositCountdown(validUntil: string, nowMs: number): string {

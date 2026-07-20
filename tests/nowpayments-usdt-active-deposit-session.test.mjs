@@ -616,6 +616,7 @@ function newSession({
     provider_minimum_usdt: "0.75",
     provider_created_at: status === "provisioning" ? null : "2030-01-01T00:00:00.000Z",
     provider_valid_until: validUntil,
+    address_activated_at: null,
     provisioning_started_at: "2030-01-01T00:00:00.000Z",
     created_at: "2030-01-01T00:00:00.000Z",
   };
@@ -627,19 +628,34 @@ class MemoryStore {
   recoveryEvidence = null;
 
   async getCurrent(userId) {
+    const activated = this.sessions.find(
+      (candidate) => candidate.user_id === userId && candidate.address_activated_at !== null,
+    );
+    if (activated) return { ...activated, disposition: "activated" };
     const session = this.sessions.find(
       (candidate) => candidate.user_id === userId
         && ["provisioning", "ready", "manual_recovery"].includes(candidate.session_status),
     );
-    return session ? { ...session, disposition: "existing" } : { disposition: "none" };
+    return session
+      ? { ...session, disposition: session.session_status === "ready" ? "pending" : "existing" }
+      : { disposition: "none" };
   }
 
   async claim(userId, providerMinimumUsdt, technicalReferenceAmountUsdt) {
+    const activated = this.sessions.find(
+      (candidate) => candidate.user_id === userId && candidate.address_activated_at !== null,
+    );
+    if (activated) return { ...activated, disposition: "activated" };
     const current = this.sessions.find(
       (candidate) => candidate.user_id === userId
         && ["provisioning", "ready", "manual_recovery"].includes(candidate.session_status),
     );
-    if (current) return { ...current, disposition: "existing" };
+    if (current) {
+      return {
+        ...current,
+        disposition: current.session_status === "ready" ? "pending" : "existing",
+      };
+    }
     const session = {
       ...newSession({ userId }),
       provider_minimum_usdt: providerMinimumUsdt,
@@ -734,23 +750,20 @@ test("orchestration reuses active sessions and creates at most once under concur
   });
   assert.equal(revisited.id, existing.id);
   assert.equal(revisited.pay_address, PAY_ADDRESS);
-  assert.equal(revisited.provider_payment_status, "confirming");
+  assert.equal(revisited.provider_payment_status, "waiting");
   assert.equal(createCount, 1);
 });
 
 test("orchestration replaces terminal/expired sessions but never retries an uncertain create", async () => {
   const terminalStore = new MemoryStore();
   terminalStore.sessions.push(newSession({
-    status: "ready",
-    providerStatus: "sending",
+    status: "terminal",
+    providerStatus: "expired",
     validUntil: "2030-01-08T00:00:00.000Z",
   }));
   let terminalCreateCount = 0;
   const terminalProvider = {
     async getMinimum() { return "1.5"; },
-    async getPaymentStatus(providerPaymentId) {
-      return { providerPaymentId, providerPaymentStatus: "finished" };
-    },
     async createPayment({ qhashOrderId }) {
       terminalCreateCount += 1;
       return createdPayment(qhashOrderId, "20002");
@@ -799,65 +812,30 @@ test("orchestration replaces terminal/expired sessions but never retries an unce
   assert.equal(uncertainCreateCount, 1);
 });
 
-test("provider status keeps in-flight payments active after valid_until but expires waiting ones", async () => {
-  const now = () => new Date("2030-01-09T00:00:00Z");
-  const confirmingStore = new MemoryStore();
-  const confirming = newSession({
-    status: "ready",
-    providerStatus: "confirming",
+test("permanent addresses reuse after the original deadline without provider access", async () => {
+  const store = new MemoryStore();
+  const permanent = newSession({
+    status: "terminal",
+    providerStatus: "finished",
     validUntil: "2030-01-08T00:00:00.000Z",
   });
-  confirmingStore.sessions.push(confirming);
-  let confirmingCreateCount = 0;
-  const confirmingProvider = {
-    async getMinimum() { throw new Error("not used"); },
-    async getPaymentStatus(providerPaymentId) {
-      return { providerPaymentId, providerPaymentStatus: "confirming" };
-    },
-    async createPayment() {
-      confirmingCreateCount += 1;
-      throw new Error("not used");
-    },
+  permanent.address_activated_at = "2030-01-02T00:00:00.000Z";
+  store.sessions.push(permanent);
+  const provider = {
+    async getMinimum() { throw new Error("provider must not be contacted"); },
+    async createPayment() { throw new Error("provider must not be contacted"); },
   };
   const reused = await getOrCreateNowpaymentsDepositSession({
     userId: USER_ID,
-    store: confirmingStore,
-    provider: confirmingProvider,
-    now,
+    store,
+    provider,
+    now: () => new Date("2040-01-01T00:00:00Z"),
   });
-  assert.equal(reused.id, confirming.id);
-  assert.equal(reused.provider_payment_status, "confirming");
-  assert.equal(confirmingCreateCount, 0);
-
-  const waitingStore = new MemoryStore();
-  waitingStore.sessions.push(newSession({
-    status: "ready",
-    providerStatus: "waiting",
-    validUntil: "2030-01-08T00:00:00.000Z",
-  }));
-  let waitingCreateCount = 0;
-  const waitingProvider = {
-    async getMinimum() { return "1"; },
-    async getPaymentStatus(providerPaymentId) {
-      return { providerPaymentId, providerPaymentStatus: "waiting" };
-    },
-    async createPayment({ qhashOrderId }) {
-      waitingCreateCount += 1;
-      return createdPayment(qhashOrderId, "20004");
-    },
-  };
-  const replacement = await getOrCreateNowpaymentsDepositSession({
-    userId: USER_ID,
-    store: waitingStore,
-    provider: waitingProvider,
-    now,
-  });
-  assert.equal(waitingCreateCount, 1);
-  assert.equal(waitingStore.sessions[0].session_status, "terminal");
-  assert.notEqual(replacement.id, waitingStore.sessions[0].id);
+  assert.equal(reused.id, permanent.id);
+  assert.equal(reused.address_activated_at, "2030-01-02T00:00:00.000Z");
 });
 
-test("all provider active statuses reuse and all terminal statuses retire the old session", async () => {
+test("all stored pending statuses reuse without a provider status request", async () => {
   for (const providerStatus of [
     "waiting",
     "partially_paid",
@@ -875,9 +853,6 @@ test("all provider active statuses reuse and all terminal statuses retire the ol
     const provider = {
       async getMinimum() { throw new Error("not used"); },
       async createPayment() { throw new Error("not used"); },
-      async getPaymentStatus(providerPaymentId) {
-        return { providerPaymentId, providerPaymentStatus: providerStatus };
-      },
     };
     const reused = await getOrCreateNowpaymentsDepositSession({
       userId: USER_ID,
@@ -889,33 +864,6 @@ test("all provider active statuses reuse and all terminal statuses retire the ol
     assert.equal(reused.provider_payment_status, providerStatus);
   }
 
-  for (const providerStatus of ["finished", "failed", "refunded", "expired"]) {
-    const store = new MemoryStore();
-    const current = newSession({
-      status: "ready",
-      providerStatus: "sending",
-      validUntil: "2030-01-08T00:00:00.000Z",
-    });
-    store.sessions.push(current);
-    const provider = {
-      async getMinimum() { return "1"; },
-      async getPaymentStatus(providerPaymentId) {
-        return { providerPaymentId, providerPaymentStatus: providerStatus };
-      },
-      async createPayment({ qhashOrderId }) {
-        return createdPayment(qhashOrderId, String(30000 + store.sessions.length));
-      },
-    };
-    const replacement = await getOrCreateNowpaymentsDepositSession({
-      userId: USER_ID,
-      store,
-      provider,
-      now: () => new Date("2030-01-02T00:00:00Z"),
-    });
-    assert.equal(store.sessions[0].session_status, "terminal");
-    assert.equal(store.sessions[0].provider_payment_status, providerStatus);
-    assert.notEqual(replacement.id, current.id);
-  }
 });
 
 test("orchestration retains validated provider evidence when database finalization fails", async () => {
@@ -943,6 +891,7 @@ test("types and endpoint expose only the hidden server-side session contract", (
     "provider_minimum_usdt",
     "pay_address",
     "provider_valid_until",
+    "address_activated_at",
     "session_status",
   ]) {
     assert.match(databaseTypes, new RegExp(`\\b${field}:`));
@@ -1126,4 +1075,96 @@ test("production context reaches authentication, configuration, and disabled gat
   assert.equal(environmentReads[0], "VITE_SUPABASE_URL");
   assert.ok(environmentReads.includes("SUPABASE_SERVICE_ROLE_KEY"));
   assert.ok(!environmentReads.includes("NOWPAYMENTS_API_KEY"));
+});
+
+test("enabled endpoint returns stored pending and permanent addresses without provider access", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const originalNetlify = globalThis.Netlify;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    if (originalNetlify === undefined) delete globalThis.Netlify;
+    else globalThis.Netlify = originalNetlify;
+  });
+
+  for (const lifecycle of ["pending", "activated"]) {
+    const environmentReads = [];
+    const requests = [];
+    globalThis.Netlify = {
+      env: {
+        get(name) {
+          environmentReads.push(name);
+          if (name === "VITE_SUPABASE_URL") return "https://supabase.mock";
+          if (name === "SUPABASE_SERVICE_ROLE_KEY") return "service-role-mock";
+          if (name === "NOWPAYMENTS_API_KEY" || name === "URL") {
+            throw new Error("stored-address reuse must not read provider configuration");
+          }
+          return undefined;
+        },
+      },
+    };
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.startsWith("https://api.nowpayments.io")) {
+        throw new Error("stored-address reuse must not contact NOWPayments");
+      }
+      if (url.includes("/auth/v1/user")) {
+        return Response.json({
+          id: USER_ID,
+          aud: "authenticated",
+          role: "authenticated",
+          email: "mock@example.test",
+          app_metadata: {},
+          user_metadata: {},
+          created_at: "2030-01-01T00:00:00Z",
+        });
+      }
+      if (url.includes("/rest/v1/profiles")) return Response.json({ is_frozen: false });
+      if (url.includes("/rest/v1/nowpayments_usdt_config")) {
+        return Response.json({
+          id: "USDT-BEP20",
+          enabled: true,
+          asset: "USDT",
+          network: "BEP20",
+          provider_currency: "usdtbsc",
+          deposit_minimum_usdt: 1,
+          withdrawal_minimum_usdt: 2,
+          withdrawal_fee_percent: 5,
+        });
+      }
+      if (url.includes("/rest/v1/rpc/get_current_nowpayments_usdt_deposit_session")) {
+        return Response.json({
+          disposition: lifecycle,
+          ...newSession({
+            status: lifecycle === "activated" ? "terminal" : "ready",
+            providerStatus: lifecycle === "activated" ? "finished" : "waiting",
+            validUntil: "2030-01-08T00:00:00.000Z",
+          }),
+          address_activated_at: lifecycle === "activated"
+            ? "2030-01-02T00:00:00.000Z"
+            : null,
+        });
+      }
+      throw new Error(`Unexpected mock request: ${url}`);
+    };
+
+    const response = await nowpaymentsDepositSessionHandler(
+      new Request("https://qhash.mock/api/crypto/nowpayments/deposit-session", {
+        method: "POST",
+        headers: { authorization: "Bearer mock-user-token" },
+      }),
+      PUBLISHED_PRODUCTION_CONTEXT,
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(
+      body.address_lifecycle,
+      lifecycle === "activated" ? "permanently_activated" : "pending_activation",
+    );
+    assert.equal(body.pay_address, PAY_ADDRESS);
+    assert.equal(body.valid_until, lifecycle === "activated" ? null : "2030-01-08T00:00:00.000Z");
+    assert.ok(!environmentReads.includes("NOWPAYMENTS_API_KEY"));
+    assert.ok(!environmentReads.includes("URL"));
+    assert.ok(!requests.some((url) => url.startsWith("https://api.nowpayments.io")));
+  }
 });

@@ -51,6 +51,13 @@ const grossCreditMigration = await readFile(
   ),
   "utf8",
 );
+const permanentAddressMigration = await readFile(
+  new URL(
+    "supabase/migrations/20260721120000_nowpayments_permanent_deposit_address_lifecycle/migration.sql",
+    repositoryRoot,
+  ),
+  "utf8",
+);
 const databaseTypes = await readFile(
   new URL("src/lib/database.types.ts", repositoryRoot),
   "utf8",
@@ -86,6 +93,7 @@ const ORIGINAL_PROVIDER_ID = "90071992547409931234";
 const CHILD_PROVIDER_ID = "90071992547409931235";
 const PRODUCTION_ORIGINAL_PROVIDER_ID = "5649600523";
 const PRODUCTION_CHILD_PROVIDER_ID = "5470246076";
+const PRODUCTION_SECOND_CHILD_PROVIDER_ID = "4713337973";
 const IPN_SECRET = "mock-ipn-secret-only";
 const PUBLISHED_PRODUCTION_CONTEXT = {
   deploy: { context: "production", published: true },
@@ -283,6 +291,37 @@ async function createReadySession(db, providerPaymentId = ORIGINAL_PROVIDER_ID) 
     where id = 'USDT-BEP20';
   `);
   return session;
+}
+
+async function createProductionLifecycleBaseline(t) {
+  const db = await createPreGrossDatabase(t);
+  const session = await createReadySession(db, PRODUCTION_ORIGINAL_PROVIDER_ID);
+  await settleNetOutcome(db, {
+    providerPaymentId: PRODUCTION_ORIGINAL_PROVIDER_ID,
+    qhashOrderId: session.qhash_order_id,
+    outcomeAmount: "2.95192543",
+  });
+  await settleNetOutcome(db, {
+    providerPaymentId: PRODUCTION_CHILD_PROVIDER_ID,
+    parentProviderPaymentId: PRODUCTION_ORIGINAL_PROVIDER_ID,
+    outcomeAmount: "2.9519285",
+  });
+  await applyMigration(db, grossCreditMigration);
+  await settle(db, {
+    providerPaymentId: PRODUCTION_SECOND_CHILD_PROVIDER_ID,
+    parentProviderPaymentId: PRODUCTION_ORIGINAL_PROVIDER_ID,
+    actuallyPaid: "3",
+    outcomeAmount: "2.9519",
+  });
+  await db.exec(`
+    update public.nowpayments_usdt_payments
+    set provider_created_at = '2026-07-20T15:13:56Z',
+        provider_valid_until = '2026-07-27T15:13:56Z';
+    update public.nowpayments_usdt_provider_payments
+    set provider_verified_at = '2026-07-20T16:35:38Z'
+    where payment_kind = 'original';
+  `);
+  return { db, session };
 }
 
 async function settle(db, {
@@ -743,6 +782,237 @@ test("gross-credit migration preflight refuses any unexpected populated fingerpr
     gross_settle_absent: true,
     schema_unchanged: true,
     ledger_count: 0,
+  }]);
+});
+
+test("production lifecycle backfill activates exactly one address without financial or legacy drift", async (t) => {
+  const { db } = await createProductionLifecycleBaseline(t);
+  const immutableBefore = await db.query(`
+    select jsonb_build_object(
+      'providers', (select jsonb_agg(to_jsonb(provider) order by provider.provider_payment_id) from public.nowpayments_usdt_provider_payments provider),
+      'ledger', (select jsonb_agg(to_jsonb(ledger) order by ledger.created_at, ledger.id) from public.nowpayments_usdt_ledger_entries ledger),
+      'wallet', (select to_jsonb(wallet) from public.nowpayments_usdt_wallets wallet),
+      'legacy_wallet', (select to_jsonb(wallet) from public.wallets wallet where user_id = '${USER_ID}'),
+      'legacy_transactions', (select jsonb_agg(to_jsonb(transaction) order by transaction.id) from public.transactions transaction),
+      'payment_methods', (select jsonb_agg(to_jsonb(method) order by method.id) from public.payment_methods method),
+      'retired_address', (select to_jsonb(address) from public.crypto_deposit_addresses address where id = '${ARCHIVE_ADDRESS_ID}'),
+      'retired_deposit', (select to_jsonb(deposit) from public.crypto_deposits deposit where id = '${ARCHIVE_DEPOSIT_ID}')
+    ) as evidence
+  `);
+
+  await applyMigration(db, permanentAddressMigration);
+
+  const lifecycle = await db.query(`
+    select
+      session.provider_payment_id,
+      session.address_activated_at::text,
+      session.provider_valid_until::text,
+      original.provider_verified_at::text,
+      (select count(*)::integer from public.nowpayments_usdt_payments where address_activated_at is not null) as activated_count,
+      (select count(*)::integer from public.nowpayments_usdt_provider_payments) as provider_count,
+      (select count(*)::integer from public.nowpayments_usdt_ledger_entries) as ledger_count,
+      (select available_balance_usdt::text from public.nowpayments_usdt_wallets) as available,
+      (select reserved_balance_usdt::text from public.nowpayments_usdt_wallets) as reserved
+    from public.nowpayments_usdt_payments session
+    join public.nowpayments_usdt_provider_payments original
+      on original.session_id = session.id and original.payment_kind = 'original'
+  `);
+  assert.equal(lifecycle.rows[0].provider_payment_id, PRODUCTION_ORIGINAL_PROVIDER_ID);
+  assert.equal(lifecycle.rows[0].address_activated_at, lifecycle.rows[0].provider_verified_at);
+  assert.ok(new Date(lifecycle.rows[0].address_activated_at) <= new Date(lifecycle.rows[0].provider_valid_until));
+  assert.equal(lifecycle.rows[0].activated_count, 1);
+  assert.equal(lifecycle.rows[0].provider_count, 3);
+  assert.equal(lifecycle.rows[0].ledger_count, 5);
+  assert.equal(lifecycle.rows[0].available, "9.000000000000000000");
+  assert.equal(lifecycle.rows[0].reserved, "0.000000000000000000");
+
+  const immutableAfter = await db.query(`
+    select jsonb_build_object(
+      'providers', (select jsonb_agg(to_jsonb(provider) order by provider.provider_payment_id) from public.nowpayments_usdt_provider_payments provider),
+      'ledger', (select jsonb_agg(to_jsonb(ledger) order by ledger.created_at, ledger.id) from public.nowpayments_usdt_ledger_entries ledger),
+      'wallet', (select to_jsonb(wallet) from public.nowpayments_usdt_wallets wallet),
+      'legacy_wallet', (select to_jsonb(wallet) from public.wallets wallet where user_id = '${USER_ID}'),
+      'legacy_transactions', (select jsonb_agg(to_jsonb(transaction) order by transaction.id) from public.transactions transaction),
+      'payment_methods', (select jsonb_agg(to_jsonb(method) order by method.id) from public.payment_methods method),
+      'retired_address', (select to_jsonb(address) from public.crypto_deposit_addresses address where id = '${ARCHIVE_ADDRESS_ID}'),
+      'retired_deposit', (select to_jsonb(deposit) from public.crypto_deposits deposit where id = '${ARCHIVE_DEPOSIT_ID}')
+    ) as evidence
+  `);
+  assert.deepEqual(immutableAfter.rows[0].evidence, immutableBefore.rows[0].evidence);
+
+  await db.exec("update public.nowpayments_usdt_config set enabled = true where id = 'USDT-BEP20'");
+  const reused = await Promise.all([
+    db.query(`select public.get_current_nowpayments_usdt_deposit_session('${USER_ID}'::uuid) as result`),
+    db.query(`select public.claim_nowpayments_usdt_deposit_session('${USER_ID}'::uuid, '1', '1') as result`),
+  ]);
+  assert.equal(reused[0].rows[0].result.disposition, "activated");
+  assert.equal(reused[1].rows[0].result.disposition, "activated");
+  assert.equal(
+    (await db.query("select count(*)::integer as count from public.nowpayments_usdt_payments")).rows[0].count,
+    1,
+  );
+  await db.exec("update public.nowpayments_usdt_config set enabled = false where id = 'USDT-BEP20'");
+
+  await assert.rejects(
+    db.exec("update public.nowpayments_usdt_payments set address_activated_at = address_activated_at + interval '1 second'"),
+    /activation timestamp is immutable/,
+  );
+  await assert.rejects(
+    db.exec("update public.nowpayments_usdt_payments set provider_valid_until = provider_valid_until + interval '1 day'"),
+    /activation deadline is immutable/,
+  );
+  await assert.rejects(
+    db.exec(`
+      insert into public.nowpayments_usdt_payments (
+        user_id, provider_payment_id, provider_payment_status,
+        verification_status, asset, network, provider_currency,
+        qhash_order_id, session_status, pay_address,
+        technical_reference_amount_usdt, provider_minimum_usdt,
+        provider_created_at, provider_valid_until, address_activated_at,
+        provisioning_started_at, provisioned_at, terminal_at, terminal_reason,
+        settled_by_provider_payment_id, outcome_amount, outcome_currency,
+        verified_at, credited_amount_usdt, credited_at
+      )
+      select
+        user_id, '5649600524', provider_payment_status,
+        verification_status, asset, network, provider_currency,
+        gen_random_uuid(), session_status, pay_address,
+        technical_reference_amount_usdt, provider_minimum_usdt,
+        provider_created_at, provider_valid_until, address_activated_at,
+        provisioning_started_at, provisioned_at, terminal_at, terminal_reason,
+        '5649600524', outcome_amount, outcome_currency,
+        verified_at, credited_amount_usdt, credited_at
+      from public.nowpayments_usdt_payments
+      where provider_payment_id = '${PRODUCTION_ORIGINAL_PROVIDER_ID}'
+    `),
+    /one_activated_address_per_user|duplicate key value/,
+  );
+});
+
+test("repeated settlement after the original deadline credits gross and never changes activation evidence", async (t) => {
+  const { db } = await createProductionLifecycleBaseline(t);
+  await db.exec(`
+    update public.nowpayments_usdt_payments
+    set provider_created_at = '2020-01-01T00:00:00Z',
+        provider_valid_until = '2020-01-08T00:00:00Z';
+    update public.nowpayments_usdt_provider_payments
+    set provider_verified_at = '2020-01-02T00:00:00Z'
+    where payment_kind = 'original';
+  `);
+  await applyMigration(db, permanentAddressMigration);
+  const before = await db.query(`
+    select address_activated_at::text, provider_valid_until::text
+    from public.nowpayments_usdt_payments
+  `);
+  const result = await settle(db, {
+    providerPaymentId: "4713337974",
+    parentProviderPaymentId: PRODUCTION_ORIGINAL_PROVIDER_ID,
+    actuallyPaid: "3",
+    outcomeAmount: "2.95",
+  });
+  assert.equal(result.status, "credited");
+  assert.equal(result.credited_amount_usdt, "3.000000000000000000");
+  const after = await db.query(`
+    select
+      session.address_activated_at::text,
+      session.provider_valid_until::text,
+      wallet.available_balance_usdt::text as available,
+      wallet.reserved_balance_usdt::text as reserved,
+      (select count(*)::integer from public.nowpayments_usdt_provider_payments) as providers,
+      (select count(*)::integer from public.nowpayments_usdt_ledger_entries) as ledger,
+      (select count(*)::integer from public.nowpayments_usdt_ledger_entries where entry_type = 'deposit_credit_correction') as corrections
+    from public.nowpayments_usdt_payments session
+    join public.nowpayments_usdt_wallets wallet on wallet.user_id = session.user_id
+  `);
+  assert.equal(after.rows[0].address_activated_at, before.rows[0].address_activated_at);
+  assert.equal(after.rows[0].provider_valid_until, before.rows[0].provider_valid_until);
+  assert.equal(after.rows[0].available, "12.000000000000000000");
+  assert.equal(after.rows[0].reserved, "0.000000000000000000");
+  assert.equal(after.rows[0].providers, 4);
+  assert.equal(after.rows[0].ledger, 6);
+  assert.equal(after.rows[0].corrections, 2);
+});
+
+test("late original settlement credits safely but cannot activate and replacement history is retained", async (t) => {
+  const db = await createMigratedDatabase(t);
+  await applyMigration(db, permanentAddressMigration);
+  await db.exec("update public.nowpayments_usdt_config set enabled = true where id = 'USDT-BEP20'");
+  const claimed = await db.query(`
+    select public.claim_nowpayments_usdt_deposit_session('${USER_ID}'::uuid, '1', '1') as result
+  `);
+  const session = claimed.rows[0].result;
+  await db.query(`
+    update public.nowpayments_usdt_payments
+    set provider_payment_id = '88001',
+        provider_payment_status = 'waiting',
+        pay_address = $1,
+        provider_created_at = '2020-01-01T00:00:00Z',
+        provider_valid_until = '2020-01-08T00:00:00Z',
+        session_status = 'ready',
+        provisioned_at = now()
+    where id = $2::uuid
+  `, [PAY_ADDRESS, session.id]);
+  await db.exec("update public.nowpayments_usdt_config set enabled = false where id = 'USDT-BEP20'");
+
+  const credited = await settle(db, {
+    providerPaymentId: "88001",
+    qhashOrderId: session.qhash_order_id,
+    actuallyPaid: "3",
+    outcomeAmount: "2.95",
+  });
+  assert.equal(credited.status, "credited");
+  const late = await db.query(`
+    select
+      address_activated_at,
+      provider_valid_until::text,
+      credited_amount_usdt::text,
+      (select available_balance_usdt::text from public.nowpayments_usdt_wallets) as available,
+      (select count(*)::integer from public.nowpayments_usdt_ledger_entries) as ledger
+    from public.nowpayments_usdt_payments
+    where id = '${session.id}'::uuid
+  `);
+  assert.equal(late.rows[0].address_activated_at, null);
+  assert.equal(late.rows[0].credited_amount_usdt, "3.000000000000000000");
+  assert.equal(late.rows[0].available, "3.000000000000000000");
+  assert.equal(late.rows[0].ledger, 1);
+
+  await db.exec("update public.nowpayments_usdt_config set enabled = true where id = 'USDT-BEP20'");
+  const replacement = await db.query(`
+    select public.claim_nowpayments_usdt_deposit_session('${USER_ID}'::uuid, '1', '1') as result
+  `);
+  assert.equal(replacement.rows[0].result.disposition, "claimed");
+  assert.notEqual(replacement.rows[0].result.id, session.id);
+  assert.equal(
+    (await db.query("select count(*)::integer as count from public.nowpayments_usdt_payments")).rows[0].count,
+    2,
+  );
+  await db.exec("update public.nowpayments_usdt_config set enabled = false where id = 'USDT-BEP20'");
+});
+
+test("permanent-address migration refuses ambiguous populated session state", async (t) => {
+  const { db } = await createProductionLifecycleBaseline(t);
+  await db.exec("update public.nowpayments_usdt_config set enabled = true where id = 'USDT-BEP20'");
+  await db.query(`select public.claim_nowpayments_usdt_deposit_session('${USER_ID}'::uuid, '1', '1')`);
+  await db.exec("update public.nowpayments_usdt_config set enabled = false where id = 'USDT-BEP20'");
+  await assert.rejects(
+    applyMigration(db, permanentAddressMigration),
+    /unexpected NOWPayments permanent-address production fingerprint/,
+  );
+  const unchanged = await db.query(`
+    select
+      not exists (
+        select 1 from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'nowpayments_usdt_payments'
+          and column_name = 'address_activated_at'
+      ) as schema_unchanged,
+      (select available_balance_usdt::text from public.nowpayments_usdt_wallets) as available,
+      (select count(*)::integer from public.nowpayments_usdt_ledger_entries) as ledger
+  `);
+  assert.deepEqual(unchanged.rows, [{
+    schema_unchanged: true,
+    available: "9.000000000000000000",
+    ledger: 5,
   }]);
 });
 
@@ -1847,6 +2117,16 @@ test("types, endpoint source, and secret documentation stay server-only", () => 
   assert.match(grossCreditMigration, /'source_amount_field', 'actually_paid'/);
   assert.match(grossCreditMigration, /set search_path = pg_catalog, public/);
   assert.doesNotMatch(grossCreditMigration, /p_pay_amount|is_fee_paid_by_user/);
+  assert.match(databaseTypes, /address_activated_at: string \| null/);
+  assert.match(permanentAddressMigration, /create unique index nowpayments_usdt_payments_one_activated_address_per_user/);
+  assert.match(permanentAddressMigration, /new\.payment_kind <> 'original'/);
+  assert.match(permanentAddressMigration, /new\.provider_verified_at between session\.provider_created_at and session\.provider_valid_until/);
+  assert.match(permanentAddressMigration, /set search_path = pg_catalog, public/);
+  assert.match(permanentAddressMigration, /from public, anon, authenticated, service_role/);
+  assert.doesNotMatch(
+    permanentAddressMigration,
+    /jwt|account_(?:email|password)|payment[-_ ]list|payout|is_fee_paid_by_user/i,
+  );
   assert.match(environmentExample, /^NOWPAYMENTS_IPN_SECRET=$/m);
   assert.doesNotMatch(environmentExample, /^VITE_NOWPAYMENTS/m);
   assert.doesNotMatch(endpointSource, /(?:Netlify\.env\.get|getEnvironment)\(["']CONTEXT["']\)/);

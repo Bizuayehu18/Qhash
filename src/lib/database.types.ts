@@ -432,6 +432,7 @@ export interface Database {
           provider_minimum_usdt: number
           provider_created_at: string | null
           provider_valid_until: string | null
+          address_activated_at: string | null
           provisioning_started_at: string
           provisioned_at: string | null
           manual_recovery_at: string | null
@@ -463,6 +464,7 @@ export interface Database {
           provider_minimum_usdt: number
           provider_created_at?: string | null
           provider_valid_until?: string | null
+          address_activated_at?: string | null
           provisioning_started_at?: string
           provisioned_at?: string | null
           manual_recovery_at?: string | null
@@ -489,6 +491,7 @@ export interface Database {
           provider_minimum_usdt?: number
           provider_created_at?: string | null
           provider_valid_until?: string | null
+          address_activated_at?: string | null
           provisioning_started_at?: string
           provisioned_at?: string | null
           manual_recovery_at?: string | null
