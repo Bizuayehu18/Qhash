@@ -500,7 +500,7 @@ async function handleOverview(
       && new Date(session.address_activated_at).getTime()
         >= new Date(session.provider_created_at).getTime()
       && new Date(session.address_activated_at).getTime()
-        <= new Date(session.provider_valid_until).getTime()
+        < new Date(session.provider_valid_until).getTime()
     ) ?? null;
     const pending = sessions.find((session) =>
       session.address_activated_at === null

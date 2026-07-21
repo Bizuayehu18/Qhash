@@ -2,7 +2,7 @@
 --
 -- A provider-created address begins with its original provider_valid_until as
 -- an activation deadline. Only an independently verified, gross-credited
--- original payment observed no later than that deadline activates the address
+-- original payment verified and credited strictly before that deadline activates the address
 -- permanently. Repeated payments never extend or activate the address.
 
 set local lock_timeout = '5s';
@@ -31,6 +31,7 @@ begin
       and table_name = 'nowpayments_usdt_payments'
       and column_name = 'address_activated_at'
   ) or to_regprocedure('public.activate_qualified_nowpayments_usdt_address()') is not null
+    or to_regprocedure('public.settle_verified_nowpayments_usdt_payment_serialized_inner(text,text,text,text,text,text,text,text,text)') is not null
   then
     raise exception 'NOWPayments permanent-address objects already exist outside migration tracking';
   end if;
@@ -95,7 +96,10 @@ begin
         and original.credited_amount_usdt = 3
         and original.credited_at is not null
         and original.provider_verified_at is not null
-        and original.provider_verified_at <= session.provider_valid_until
+        and original.provider_verified_at >= session.provider_created_at
+        and original.provider_verified_at < session.provider_valid_until
+        and original.credited_at >= session.provider_created_at
+        and original.credited_at < session.provider_valid_until
     )
     or (
       select count(*)
@@ -138,14 +142,14 @@ alter table public.nowpayments_usdt_payments
         and provider_created_at is not null
         and provider_valid_until is not null
         and address_activated_at >= provider_created_at
-        and address_activated_at <= provider_valid_until
+        and address_activated_at < provider_valid_until
       )
     );
 
 -- The only populated production session is backfilled from independently
 -- verified original-payment evidence already stored before its deadline.
 update public.nowpayments_usdt_payments session
-set address_activated_at = original.provider_verified_at
+set address_activated_at = greatest(original.provider_verified_at, original.credited_at)
 from public.nowpayments_usdt_provider_payments original
 where original.session_id = session.id
   and original.provider_payment_id = session.provider_payment_id
@@ -160,11 +164,80 @@ where original.session_id = session.id
   and session.provider_payment_status = 'finished'
   and session.verification_status = 'verified'
   and session.provider_valid_until is not null
-  and original.provider_verified_at between session.provider_created_at and session.provider_valid_until;
+  and original.provider_verified_at >= session.provider_created_at
+  and original.provider_verified_at < session.provider_valid_until
+  and original.credited_at >= session.provider_created_at
+  and original.credited_at < session.provider_valid_until;
 
 create unique index nowpayments_usdt_payments_one_activated_address_per_user
   on public.nowpayments_usdt_payments (user_id)
   where address_activated_at is not null;
+
+-- Keep the existing, reviewed gross-credit settlement body intact behind a
+-- service-inaccessible inner function. The public wrapper takes the same
+-- per-user profile-row lock as claim/replacement before settlement can lock or
+-- activate a session, so the two state transitions cannot cross.
+alter function public.settle_verified_nowpayments_usdt_payment(
+  text, text, text, text, text, text, text, text, text
+) rename to settle_verified_nowpayments_usdt_payment_serialized_inner;
+
+revoke all on function public.settle_verified_nowpayments_usdt_payment_serialized_inner(
+  text, text, text, text, text, text, text, text, text
+) from public, anon, authenticated, service_role;
+
+create function public.settle_verified_nowpayments_usdt_payment(
+  p_provider_payment_id text,
+  p_parent_provider_payment_id text,
+  p_qhash_order_id text,
+  p_pay_address text,
+  p_pay_currency text,
+  p_provider_payment_status text,
+  p_actually_paid text,
+  p_outcome_amount text,
+  p_outcome_currency text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $function$
+declare
+  v_user_id uuid;
+begin
+  select user_id into v_user_id
+  from public.nowpayments_usdt_payments
+  where provider_payment_id = coalesce(
+    p_parent_provider_payment_id,
+    p_provider_payment_id
+  );
+
+  if found then
+    perform 1
+    from public.profiles
+    where id = v_user_id
+    for update;
+  end if;
+
+  return public.settle_verified_nowpayments_usdt_payment_serialized_inner(
+    p_provider_payment_id,
+    p_parent_provider_payment_id,
+    p_qhash_order_id,
+    p_pay_address,
+    p_pay_currency,
+    p_provider_payment_status,
+    p_actually_paid,
+    p_outcome_amount,
+    p_outcome_currency
+  );
+end;
+$function$;
+
+revoke all on function public.settle_verified_nowpayments_usdt_payment(
+  text, text, text, text, text, text, text, text, text
+) from public, anon, authenticated;
+grant execute on function public.settle_verified_nowpayments_usdt_payment(
+  text, text, text, text, text, text, text, text, text
+) to service_role;
 
 create function public.enforce_nowpayments_usdt_address_lifecycle_immutability()
 returns trigger
@@ -189,7 +262,7 @@ begin
       new.provider_created_at is null
       or new.provider_valid_until is null
       or new.address_activated_at < new.provider_created_at
-      or new.address_activated_at > new.provider_valid_until
+      or new.address_activated_at >= new.provider_valid_until
     )
   then
     raise exception 'NOWPayments address activation evidence is outside its original deadline';
@@ -227,7 +300,7 @@ begin
   end if;
 
   update public.nowpayments_usdt_payments session
-  set address_activated_at = new.provider_verified_at
+  set address_activated_at = greatest(new.provider_verified_at, new.credited_at)
   where session.id = new.session_id
     and session.user_id = new.user_id
     and session.qhash_order_id = new.qhash_order_id
@@ -239,7 +312,11 @@ begin
     and session.address_activated_at is null
     and session.provider_created_at is not null
     and session.provider_valid_until is not null
-    and new.provider_verified_at between session.provider_created_at and session.provider_valid_until;
+    and new.provider_verified_at >= session.provider_created_at
+    and new.provider_verified_at < session.provider_valid_until
+    and new.credited_at >= session.provider_created_at
+    and new.credited_at < session.provider_valid_until
+    and clock_timestamp() < session.provider_valid_until;
 
   return new;
 end;
@@ -457,6 +534,24 @@ begin
     end if;
   end if;
 
+  -- Settlement uses the same profile-row lock. Recheck permanent activation
+  -- at the last possible point before inserting a replacement claim.
+  select * into v_session
+  from public.nowpayments_usdt_payments
+  where user_id = p_user_id
+    and address_activated_at is not null
+  order by address_activated_at, created_at
+  limit 1
+  for update;
+
+  if found then
+    return to_jsonb(v_session) || jsonb_build_object(
+      'disposition', 'activated',
+      'technical_reference_amount_usdt', v_session.technical_reference_amount_usdt::text,
+      'provider_minimum_usdt', v_session.provider_minimum_usdt::text
+    );
+  end if;
+
   insert into public.nowpayments_usdt_payments (
     user_id, provider_payment_id, provider_payment_status,
     verification_status, asset, network, provider_currency,
@@ -493,13 +588,17 @@ grant execute on function public.claim_nowpayments_usdt_deposit_session(uuid, te
   to service_role;
 
 comment on column public.nowpayments_usdt_payments.address_activated_at is
-  'Immutable timestamp proving the original independently verified finished payment was observed no later than its original provider_valid_until activation deadline.';
+  'Immutable timestamp proving the original independently verified finished payment was verified and gross-credited strictly before its original provider_valid_until activation deadline.';
 comment on function public.activate_qualified_nowpayments_usdt_address() is
-  'Atomically activates only gross-credited original USDTBSC payments whose trusted provider verification was observed within the original deadline; repeated payments never activate.';
+  'Atomically activates only gross-credited original USDTBSC payments whose trusted verification and credit evidence both precede the original deadline; repeated payments never activate.';
 comment on function public.get_current_nowpayments_usdt_deposit_session(uuid) is
   'Returns the permanent address first, otherwise the single pending activation/provisioning state, while retaining expired sessions as history.';
 comment on function public.claim_nowpayments_usdt_deposit_session(uuid, text, text) is
   'Serializes per-user generation, reuses permanent or pending addresses, and creates one replacement only after unactivated expiry.';
+comment on function public.settle_verified_nowpayments_usdt_payment(
+  text, text, text, text, text, text, text, text, text
+) is
+  'Serializes settlement on the same per-user profile lock as address claim, then delegates to the unchanged gross-credit settlement implementation.';
 
 do $postflight$
 declare
@@ -516,6 +615,7 @@ begin
     or has_function_privilege('authenticated', 'public.get_current_nowpayments_usdt_deposit_session(uuid)', 'EXECUTE')
     or has_function_privilege('authenticated', 'public.claim_nowpayments_usdt_deposit_session(uuid,text,text)', 'EXECUTE')
     or has_function_privilege('authenticated', 'public.settle_verified_nowpayments_usdt_payment(text,text,text,text,text,text,text,text,text)', 'EXECUTE')
+    or has_function_privilege('service_role', 'public.settle_verified_nowpayments_usdt_payment_serialized_inner(text,text,text,text,text,text,text,text,text)', 'EXECUTE')
     or not has_function_privilege('service_role', 'public.get_current_nowpayments_usdt_deposit_session(uuid)', 'EXECUTE')
     or not has_function_privilege('service_role', 'public.claim_nowpayments_usdt_deposit_session(uuid,text,text)', 'EXECUTE')
     or not has_function_privilege('service_role', 'public.settle_verified_nowpayments_usdt_payment(text,text,text,text,text,text,text,text,text)', 'EXECUTE')
@@ -546,7 +646,7 @@ begin
       where address_activated_at is not null
         and (
           provider_payment_id <> '5649600523'
-          or address_activated_at > provider_valid_until
+          or address_activated_at >= provider_valid_until
           or credited_amount_usdt <> 3
         )
     )

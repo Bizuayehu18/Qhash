@@ -835,6 +835,28 @@ test("permanent addresses reuse after the original deadline without provider acc
   assert.equal(reused.address_activated_at, "2030-01-02T00:00:00.000Z");
 });
 
+test("defensive session validation rejects activation at exact deadline", async () => {
+  const store = new MemoryStore();
+  const candidate = newSession({
+    status: "terminal",
+    providerStatus: "finished",
+    validUntil: "2030-01-08T00:00:00.000Z",
+  });
+  candidate.address_activated_at = candidate.provider_valid_until;
+  store.sessions.push(candidate);
+  let providerCalls = 0;
+  const provider = {
+    async getMinimum() { providerCalls += 1; return "1"; },
+    async createPayment() { providerCalls += 1; throw new Error("unexpected provider call"); },
+  };
+  await assert.rejects(
+    getOrCreateNowpaymentsDepositSession({ userId: USER_ID, store, provider }),
+    (error) => error instanceof NowpaymentsDepositSessionError
+      && error.code === "session_invalid",
+  );
+  assert.equal(providerCalls, 0);
+});
+
 test("all stored pending statuses reuse without a provider status request", async () => {
   for (const providerStatus of [
     "waiting",

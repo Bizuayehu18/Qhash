@@ -411,6 +411,24 @@ test("permanently activated address remains usable without expiry when generatio
   assert.equal(isDepositAddressSendable(parsed.active_session, Date.parse("2100-01-01T00:00:00Z")), true);
 });
 
+test("overview does not accept exact-deadline activation evidence", async () => {
+  const result = await invokeOverview({
+    configEnabled: false,
+    sessions: [validSession({
+      provider_payment_status: "finished",
+      session_status: "terminal",
+      address_activated_at: "2030-01-08T00:00:00.000Z",
+      terminal_at: "2030-01-08T00:00:00.000Z",
+      credited_amount_usdt: "3",
+      credited_at: "2030-01-08T00:00:00.000Z",
+    })],
+    providerPayments: [validProviderPayment({ credited_amount_usdt: "3" })],
+  });
+  assert.equal(result.response.status, 200);
+  assert.equal(result.body.active_session, null);
+  assert.notEqual(result.body.session_state, "permanently_activated");
+});
+
 test("overview preserves every handled terminal response and emits one allowlisted correlated log", async (t) => {
   const cases = [
     {
