@@ -82,6 +82,10 @@ function asNullableTimestamp(value: unknown): string | null {
   return value === null ? null : asTimestamp(value);
 }
 
+function asNullablePositiveDecimal(value: unknown): string | null {
+  return value === null ? null : normalizePositiveDecimal(value);
+}
+
 function decodeSession(
   value: unknown,
   expectedUserId: string,
@@ -90,10 +94,17 @@ function decodeSession(
   const userId = asString(row.user_id, UUID_PATTERN);
   const sessionStatus = asString(row.session_status);
   const providerStatus = asNullableString(row.provider_payment_status);
+  const technicalReferenceAmount = asNullablePositiveDecimal(
+    row.technical_reference_amount_usdt,
+  );
+  const providerMinimum = asNullablePositiveDecimal(row.provider_minimum_usdt);
   if (
     userId !== expectedUserId
     || !SESSION_STATUSES.has(sessionStatus)
     || (providerStatus !== null && !PROVIDER_STATUSES.has(providerStatus as NowpaymentsProviderStatus))
+    || ((technicalReferenceAmount === null) !== (providerMinimum === null))
+    || ((sessionStatus === "ready" || sessionStatus === "terminal")
+      && (technicalReferenceAmount === null || providerMinimum === null))
   ) {
     throw new NowpaymentsDepositSessionError("database_invalid_response");
   }
@@ -106,12 +117,11 @@ function decodeSession(
     provider_payment_id: asNullableString(row.provider_payment_id, /^\d{1,200}$/),
     provider_payment_status: providerStatus as NowpaymentsProviderStatus | null,
     pay_address: asNullableString(row.pay_address, /^0x[0-9A-Fa-f]{40}$/),
-    technical_reference_amount_usdt: normalizePositiveDecimal(
-      row.technical_reference_amount_usdt,
-    ),
-    provider_minimum_usdt: normalizePositiveDecimal(row.provider_minimum_usdt),
+    technical_reference_amount_usdt: technicalReferenceAmount,
+    provider_minimum_usdt: providerMinimum,
     provider_created_at: asNullableTimestamp(row.provider_created_at),
     provider_valid_until: asNullableTimestamp(row.provider_valid_until),
+    address_activated_at: asNullableTimestamp(row.address_activated_at),
     provisioning_started_at: asTimestamp(row.provisioning_started_at),
     created_at: asTimestamp(row.created_at),
   };
@@ -136,7 +146,11 @@ function createSessionStore(
         p_user_id: userId,
       });
       if (result.disposition === "none") return { disposition: "none" };
-      if (result.disposition !== "existing" && result.disposition !== "terminal") {
+      if (
+        result.disposition !== "activated"
+        && result.disposition !== "pending"
+        && result.disposition !== "existing"
+      ) {
         throw new NowpaymentsDepositSessionError("database_invalid_response");
       }
       return {
@@ -145,19 +159,40 @@ function createSessionStore(
       };
     },
 
-    async claim(userId, providerMinimumUsdt, technicalReferenceAmountUsdt) {
+    async claim(userId) {
       const result = await call("claim_nowpayments_usdt_deposit_session", {
         p_user_id: userId,
-        p_provider_minimum_usdt: providerMinimumUsdt,
-        p_technical_reference_amount_usdt: technicalReferenceAmountUsdt,
       });
-      if (result.disposition !== "claimed" && result.disposition !== "existing") {
+      if (
+        result.disposition !== "claimed"
+        && result.disposition !== "activated"
+        && result.disposition !== "pending"
+        && result.disposition !== "existing"
+      ) {
         throw new NowpaymentsDepositSessionError("database_invalid_response");
       }
       return {
         ...decodeSession(result, expectedUserId),
         disposition: result.disposition,
       };
+    },
+
+    async configureAmounts(
+      session,
+      providerMinimumUsdt,
+      technicalReferenceAmountUsdt,
+    ) {
+      const result = await call("configure_nowpayments_usdt_deposit_session_amounts", {
+        p_user_id: session.user_id,
+        p_session_id: session.id,
+        p_qhash_order_id: session.qhash_order_id,
+        p_provider_minimum_usdt: providerMinimumUsdt,
+        p_technical_reference_amount_usdt: technicalReferenceAmountUsdt,
+      });
+      if (result.disposition !== "configured") {
+        throw new NowpaymentsDepositSessionError("database_invalid_response");
+      }
+      return decodeSession(result, expectedUserId);
     },
 
     async complete(session, result) {
@@ -199,19 +234,6 @@ function createSessionStore(
       }
       return decodeSession(response, expectedUserId);
     },
-
-    async recordStatus(session, providerStatus) {
-      const response = await call("record_nowpayments_usdt_deposit_session_status", {
-        p_session_id: session.id,
-        p_qhash_order_id: session.qhash_order_id,
-        p_provider_payment_id: session.provider_payment_id,
-        p_provider_payment_status: providerStatus,
-      });
-      if (response.disposition !== "active" && response.disposition !== "terminal") {
-        throw new NowpaymentsDepositSessionError("database_invalid_response");
-      }
-      return decodeSession(response, expectedUserId);
-    },
   };
 }
 
@@ -236,6 +258,9 @@ function safeSessionError(error: unknown): Response {
       { error: "provider_unavailable", message: "Deposit address setup is temporarily unavailable." },
       503,
     );
+  }
+  if (code === "provider_config") {
+    return json({ error: "provider_config", message: "Crypto deposits are unavailable." }, 503);
   }
   return json(
     { error: "deposit_session_failed", message: "Deposit address setup is unavailable." },
@@ -310,27 +335,45 @@ export default async (req: Request, context?: Context): Promise<Response> => {
     return json({ error: "crypto_deposits_disabled", message: "Crypto deposits are disabled." }, 503);
   }
 
-  // Read the provider secret only after authentication and both disable gates pass.
-  const apiKey = Netlify.env.get("NOWPAYMENTS_API_KEY") ?? "";
-  const productionSiteUrl = Netlify.env.get("URL") ?? "";
-  let ipnCallbackUrl = "";
   try {
-    const parsedSiteUrl = new URL(productionSiteUrl);
-    if (parsedSiteUrl.protocol !== "https:") throw new Error("invalid_site_url");
-    ipnCallbackUrl = new URL("/api/crypto/nowpayments/ipn", parsedSiteUrl).toString();
-  } catch {
-    return json({ error: "provider_config", message: "Crypto deposits are unavailable." }, 503);
-  }
-  if (!apiKey) {
-    return json({ error: "provider_config", message: "Crypto deposits are unavailable." }, 503);
-  }
-
-  try {
+    // Provider configuration is resolved lazily. Reusing a permanent or
+    // unexpired pending address performs no provider secret read or request.
+    let provider: ReturnType<typeof createNowpaymentsClient> | null = null;
+    const getProvider = () => {
+      if (provider) return provider;
+      const apiKey = Netlify.env.get("NOWPAYMENTS_API_KEY") ?? "";
+      const productionSiteUrl = Netlify.env.get("URL") ?? "";
+      let ipnCallbackUrl = "";
+      try {
+        const parsedSiteUrl = new URL(productionSiteUrl);
+        if (parsedSiteUrl.protocol !== "https:") throw new Error("invalid_site_url");
+        ipnCallbackUrl = new URL("/api/crypto/nowpayments/ipn", parsedSiteUrl).toString();
+      } catch {
+        throw new NowpaymentsDepositSessionError("provider_config");
+      }
+      if (!apiKey) throw new NowpaymentsDepositSessionError("provider_config");
+      provider = createNowpaymentsClient({ apiKey, ipnCallbackUrl });
+      return provider;
+    };
     const session = await getOrCreateNowpaymentsDepositSession({
       userId: authData.user.id,
       store: createSessionStore(admin as unknown as SessionRpcClient, authData.user.id),
-      provider: createNowpaymentsClient({ apiKey, ipnCallbackUrl }),
+      provider: {
+        getMinimum: () => getProvider().getMinimum(),
+        createPayment: (input) => getProvider().createPayment(input),
+      },
     });
+
+    if (
+      session.technical_reference_amount_usdt === null
+      || session.provider_minimum_usdt === null
+    ) {
+      throw new NowpaymentsDepositSessionError("session_invalid");
+    }
+
+    const addressLifecycle = session.address_activated_at
+      ? "permanently_activated"
+      : "pending_activation";
 
     return json(
       {
@@ -341,7 +384,10 @@ export default async (req: Request, context?: Context): Promise<Response> => {
         pay_address: session.pay_address,
         minimum_deposit_usdt: session.technical_reference_amount_usdt,
         provider_minimum_usdt: session.provider_minimum_usdt,
-        valid_until: session.provider_valid_until,
+        address_lifecycle: addressLifecycle,
+        valid_until: addressLifecycle === "pending_activation"
+          ? session.provider_valid_until
+          : null,
       },
       200,
     );

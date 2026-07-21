@@ -23,28 +23,30 @@ export type NowpaymentsDepositSession = {
   provider_payment_id: string | null;
   provider_payment_status: NowpaymentsProviderStatus | null;
   pay_address: string | null;
-  technical_reference_amount_usdt: string;
-  provider_minimum_usdt: string;
+  technical_reference_amount_usdt: string | null;
+  provider_minimum_usdt: string | null;
   provider_created_at: string | null;
   provider_valid_until: string | null;
+  address_activated_at: string | null;
   provisioning_started_at: string;
   created_at: string;
 };
 
 export type NowpaymentsSessionLookup =
   | { disposition: "none" }
-  | ({ disposition: "existing" | "terminal" } & NowpaymentsDepositSession);
+  | ({ disposition: "activated" | "pending" | "existing" } & NowpaymentsDepositSession);
 
 export type NowpaymentsSessionClaim =
-  ({ disposition: "claimed" | "existing" } & NowpaymentsDepositSession);
+  ({ disposition: "claimed" | "activated" | "pending" | "existing" } & NowpaymentsDepositSession);
 
 export type NowpaymentsSessionStore = {
   getCurrent(userId: string): Promise<NowpaymentsSessionLookup>;
-  claim(
-    userId: string,
+  claim(userId: string): Promise<NowpaymentsSessionClaim>;
+  configureAmounts(
+    session: NowpaymentsDepositSession,
     providerMinimumUsdt: string,
     technicalReferenceAmountUsdt: string,
-  ): Promise<NowpaymentsSessionClaim>;
+  ): Promise<NowpaymentsDepositSession>;
   complete(
     session: NowpaymentsDepositSession,
     result: NowpaymentsCreatedPayment,
@@ -53,10 +55,6 @@ export type NowpaymentsSessionStore = {
     session: NowpaymentsDepositSession,
     reason: ManualRecoveryReason,
     evidence?: NowpaymentsCreatedPayment,
-  ): Promise<NowpaymentsDepositSession>;
-  recordStatus(
-    session: NowpaymentsDepositSession,
-    providerStatus: NowpaymentsProviderStatus,
   ): Promise<NowpaymentsDepositSession>;
 };
 
@@ -79,10 +77,6 @@ export type NowpaymentsSessionProvider = {
     technicalReferenceAmountUsdt: string;
     qhashOrderId: string;
   }): Promise<NowpaymentsCreatedPayment>;
-  getPaymentStatus(providerPaymentId: string): Promise<{
-    providerPaymentId: string;
-    providerPaymentStatus: NowpaymentsProviderStatus;
-  }>;
 };
 
 export type ManualRecoveryReason =
@@ -99,12 +93,6 @@ const ACTIVE_STATUSES = new Set<NowpaymentsProviderStatus>([
   "confirming",
   "confirmed",
   "sending",
-]);
-const TERMINAL_STATUSES = new Set<NowpaymentsProviderStatus>([
-  "finished",
-  "failed",
-  "refunded",
-  "expired",
 ]);
 const CREATE_RECOVERY_REASONS = new Set<ManualRecoveryReason>([
   "create_payment_timeout",
@@ -181,91 +169,115 @@ async function bestEffortManualRecovery(
   }
 }
 
-function assertReadySession(session: NowpaymentsDepositSession): NowpaymentsDepositSession {
+function assertAddressSession(
+  session: NowpaymentsDepositSession,
+  lifecycle: "activated" | "pending",
+  now: Date,
+): NowpaymentsDepositSession {
   if (
-    session.session_status !== "ready"
-    || !session.provider_payment_id
+    !session.provider_payment_id
     || !session.pay_address
     || !session.provider_created_at
     || !session.provider_valid_until
     || !session.provider_payment_status
-    || !ACTIVE_STATUSES.has(session.provider_payment_status)
+    || !session.technical_reference_amount_usdt
+    || !session.provider_minimum_usdt
   ) {
     throw new NowpaymentsDepositSessionError("session_invalid");
+  }
+
+  if (lifecycle === "activated") {
+    if (
+      !session.address_activated_at
+      || session.provider_payment_status !== "finished"
+      || new Date(session.address_activated_at).getTime()
+        < new Date(session.provider_created_at).getTime()
+      || new Date(session.address_activated_at).getTime()
+        >= new Date(session.provider_valid_until).getTime()
+    ) {
+      throw new NowpaymentsDepositSessionError("session_invalid");
+    }
+    return session;
+  }
+
+  if (
+    session.address_activated_at !== null
+    || session.session_status !== "ready"
+    || !ACTIVE_STATUSES.has(session.provider_payment_status)
+    || new Date(session.provider_valid_until).getTime() <= now.getTime()
+  ) {
+    throw new NowpaymentsDepositSessionError("session_state_changed");
   }
   return session;
 }
 
-async function refreshReadySession(
-  session: NowpaymentsDepositSession,
-  store: NowpaymentsSessionStore,
-  provider: NowpaymentsSessionProvider,
-  now: Date,
-): Promise<NowpaymentsDepositSession | null> {
-  const ready = assertReadySession(session);
-  let providerStatus: NowpaymentsProviderStatus;
-  try {
-    const result = await provider.getPaymentStatus(ready.provider_payment_id as string);
-    if (result.providerPaymentId !== ready.provider_payment_id) {
-      throw new NowpaymentsDepositSessionError("payment_status_invalid_response");
-    }
-    providerStatus = result.providerPaymentStatus;
-  } catch (error) {
-    const code = error && typeof error === "object" && "code" in error
-      ? (error as { code?: unknown }).code
-      : undefined;
-    if (code === "payment_status_invalid_response") {
-      await bestEffortManualRecovery(store, ready, "payment_status_invalid_response");
-    }
-    throw new NowpaymentsDepositSessionError("payment_status_unavailable");
-  }
-
-  if (TERMINAL_STATUSES.has(providerStatus)) {
-    try {
-      await store.recordStatus(ready, providerStatus);
-      return null;
-    } catch {
-      throw new NowpaymentsDepositSessionError("session_state_changed");
-    }
-  }
-  if (!ACTIVE_STATUSES.has(providerStatus)) {
-    await bestEffortManualRecovery(store, ready, "payment_status_invalid_response");
-    throw new NowpaymentsDepositSessionError("payment_status_unavailable");
-  }
-
+function assertConfiguredClaim(
+  configured: NowpaymentsDepositSession,
+  claim: NowpaymentsDepositSession,
+  amounts: ReturnType<typeof maximumReferenceAmount>,
+): NowpaymentsDepositSession & {
+  technical_reference_amount_usdt: string;
+  provider_minimum_usdt: string;
+} {
   if (
-    providerStatus === "waiting"
-    && new Date(ready.provider_valid_until as string).getTime() <= now.getTime()
+    configured.id !== claim.id
+    || configured.user_id !== claim.user_id
+    || configured.qhash_order_id !== claim.qhash_order_id
+    || configured.session_status !== "provisioning"
+    || configured.provider_payment_id !== null
+    || configured.provider_payment_status !== null
+    || configured.pay_address !== null
+    || configured.provider_created_at !== null
+    || configured.provider_valid_until !== null
+    || configured.address_activated_at !== null
+    || configured.provider_minimum_usdt !== amounts.providerMinimumUsdt
+    || configured.technical_reference_amount_usdt !== amounts.technicalReferenceAmountUsdt
   ) {
-    try {
-      await store.recordStatus(ready, "expired");
-      return null;
-    } catch {
-      throw new NowpaymentsDepositSessionError("session_state_changed");
-    }
-  }
-
-  try {
-    return assertReadySession(await store.recordStatus(ready, providerStatus));
-  } catch {
     throw new NowpaymentsDepositSessionError("session_state_changed");
   }
+  return configured as NowpaymentsDepositSession & {
+    technical_reference_amount_usdt: string;
+    provider_minimum_usdt: string;
+  };
 }
 
-async function resolveExisting(
-  session: NowpaymentsDepositSession,
-  store: NowpaymentsSessionStore,
-  provider: NowpaymentsSessionProvider,
+function assertFreshClaim(
+  claim: NowpaymentsDepositSession,
+  userId: string,
+): NowpaymentsDepositSession {
+  if (
+    claim.user_id !== userId
+    || claim.session_status !== "provisioning"
+    || claim.provider_payment_id !== null
+    || claim.provider_payment_status !== null
+    || claim.pay_address !== null
+    || claim.technical_reference_amount_usdt !== null
+    || claim.provider_minimum_usdt !== null
+    || claim.provider_created_at !== null
+    || claim.provider_valid_until !== null
+    || claim.address_activated_at !== null
+  ) {
+    throw new NowpaymentsDepositSessionError("session_state_changed");
+  }
+  return claim;
+}
+
+function resolveExisting(
+  lookup: Exclude<NowpaymentsSessionLookup, { disposition: "none" }>
+    | Exclude<NowpaymentsSessionClaim, { disposition: "claimed" }>,
   now: Date,
-): Promise<NowpaymentsDepositSession | null> {
+): NowpaymentsDepositSession {
+  const session = lookup as NowpaymentsDepositSession;
+  if (lookup.disposition === "activated" || lookup.disposition === "pending") {
+    return assertAddressSession(session, lookup.disposition, now);
+  }
   if (session.session_status === "provisioning") {
     throw new NowpaymentsDepositSessionError("session_provisioning");
   }
   if (session.session_status === "manual_recovery") {
     throw new NowpaymentsDepositSessionError("session_manual_recovery");
   }
-  if (session.session_status === "terminal") return null;
-  return refreshReadySession(session, store, provider, now);
+  throw new NowpaymentsDepositSessionError("session_state_changed");
 }
 
 export async function getOrCreateNowpaymentsDepositSession({
@@ -281,45 +293,59 @@ export async function getOrCreateNowpaymentsDepositSession({
 }): Promise<NowpaymentsDepositSession> {
   const current = await store.getCurrent(userId);
   if (current.disposition !== "none") {
-    const resolved = await resolveExisting(current, store, provider, now());
-    if (resolved) return resolved;
+    return resolveExisting(current, now());
   }
+
+  const claimResult = await store.claim(userId);
+  if (claimResult.disposition !== "claimed") {
+    return resolveExisting(claimResult, now());
+  }
+  const claim = assertFreshClaim(claimResult, userId);
 
   let amounts: ReturnType<typeof maximumReferenceAmount>;
   try {
     amounts = maximumReferenceAmount(await provider.getMinimum());
-  } catch {
+  } catch (error) {
+    await bestEffortManualRecovery(store, claim, "create_payment_invalid_response");
+    if (error instanceof NowpaymentsDepositSessionError) throw error;
     throw new NowpaymentsDepositSessionError("minimum_unavailable");
   }
 
-  const claim = await store.claim(
-    userId,
-    amounts.providerMinimumUsdt,
-    amounts.technicalReferenceAmountUsdt,
-  );
-  if (claim.disposition === "existing") {
-    const resolved = await resolveExisting(claim, store, provider, now());
-    if (resolved) return resolved;
-    throw new NowpaymentsDepositSessionError("session_state_changed");
+  let configured: ReturnType<typeof assertConfiguredClaim>;
+  try {
+    configured = assertConfiguredClaim(
+      await store.configureAmounts(
+        claim,
+        amounts.providerMinimumUsdt,
+        amounts.technicalReferenceAmountUsdt,
+      ),
+      claim,
+      amounts,
+    );
+  } catch (error) {
+    await bestEffortManualRecovery(store, claim, "create_payment_invalid_response");
+    throw error;
   }
 
   let created: NowpaymentsCreatedPayment;
   try {
     created = await provider.createPayment({
-      technicalReferenceAmountUsdt: amounts.technicalReferenceAmountUsdt,
-      qhashOrderId: claim.qhash_order_id,
+      // Use only the exact amount pair returned after the database persisted
+      // it against this reservation; local provider data is not authoritative.
+      technicalReferenceAmountUsdt: configured.technical_reference_amount_usdt,
+      qhashOrderId: configured.qhash_order_id,
     });
   } catch (error) {
-    await bestEffortManualRecovery(store, claim, recoveryReason(error));
+    await bestEffortManualRecovery(store, configured, recoveryReason(error));
     throw new NowpaymentsDepositSessionError("payment_creation_uncertain");
   }
 
   try {
-    return assertReadySession(await store.complete(claim, created));
+    return assertAddressSession(await store.complete(configured, created), "pending", now());
   } catch {
     await bestEffortManualRecovery(
       store,
-      claim,
+      configured,
       "create_payment_finalize_failed",
       created,
     );

@@ -428,10 +428,11 @@ export interface Database {
           qhash_order_id: string
           session_status: NowpaymentsDepositSessionStatus
           pay_address: string | null
-          technical_reference_amount_usdt: number
-          provider_minimum_usdt: number
+          technical_reference_amount_usdt: number | null
+          provider_minimum_usdt: number | null
           provider_created_at: string | null
           provider_valid_until: string | null
+          address_activated_at: string | null
           provisioning_started_at: string
           provisioned_at: string | null
           manual_recovery_at: string | null
@@ -459,10 +460,11 @@ export interface Database {
           qhash_order_id?: string
           session_status?: NowpaymentsDepositSessionStatus
           pay_address?: string | null
-          technical_reference_amount_usdt: number
-          provider_minimum_usdt: number
+          technical_reference_amount_usdt?: number | null
+          provider_minimum_usdt?: number | null
           provider_created_at?: string | null
           provider_valid_until?: string | null
+          address_activated_at?: string | null
           provisioning_started_at?: string
           provisioned_at?: string | null
           manual_recovery_at?: string | null
@@ -485,10 +487,11 @@ export interface Database {
           qhash_order_id?: string
           session_status?: NowpaymentsDepositSessionStatus
           pay_address?: string | null
-          technical_reference_amount_usdt?: number
-          provider_minimum_usdt?: number
+          technical_reference_amount_usdt?: number | null
+          provider_minimum_usdt?: number | null
           provider_created_at?: string | null
           provider_valid_until?: string | null
+          address_activated_at?: string | null
           provisioning_started_at?: string
           provisioned_at?: string | null
           manual_recovery_at?: string | null
@@ -900,8 +903,14 @@ export interface Database {
         Returns: Json
       }
       claim_nowpayments_usdt_deposit_session: {
+        Args: { p_user_id: string }
+        Returns: Json
+      }
+      configure_nowpayments_usdt_deposit_session_amounts: {
         Args: {
           p_user_id: string
+          p_session_id: string
+          p_qhash_order_id: string
           p_provider_minimum_usdt: string
           p_technical_reference_amount_usdt: string
         }

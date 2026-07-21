@@ -170,6 +170,15 @@ export function NowpaymentsUsdtDeposit({
     : false;
 
   useEffect(() => {
+    if (
+      activeSession?.address_lifecycle === "pending_activation"
+      && !addressSendable
+    ) {
+      void loadOverview();
+    }
+  }, [activeSession, addressSendable, loadOverview]);
+
+  useEffect(() => {
     let cancelled = false;
     setQrDataUrl(null);
     if (!activeSession || !addressSendable) return;
@@ -272,19 +281,17 @@ export function NowpaymentsUsdtDeposit({
         <>
           <UsdtWalletSummary overview={overview} />
 
-          {!overview.feature_enabled ? (
-            <DisabledCryptoState />
-          ) : activeSession ? (
+          {activeSession ? (
             <ActiveDepositCard
               session={activeSession}
               nowMs={nowMs}
               addressSendable={addressSendable}
               qrDataUrl={qrDataUrl}
               copied={copyFeedback.copied}
-              generating={generating}
               onCopy={handleCopy}
-              onGenerate={handleGenerate}
             />
+          ) : !overview.feature_enabled ? (
+            <DisabledCryptoState />
           ) : overview.session_state === "provisioning" ? (
             <ProcessingState label="Deposit address setup is in progress." />
           ) : overview.session_state === "manual_review" ? (
@@ -377,29 +384,27 @@ function ActiveDepositCard({
   addressSendable,
   qrDataUrl,
   copied,
-  generating,
   onCopy,
-  onGenerate,
 }: {
   session: NonNullable<NowpaymentsDepositOverview["active_session"]>;
   nowMs: number;
   addressSendable: boolean;
   qrDataUrl: string | null;
   copied: boolean;
-  generating: boolean;
   onCopy: () => void;
-  onGenerate: () => void;
 }) {
-  const waitingExpired = !addressSendable && session.status === "waiting";
+  const permanentlyActivated = session.address_lifecycle === "permanently_activated";
   return (
     <div className="overflow-hidden rounded-xl border border-[rgba(0,255,65,0.16)] bg-[#111]">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#1f1f1f] px-3.5 py-3">
         <div>
-          <p className="text-[10px] uppercase tracking-wider text-gray-500">Active deposit session</p>
+          <p className="text-[10px] uppercase tracking-wider text-gray-500">
+            {permanentlyActivated ? "Permanent deposit address" : "Pending address activation"}
+          </p>
           <p className="mt-0.5 text-sm font-bold text-gray-100">USDT · BNB Smart Chain (BEP20)</p>
         </div>
-        <Badge variant={waitingExpired ? "danger" : "warning"} className="text-[9px]">
-          {waitingExpired ? "Expired — do not send" : nowpaymentsStatusLabel(session.status)}
+        <Badge variant={permanentlyActivated ? "success" : "warning"} className="text-[9px]">
+          {permanentlyActivated ? "Permanently activated" : nowpaymentsStatusLabel(session.status)}
         </Badge>
       </div>
 
@@ -439,27 +444,29 @@ function ActiveDepositCard({
 
             <dl className="grid grid-cols-2 gap-2 text-xs">
               <SessionDetail label="Minimum" value={`${formatUsdtDecimal(session.minimum_deposit_usdt)} USDT`} />
-              <SessionDetail label="Time remaining" value={formatDepositCountdown(session.valid_until, nowMs)} />
               <SessionDetail label="Created" value={formatDateTime(session.created_at)} />
-              <SessionDetail label="Expires" value={formatDateTime(session.valid_until)} />
+              {session.valid_until && (
+                <>
+                  <SessionDetail label="Activation time remaining" value={formatDepositCountdown(session.valid_until, nowMs)} />
+                  <SessionDetail label="Activation deadline" value={formatDateTime(session.valid_until)} />
+                </>
+              )}
             </dl>
           </div>
         </div>
 
-        {!addressSendable && (
-          <div className="rounded-xl border border-red-500/25 bg-red-500/[0.06] p-3" role="alert">
-            <p className="text-xs font-bold text-red-300">Expired — do not send to this address.</p>
-            <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
-              Copy and QR are disabled. If you already sent funds, keep your transaction hash and contact support.
-            </p>
-          </div>
-        )}
-
-        {waitingExpired && (
-          <Button type="button" fullWidth loading={generating} disabled={generating} onClick={onGenerate}>
-            Generate New Deposit Address
-          </Button>
-        )}
+        <div className="rounded-xl border border-[rgba(0,255,65,0.16)] bg-[rgba(0,255,65,0.035)] p-3" role="status">
+          <p className="text-xs font-bold text-gray-200">
+            {permanentlyActivated
+              ? "This is your permanent USDT BEP20 deposit address."
+              : "Complete your first verified deposit before the activation deadline."}
+          </p>
+          <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+            {permanentlyActivated
+              ? "Future deposits to this same address are credited separately after independent verification."
+              : "A verified finished first deposit activates this same address permanently. The deadline is never extended."}
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -548,7 +555,7 @@ function DepositSafetyNotice({ minimum }: { minimum: string }) {
       <ul className="list-disc space-y-1 pl-5 text-[11px] leading-relaxed text-gray-500">
         <li>Send only USDT on BNB Smart Chain (BEP20). Other assets or networks may be lost.</li>
         <li>Send at least {formatUsdtDecimal(minimum)} USDT. Network and provider fees may reduce what arrives.</li>
-        <li>Your QHash wallet is credited in USDT only, using the exact verified net amount received.</li>
+        <li>Your QHash wallet is credited in USDT only, using the exact verified gross amount actually paid.</li>
         <li>The displayed minimum is not a requested amount and does not cap a larger deposit.</li>
       </ul>
     </div>
@@ -598,7 +605,11 @@ function HistoryRow({ entry }: { entry: NowpaymentsDepositHistoryView }) {
         </p>
       )}
       <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-gray-600">
-        <span>{entry.valid_until ? `Valid until ${formatDateTime(entry.valid_until)}` : "Expiry unavailable"}</span>
+        <span>
+          {entry.valid_until
+            ? `Original activation deadline ${formatDateTime(entry.valid_until)}`
+            : "Activation deadline unavailable"}
+        </span>
         <span className="text-right">
           {entry.credited_amount_usdt && (
             <span className="block text-[#00ff41]">

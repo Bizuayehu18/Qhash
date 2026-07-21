@@ -68,10 +68,11 @@ type SessionRow = {
   provider_payment_status: string | null;
   session_status: "provisioning" | "ready" | "manual_recovery" | "terminal";
   pay_address: string | null;
-  technical_reference_amount_usdt: string;
-  provider_minimum_usdt: string;
+  technical_reference_amount_usdt: string | null;
+  provider_minimum_usdt: string | null;
   provider_created_at: string | null;
   provider_valid_until: string | null;
+  address_activated_at: string | null;
   terminal_at: string | null;
   credited_amount_usdt: string | null;
   credited_at: string | null;
@@ -205,10 +206,17 @@ function validateSession(value: unknown, userId: string): SessionRow {
         || !PROVIDER_STATUSES.has(row.provider_payment_status)))
     || (row.pay_address !== null
       && (typeof row.pay_address !== "string" || !ADDRESS_PATTERN.test(row.pay_address)))
-    || !isDecimal(row.technical_reference_amount_usdt)
-    || !isDecimal(row.provider_minimum_usdt)
+    || !(
+      (isDecimal(row.technical_reference_amount_usdt)
+        && isDecimal(row.provider_minimum_usdt))
+      || (row.technical_reference_amount_usdt === null
+        && row.provider_minimum_usdt === null
+        && (row.session_status === "provisioning"
+          || row.session_status === "manual_recovery"))
+    )
     || !isNullableTimestamp(row.provider_created_at)
     || !isNullableTimestamp(row.provider_valid_until)
+    || !isNullableTimestamp(row.address_activated_at)
     || !isNullableTimestamp(row.terminal_at)
     || !isNullableDecimal(row.credited_amount_usdt)
     || !isNullableTimestamp(row.credited_at)
@@ -437,7 +445,7 @@ async function handleOverview(
     admin
       .from("nowpayments_usdt_payments")
       .select(
-        "id,user_id,provider_payment_id,provider_payment_status,session_status,pay_address,technical_reference_amount_usdt::text,provider_minimum_usdt::text,provider_created_at,provider_valid_until,terminal_at,credited_amount_usdt::text,credited_at,created_at",
+        "id,user_id,provider_payment_id,provider_payment_status,session_status,pay_address,technical_reference_amount_usdt::text,provider_minimum_usdt::text,provider_created_at,provider_valid_until,address_activated_at,terminal_at,credited_amount_usdt::text,credited_at,created_at",
       )
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
@@ -489,37 +497,78 @@ async function handleOverview(
     const providerPayments = ((providerPaymentsResult.data ?? []) as unknown[])
       .map((row) => validateProviderPayment(row, userId));
     const nowMs = Date.now();
-    const current = sessions[0] ?? null;
-    const currentIsActive = current?.session_status === "ready"
-      && current.provider_payment_status !== null
-      && ACTIVE_STATUSES.has(current.provider_payment_status)
-      && current.pay_address !== null
-      && current.provider_created_at !== null
-      && current.provider_valid_until !== null
-      && !(
-        current.provider_payment_status === "waiting"
-        && new Date(current.provider_valid_until).getTime() <= nowMs
-      );
+    const activated = sessions.find((session) =>
+      session.address_activated_at !== null
+      && session.provider_payment_status === "finished"
+      && session.pay_address !== null
+      && session.provider_created_at !== null
+      && session.provider_valid_until !== null
+      && new Date(session.address_activated_at).getTime()
+        >= new Date(session.provider_created_at).getTime()
+      && new Date(session.address_activated_at).getTime()
+        < new Date(session.provider_valid_until).getTime()
+    ) ?? null;
+    const pending = sessions.find((session) =>
+      session.address_activated_at === null
+      && session.session_status === "ready"
+      && session.provider_payment_status !== null
+      && ACTIVE_STATUSES.has(session.provider_payment_status)
+      && session.pay_address !== null
+      && session.provider_created_at !== null
+      && session.provider_valid_until !== null
+      && new Date(session.provider_valid_until).getTime() > nowMs
+    ) ?? null;
+    const terminalAwaitingDeadline = sessions.find((session) =>
+      session.address_activated_at === null
+      && session.session_status === "terminal"
+      && session.provider_valid_until !== null
+      && new Date(session.provider_valid_until).getTime() > nowMs
+    ) ?? null;
+    const currentAddress = activated ?? pending;
+    if (
+      currentAddress
+      && (currentAddress.technical_reference_amount_usdt === null
+        || currentAddress.provider_minimum_usdt === null)
+    ) {
+      throw new Error("invalid_session_read");
+    }
+    const addressLifecycle = activated ? "permanently_activated" : "pending_activation";
 
-    const activeSession = currentIsActive && current
+    const activeSession = currentAddress
       ? {
           asset: "USDT" as const,
           network: "BEP20" as const,
-          status: current.provider_payment_status,
-          pay_address: current.pay_address,
-          minimum_deposit_usdt: current.technical_reference_amount_usdt,
-          provider_minimum_usdt: current.provider_minimum_usdt,
-          created_at: current.provider_created_at,
-          valid_until: current.provider_valid_until,
+          status: currentAddress.provider_payment_status,
+          pay_address: currentAddress.pay_address,
+          minimum_deposit_usdt: currentAddress.technical_reference_amount_usdt,
+          provider_minimum_usdt: currentAddress.provider_minimum_usdt,
+          created_at: currentAddress.provider_created_at,
+          address_lifecycle: addressLifecycle,
+          valid_until: activated ? null : currentAddress.provider_valid_until,
         }
       : null;
-    const sessionState = activeSession
-      ? "active"
-      : current?.session_status === "provisioning"
-        ? "provisioning"
-        : current?.session_status === "manual_recovery"
-          ? "manual_review"
-          : "none";
+    const operational = sessions.find((session) =>
+      session.session_status === "provisioning" || session.session_status === "manual_recovery"
+    ) ?? null;
+    const hasExpiredUnactivated = sessions.some((session) =>
+      session.address_activated_at === null
+      && session.pay_address !== null
+      && session.provider_valid_until !== null
+      && new Date(session.provider_valid_until).getTime() <= nowMs
+    );
+    const sessionState = activated
+      ? "permanently_activated"
+      : pending
+        ? "pending_activation"
+        : operational?.session_status === "provisioning"
+          ? "provisioning"
+          : operational?.session_status === "manual_recovery"
+            ? "manual_review"
+            : terminalAwaitingDeadline
+              ? "manual_review"
+              : hasExpiredUnactivated
+                ? "expired_unactivated"
+                : "none";
 
     return terminalResponse(
       invocation,
