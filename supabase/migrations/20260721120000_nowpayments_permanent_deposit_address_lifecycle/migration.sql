@@ -32,6 +32,8 @@ begin
       and column_name = 'address_activated_at'
   ) or to_regprocedure('public.activate_qualified_nowpayments_usdt_address()') is not null
     or to_regprocedure('public.settle_verified_nowpayments_usdt_payment_serialized_inner(text,text,text,text,text,text,text,text,text)') is not null
+    or to_regprocedure('public.claim_nowpayments_usdt_deposit_session(uuid)') is not null
+    or to_regprocedure('public.configure_nowpayments_usdt_deposit_session_amounts(uuid,uuid,uuid,text,text)') is not null
   then
     raise exception 'NOWPayments permanent-address objects already exist outside migration tracking';
   end if;
@@ -146,6 +148,32 @@ alter table public.nowpayments_usdt_payments
       )
     );
 
+-- A reservation is durable before any provider configuration is read. Its two
+-- amount fields therefore begin null and are configured together exactly once
+-- before a create-payment request can be made. Only an unconfigured
+-- provisioning/manual-recovery row may retain that paired-null state.
+alter table public.nowpayments_usdt_payments
+  drop constraint nowpayments_usdt_payments_technical_minimum_check,
+  drop constraint nowpayments_usdt_payments_provider_minimum_check,
+  drop constraint nowpayments_usdt_payments_reference_amount_check,
+  alter column technical_reference_amount_usdt drop not null,
+  alter column provider_minimum_usdt drop not null,
+  add constraint nowpayments_usdt_payments_reference_amount_state_check
+    check (
+      (
+        technical_reference_amount_usdt is null
+        and provider_minimum_usdt is null
+        and session_status in ('provisioning', 'manual_recovery')
+      )
+      or (
+        technical_reference_amount_usdt is not null
+        and provider_minimum_usdt is not null
+        and technical_reference_amount_usdt >= 1
+        and provider_minimum_usdt > 0
+        and technical_reference_amount_usdt = greatest(1::numeric, provider_minimum_usdt)
+      )
+    );
+
 -- The only populated production session is backfilled from independently
 -- verified original-payment evidence already stored before its deadline.
 update public.nowpayments_usdt_payments session
@@ -245,6 +273,30 @@ language plpgsql
 set search_path = pg_catalog, public
 as $function$
 begin
+  if old.technical_reference_amount_usdt is not null
+    or old.provider_minimum_usdt is not null
+  then
+    if new.technical_reference_amount_usdt is distinct from old.technical_reference_amount_usdt
+      or new.provider_minimum_usdt is distinct from old.provider_minimum_usdt
+    then
+      raise exception 'NOWPayments configured session amounts are immutable';
+    end if;
+  elsif new.technical_reference_amount_usdt is not null
+    or new.provider_minimum_usdt is not null
+  then
+    if old.session_status <> 'provisioning'
+      or new.session_status <> 'provisioning'
+      or new.technical_reference_amount_usdt is null
+      or new.provider_minimum_usdt is null
+      or new.technical_reference_amount_usdt < 1
+      or new.provider_minimum_usdt <= 0
+      or new.technical_reference_amount_usdt
+        <> greatest(1::numeric, new.provider_minimum_usdt)
+    then
+      raise exception 'NOWPayments session amounts may be configured only once while provisioning';
+    end if;
+  end if;
+
   if old.provider_valid_until is not null
     and new.provider_valid_until is distinct from old.provider_valid_until
   then
@@ -373,56 +425,67 @@ begin
     );
   end if;
 
-  select * into v_session
-  from public.nowpayments_usdt_payments
-  where user_id = p_user_id
-    and session_status in ('provisioning', 'ready', 'manual_recovery')
-  order by created_at desc
-  limit 1
-  for update;
+  loop
+    -- An original may become terminal before its qualifying settlement obtains
+    -- the shared profile lock. Until the strict provider deadline, that
+    -- terminal row remains non-replaceable just like any other pending state.
+    select * into v_session
+    from public.nowpayments_usdt_payments
+    where user_id = p_user_id
+      and address_activated_at is null
+      and (
+        session_status in ('provisioning', 'ready', 'manual_recovery')
+        or (
+          provider_valid_until is not null
+          and provider_valid_until > clock_timestamp()
+        )
+      )
+    order by created_at desc
+    limit 1
+    for update;
 
-  if not found then
-    return jsonb_build_object('disposition', 'none');
-  end if;
+    if not found then
+      return jsonb_build_object('disposition', 'none');
+    end if;
 
-  if v_session.session_status = 'provisioning'
-    and v_session.provisioning_started_at <= now() - interval '5 minutes'
-  then
-    update public.nowpayments_usdt_payments
-    set session_status = 'manual_recovery',
-        manual_recovery_at = now(),
-        manual_recovery_reason = 'stale_provisioning_claim',
-        updated_at = now()
-    where id = v_session.id
-    returning * into v_session;
-  end if;
+    if v_session.session_status = 'provisioning'
+      and v_session.provisioning_started_at <= now() - interval '5 minutes'
+    then
+      update public.nowpayments_usdt_payments
+      set session_status = 'manual_recovery',
+          manual_recovery_at = now(),
+          manual_recovery_reason = 'stale_provisioning_claim',
+          updated_at = now()
+      where id = v_session.id
+      returning * into v_session;
+    end if;
 
-  if v_session.session_status = 'ready'
-    and v_session.address_activated_at is null
-    and v_session.provider_valid_until <= now()
-  then
-    update public.nowpayments_usdt_payments
-    set provider_payment_status = 'expired',
-        session_status = 'terminal',
-        terminal_at = coalesce(terminal_at, now()),
-        terminal_reason = 'provider_valid_until_elapsed',
-        updated_at = now()
-    where id = v_session.id;
-    return jsonb_build_object('disposition', 'none');
-  end if;
+    if v_session.session_status = 'ready'
+      and v_session.provider_valid_until <= clock_timestamp()
+    then
+      update public.nowpayments_usdt_payments
+      set provider_payment_status = 'expired',
+          session_status = 'terminal',
+          terminal_at = coalesce(terminal_at, now()),
+          terminal_reason = 'provider_valid_until_elapsed',
+          updated_at = now()
+      where id = v_session.id;
+      continue;
+    end if;
 
-  return to_jsonb(v_session) || jsonb_build_object(
-    'disposition', case when v_session.session_status = 'ready' then 'pending' else 'existing' end,
-    'technical_reference_amount_usdt', v_session.technical_reference_amount_usdt::text,
-    'provider_minimum_usdt', v_session.provider_minimum_usdt::text
-  );
+    return to_jsonb(v_session) || jsonb_build_object(
+      'disposition', case when v_session.session_status = 'ready' then 'pending' else 'existing' end,
+      'technical_reference_amount_usdt', v_session.technical_reference_amount_usdt::text,
+      'provider_minimum_usdt', v_session.provider_minimum_usdt::text
+    );
+  end loop;
 end;
 $function$;
 
-create or replace function public.claim_nowpayments_usdt_deposit_session(
-  p_user_id uuid,
-  p_provider_minimum_usdt text,
-  p_technical_reference_amount_usdt text
+drop function public.claim_nowpayments_usdt_deposit_session(uuid, text, text);
+
+create function public.claim_nowpayments_usdt_deposit_session(
+  p_user_id uuid
 )
 returns jsonb
 language plpgsql
@@ -432,31 +495,9 @@ as $function$
 declare
   v_enabled boolean;
   v_is_frozen boolean;
-  v_provider_minimum numeric(36, 18);
-  v_technical_reference numeric(36, 18);
   v_session public.nowpayments_usdt_payments%rowtype;
 begin
-  if p_user_id is null
-    or p_provider_minimum_usdt is null
-    or p_provider_minimum_usdt !~ '^[0-9]+(\.[0-9]{1,18})?$'
-    or p_technical_reference_amount_usdt is null
-    or p_technical_reference_amount_usdt !~ '^[0-9]+(\.[0-9]{1,18})?$'
-  then
-    raise exception 'invalid_nowpayments_session_claim';
-  end if;
-
-  begin
-    v_provider_minimum := p_provider_minimum_usdt::numeric(36, 18);
-    v_technical_reference := p_technical_reference_amount_usdt::numeric(36, 18);
-  exception
-    when numeric_value_out_of_range then
-      raise exception 'invalid_nowpayments_session_claim';
-  end;
-
-  if v_provider_minimum <= 0
-    or v_technical_reference < 1
-    or v_technical_reference <> greatest(1::numeric, v_provider_minimum)
-  then
+  if p_user_id is null then
     raise exception 'invalid_nowpayments_session_claim';
   end if;
 
@@ -493,15 +534,29 @@ begin
     );
   end if;
 
-  select * into v_session
-  from public.nowpayments_usdt_payments
-  where user_id = p_user_id
-    and session_status in ('provisioning', 'ready', 'manual_recovery')
-  order by created_at desc
-  limit 1
-  for update;
+  loop
+    -- Terminal does not mean replaceable. A terminal original may still be
+    -- waiting for qualifying settlement/activation, so every unactivated row
+    -- with a strictly future provider deadline blocks a replacement.
+    select * into v_session
+    from public.nowpayments_usdt_payments
+    where user_id = p_user_id
+      and address_activated_at is null
+      and (
+        session_status in ('provisioning', 'ready', 'manual_recovery')
+        or (
+          provider_valid_until is not null
+          and provider_valid_until > clock_timestamp()
+        )
+      )
+    order by created_at desc
+    limit 1
+    for update;
 
-  if found then
+    if not found then
+      exit;
+    end if;
+
     if v_session.session_status = 'provisioning'
       and v_session.provisioning_started_at <= now() - interval '5 minutes'
     then
@@ -515,8 +570,7 @@ begin
     end if;
 
     if v_session.session_status = 'ready'
-      and v_session.address_activated_at is null
-      and v_session.provider_valid_until <= now()
+      and v_session.provider_valid_until <= clock_timestamp()
     then
       update public.nowpayments_usdt_payments
       set provider_payment_status = 'expired',
@@ -525,6 +579,7 @@ begin
           terminal_reason = 'provider_valid_until_elapsed',
           updated_at = now()
       where id = v_session.id;
+      continue;
     else
       return to_jsonb(v_session) || jsonb_build_object(
         'disposition', case when v_session.session_status = 'ready' then 'pending' else 'existing' end,
@@ -532,7 +587,7 @@ begin
         'provider_minimum_usdt', v_session.provider_minimum_usdt::text
       );
     end if;
-  end if;
+  end loop;
 
   -- Settlement uses the same profile-row lock. Recheck permanent activation
   -- at the last possible point before inserting a replacement claim.
@@ -552,6 +607,32 @@ begin
     );
   end if;
 
+  -- Defense in depth at the last possible point before insertion. This
+  -- catches any non-replaceable unactivated row even if it appeared through a
+  -- path that did not honor the shared profile lock.
+  select * into v_session
+  from public.nowpayments_usdt_payments
+  where user_id = p_user_id
+    and address_activated_at is null
+    and (
+      session_status in ('provisioning', 'manual_recovery')
+      or (
+        provider_valid_until is not null
+        and provider_valid_until > clock_timestamp()
+      )
+    )
+  order by created_at desc
+  limit 1
+  for update;
+
+  if found then
+    return to_jsonb(v_session) || jsonb_build_object(
+      'disposition', case when v_session.session_status = 'ready' then 'pending' else 'existing' end,
+      'technical_reference_amount_usdt', v_session.technical_reference_amount_usdt::text,
+      'provider_minimum_usdt', v_session.provider_minimum_usdt::text
+    );
+  end if;
+
   insert into public.nowpayments_usdt_payments (
     user_id, provider_payment_id, provider_payment_status,
     verification_status, asset, network, provider_currency,
@@ -560,7 +641,7 @@ begin
   ) values (
     p_user_id, null, null,
     'pending', 'USDT', 'BEP20', 'usdtbsc',
-    v_technical_reference, v_provider_minimum,
+    null, null,
     null, 'USDT', null, 'provisioning'
   )
   returning * into v_session;
@@ -573,18 +654,139 @@ begin
 end;
 $function$;
 
+create function public.configure_nowpayments_usdt_deposit_session_amounts(
+  p_user_id uuid,
+  p_session_id uuid,
+  p_qhash_order_id uuid,
+  p_provider_minimum_usdt text,
+  p_technical_reference_amount_usdt text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $function$
+declare
+  v_enabled boolean;
+  v_is_frozen boolean;
+  v_provider_minimum numeric(36, 18);
+  v_technical_reference numeric(36, 18);
+  v_session public.nowpayments_usdt_payments%rowtype;
+begin
+  if p_user_id is null
+    or p_session_id is null
+    or p_qhash_order_id is null
+    or p_provider_minimum_usdt is null
+    or p_provider_minimum_usdt !~ '^[0-9]+(\.[0-9]{1,18})?$'
+    or p_technical_reference_amount_usdt is null
+    or p_technical_reference_amount_usdt !~ '^[0-9]+(\.[0-9]{1,18})?$'
+  then
+    raise exception 'invalid_nowpayments_session_amount_configuration';
+  end if;
+
+  begin
+    v_provider_minimum := p_provider_minimum_usdt::numeric(36, 18);
+    v_technical_reference := p_technical_reference_amount_usdt::numeric(36, 18);
+  exception
+    when numeric_value_out_of_range then
+      raise exception 'invalid_nowpayments_session_amount_configuration';
+  end;
+
+  if v_provider_minimum <= 0
+    or v_technical_reference < 1
+    or v_technical_reference <> greatest(1::numeric, v_provider_minimum)
+  then
+    raise exception 'invalid_nowpayments_session_amount_configuration';
+  end if;
+
+  -- Preserve the same profile-before-session lock ordering used by claim and
+  -- settlement. This also revalidates account ownership state at the one-shot
+  -- configuration boundary.
+  select is_frozen into v_is_frozen
+  from public.profiles
+  where id = p_user_id
+  for update;
+  if not found or v_is_frozen then
+    raise exception 'nowpayments_session_user_unavailable';
+  end if;
+
+  select enabled into v_enabled
+  from public.nowpayments_usdt_config
+  where id = 'USDT-BEP20';
+  if not found or not v_enabled then
+    raise exception 'nowpayments_usdt_bep20_disabled';
+  end if;
+
+  if exists (
+    select 1
+    from public.nowpayments_usdt_payments
+    where user_id = p_user_id
+      and address_activated_at is not null
+  ) then
+    raise exception 'nowpayments_session_amount_configuration_mismatch';
+  end if;
+
+  select * into v_session
+  from public.nowpayments_usdt_payments
+  where id = p_session_id
+    and user_id = p_user_id
+    and qhash_order_id = p_qhash_order_id
+  for update;
+
+  if not found
+    or v_session.session_status <> 'provisioning'
+    or v_session.provider_payment_id is not null
+    or v_session.provider_payment_status is not null
+    or v_session.pay_address is not null
+    or v_session.provider_created_at is not null
+    or v_session.provider_valid_until is not null
+    or v_session.provisioned_at is not null
+    or v_session.technical_reference_amount_usdt is not null
+    or v_session.provider_minimum_usdt is not null
+  then
+    raise exception 'nowpayments_session_amount_configuration_mismatch';
+  end if;
+
+  update public.nowpayments_usdt_payments
+  set technical_reference_amount_usdt = v_technical_reference,
+      provider_minimum_usdt = v_provider_minimum,
+      updated_at = now()
+  where id = v_session.id
+    and user_id = p_user_id
+    and qhash_order_id = p_qhash_order_id
+    and session_status = 'provisioning'
+    and technical_reference_amount_usdt is null
+    and provider_minimum_usdt is null
+  returning * into v_session;
+
+  if not found then
+    raise exception 'nowpayments_session_amount_configuration_mismatch';
+  end if;
+
+  return to_jsonb(v_session) || jsonb_build_object(
+    'disposition', 'configured',
+    'technical_reference_amount_usdt', v_session.technical_reference_amount_usdt::text,
+    'provider_minimum_usdt', v_session.provider_minimum_usdt::text
+  );
+end;
+$function$;
+
 revoke all on function public.enforce_nowpayments_usdt_address_lifecycle_immutability()
   from public, anon, authenticated, service_role;
 revoke all on function public.activate_qualified_nowpayments_usdt_address()
   from public, anon, authenticated, service_role;
 revoke all on function public.get_current_nowpayments_usdt_deposit_session(uuid)
   from public, anon, authenticated;
-revoke all on function public.claim_nowpayments_usdt_deposit_session(uuid, text, text)
-  from public, anon, authenticated;
+revoke all on function public.claim_nowpayments_usdt_deposit_session(uuid)
+  from public, anon, authenticated, service_role;
+revoke all on function public.configure_nowpayments_usdt_deposit_session_amounts(uuid, uuid, uuid, text, text)
+  from public, anon, authenticated, service_role;
 
 grant execute on function public.get_current_nowpayments_usdt_deposit_session(uuid)
   to service_role;
-grant execute on function public.claim_nowpayments_usdt_deposit_session(uuid, text, text)
+grant execute on function public.claim_nowpayments_usdt_deposit_session(uuid)
+  to service_role;
+grant execute on function public.configure_nowpayments_usdt_deposit_session_amounts(uuid, uuid, uuid, text, text)
   to service_role;
 
 comment on column public.nowpayments_usdt_payments.address_activated_at is
@@ -593,8 +795,10 @@ comment on function public.activate_qualified_nowpayments_usdt_address() is
   'Atomically activates only gross-credited original USDTBSC payments whose trusted verification and credit evidence both precede the original deadline; repeated payments never activate.';
 comment on function public.get_current_nowpayments_usdt_deposit_session(uuid) is
   'Returns the permanent address first, otherwise the single pending activation/provisioning state, while retaining expired sessions as history.';
-comment on function public.claim_nowpayments_usdt_deposit_session(uuid, text, text) is
-  'Serializes per-user generation, reuses permanent or pending addresses, and creates one replacement only after unactivated expiry.';
+comment on function public.claim_nowpayments_usdt_deposit_session(uuid) is
+  'Serializes per-user generation, reuses permanent or pending addresses, and reserves one provider-free replacement only after unactivated expiry.';
+comment on function public.configure_nowpayments_usdt_deposit_session_amounts(uuid, uuid, uuid, text, text) is
+  'Configures validated provider-minimum and technical-reference amounts exactly once against the exact service-owned provisioning reservation.';
 comment on function public.settle_verified_nowpayments_usdt_payment(
   text, text, text, text, text, text, text, text, text
 ) is
@@ -606,6 +810,9 @@ declare
 begin
   if to_regprocedure('public.activate_qualified_nowpayments_usdt_address()') is null
     or to_regprocedure('public.enforce_nowpayments_usdt_address_lifecycle_immutability()') is null
+    or to_regprocedure('public.claim_nowpayments_usdt_deposit_session(uuid)') is null
+    or to_regprocedure('public.claim_nowpayments_usdt_deposit_session(uuid,text,text)') is not null
+    or to_regprocedure('public.configure_nowpayments_usdt_deposit_session_amounts(uuid,uuid,uuid,text,text)') is null
     or not exists (
       select 1 from pg_indexes
       where schemaname = 'public'
@@ -613,12 +820,23 @@ begin
     )
     or has_function_privilege('authenticated', 'public.activate_qualified_nowpayments_usdt_address()', 'EXECUTE')
     or has_function_privilege('authenticated', 'public.get_current_nowpayments_usdt_deposit_session(uuid)', 'EXECUTE')
-    or has_function_privilege('authenticated', 'public.claim_nowpayments_usdt_deposit_session(uuid,text,text)', 'EXECUTE')
+    or has_function_privilege('authenticated', 'public.claim_nowpayments_usdt_deposit_session(uuid)', 'EXECUTE')
+    or has_function_privilege('authenticated', 'public.configure_nowpayments_usdt_deposit_session_amounts(uuid,uuid,uuid,text,text)', 'EXECUTE')
+    or has_function_privilege('anon', 'public.claim_nowpayments_usdt_deposit_session(uuid)', 'EXECUTE')
+    or has_function_privilege('anon', 'public.configure_nowpayments_usdt_deposit_session_amounts(uuid,uuid,uuid,text,text)', 'EXECUTE')
     or has_function_privilege('authenticated', 'public.settle_verified_nowpayments_usdt_payment(text,text,text,text,text,text,text,text,text)', 'EXECUTE')
     or has_function_privilege('service_role', 'public.settle_verified_nowpayments_usdt_payment_serialized_inner(text,text,text,text,text,text,text,text,text)', 'EXECUTE')
     or not has_function_privilege('service_role', 'public.get_current_nowpayments_usdt_deposit_session(uuid)', 'EXECUTE')
-    or not has_function_privilege('service_role', 'public.claim_nowpayments_usdt_deposit_session(uuid,text,text)', 'EXECUTE')
+    or not has_function_privilege('service_role', 'public.claim_nowpayments_usdt_deposit_session(uuid)', 'EXECUTE')
+    or not has_function_privilege('service_role', 'public.configure_nowpayments_usdt_deposit_session_amounts(uuid,uuid,uuid,text,text)', 'EXECUTE')
     or not has_function_privilege('service_role', 'public.settle_verified_nowpayments_usdt_payment(text,text,text,text,text,text,text,text,text)', 'EXECUTE')
+    or not exists (
+      select 1
+      from pg_proc p
+      where p.oid = 'public.configure_nowpayments_usdt_deposit_session_amounts(uuid,uuid,uuid,text,text)'::regprocedure
+        and p.prosecdef
+        and p.proconfig @> array['search_path=pg_catalog, public']::text[]
+    )
   then
     raise exception 'NOWPayments permanent-address security postflight failed';
   end if;

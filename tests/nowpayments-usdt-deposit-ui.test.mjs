@@ -388,6 +388,41 @@ test("finished gross actually_paid credit is displayed and provider outcome stay
   assert.equal(expired.body.history[0].status, "expired");
 });
 
+test("terminal unactivated sessions stay non-generating strictly before, but not at, the provider deadline", async () => {
+  const originalDateNow = Date.now;
+  const deadline = Date.parse("2030-01-08T00:00:00.000Z");
+  const terminal = validSession({
+    provider_payment_status: "finished",
+    session_status: "terminal",
+    terminal_at: "2030-01-02T00:00:00.000Z",
+  });
+
+  try {
+    Date.now = () => deadline - 1;
+    const beforeDeadline = await invokeOverview({
+      configEnabled: true,
+      sessions: [terminal],
+    });
+    assert.equal(beforeDeadline.response.status, 200);
+    assert.equal(beforeDeadline.body.session_state, "manual_review");
+    assert.equal(beforeDeadline.body.active_session, null);
+    assert.equal(parseNowpaymentsDepositOverview(beforeDeadline.body).active_session, null);
+    assert.ok(beforeDeadline.requests.every((url) => !url.startsWith("https://api.nowpayments.io")));
+    assert.ok(beforeDeadline.environmentReads.every((name) => name !== "NOWPAYMENTS_API_KEY"));
+
+    Date.now = () => deadline;
+    const atDeadline = await invokeOverview({
+      configEnabled: true,
+      sessions: [terminal],
+    });
+    assert.equal(atDeadline.response.status, 200);
+    assert.equal(atDeadline.body.session_state, "expired_unactivated");
+    assert.equal(atDeadline.body.active_session, null);
+  } finally {
+    Date.now = originalDateNow;
+  }
+});
+
 test("permanently activated address remains usable without expiry when generation is disabled", async () => {
   const result = await invokeOverview({
     configEnabled: false,

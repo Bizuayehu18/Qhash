@@ -68,8 +68,8 @@ type SessionRow = {
   provider_payment_status: string | null;
   session_status: "provisioning" | "ready" | "manual_recovery" | "terminal";
   pay_address: string | null;
-  technical_reference_amount_usdt: string;
-  provider_minimum_usdt: string;
+  technical_reference_amount_usdt: string | null;
+  provider_minimum_usdt: string | null;
   provider_created_at: string | null;
   provider_valid_until: string | null;
   address_activated_at: string | null;
@@ -206,8 +206,14 @@ function validateSession(value: unknown, userId: string): SessionRow {
         || !PROVIDER_STATUSES.has(row.provider_payment_status)))
     || (row.pay_address !== null
       && (typeof row.pay_address !== "string" || !ADDRESS_PATTERN.test(row.pay_address)))
-    || !isDecimal(row.technical_reference_amount_usdt)
-    || !isDecimal(row.provider_minimum_usdt)
+    || !(
+      (isDecimal(row.technical_reference_amount_usdt)
+        && isDecimal(row.provider_minimum_usdt))
+      || (row.technical_reference_amount_usdt === null
+        && row.provider_minimum_usdt === null
+        && (row.session_status === "provisioning"
+          || row.session_status === "manual_recovery"))
+    )
     || !isNullableTimestamp(row.provider_created_at)
     || !isNullableTimestamp(row.provider_valid_until)
     || !isNullableTimestamp(row.address_activated_at)
@@ -512,7 +518,20 @@ async function handleOverview(
       && session.provider_valid_until !== null
       && new Date(session.provider_valid_until).getTime() > nowMs
     ) ?? null;
+    const terminalAwaitingDeadline = sessions.find((session) =>
+      session.address_activated_at === null
+      && session.session_status === "terminal"
+      && session.provider_valid_until !== null
+      && new Date(session.provider_valid_until).getTime() > nowMs
+    ) ?? null;
     const currentAddress = activated ?? pending;
+    if (
+      currentAddress
+      && (currentAddress.technical_reference_amount_usdt === null
+        || currentAddress.provider_minimum_usdt === null)
+    ) {
+      throw new Error("invalid_session_read");
+    }
     const addressLifecycle = activated ? "permanently_activated" : "pending_activation";
 
     const activeSession = currentAddress
@@ -542,12 +561,14 @@ async function handleOverview(
       : pending
         ? "pending_activation"
         : operational?.session_status === "provisioning"
-        ? "provisioning"
-        : operational?.session_status === "manual_recovery"
-          ? "manual_review"
-          : hasExpiredUnactivated
-            ? "expired_unactivated"
-            : "none";
+          ? "provisioning"
+          : operational?.session_status === "manual_recovery"
+            ? "manual_review"
+            : terminalAwaitingDeadline
+              ? "manual_review"
+              : hasExpiredUnactivated
+                ? "expired_unactivated"
+                : "none";
 
     return terminalResponse(
       invocation,

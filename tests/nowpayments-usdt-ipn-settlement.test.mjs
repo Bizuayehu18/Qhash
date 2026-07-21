@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { PGlite } from "@electric-sql/pglite";
+import pg from "pg";
 import {
   createNowpaymentsClient,
   NowpaymentsClientError,
@@ -21,6 +22,11 @@ import {
 import {
   NowpaymentsSettlementStoreError,
 } from "../netlify/functions/lib/nowpayments-settlement.mts";
+import {
+  getOrCreateNowpaymentsDepositSession,
+} from "../netlify/functions/lib/nowpayments-deposit-session.mts";
+
+const { Client } = pg;
 
 const repositoryRoot = new URL("../", import.meta.url);
 const foundationMigration = await readFile(
@@ -260,19 +266,39 @@ async function createReadySession(db, providerPaymentId = ORIGINAL_PROVIDER_ID) 
     set enabled = true
     where id = 'USDT-BEP20';
   `);
-  const claimed = await db.query(`
-    select
-      response ->> 'id' as id,
-      response ->> 'qhash_order_id' as qhash_order_id
-    from (
+  const usesProviderFreeClaim = (await db.query(`
+    select to_regprocedure(
+      'public.claim_nowpayments_usdt_deposit_session(uuid)'
+    ) is not null as enabled
+  `)).rows[0].enabled;
+  let session;
+  if (usesProviderFreeClaim) {
+    const reserved = (await db.query(`
       select public.claim_nowpayments_usdt_deposit_session(
-        '${USER_ID}'::uuid,
-        '0.25',
-        '1'
+        '${USER_ID}'::uuid
       ) as response
-    ) as claim
-  `);
-  const session = claimed.rows[0];
+    `)).rows[0].response;
+    session = (await db.query(
+      `select public.configure_nowpayments_usdt_deposit_session_amounts(
+         $1::uuid, $2::uuid, $3::uuid, '0.25', '1'
+       ) as response`,
+      [USER_ID, reserved.id, reserved.qhash_order_id],
+    )).rows[0].response;
+  } else {
+    const claimed = await db.query(`
+      select
+        response ->> 'id' as id,
+        response ->> 'qhash_order_id' as qhash_order_id
+      from (
+        select public.claim_nowpayments_usdt_deposit_session(
+          '${USER_ID}'::uuid,
+          '0.25',
+          '1'
+        ) as response
+      ) as claim
+    `);
+    session = claimed.rows[0];
+  }
   await db.query(
     `select public.complete_nowpayments_usdt_deposit_session(
        $1::uuid,
@@ -377,11 +403,17 @@ async function settleNetOutcome(db, {
 
 async function claimSession(db) {
   const result = await db.query(`
-    select public.claim_nowpayments_usdt_deposit_session(
-      '${USER_ID}'::uuid, '1', '1'
-    ) as result
+    select public.claim_nowpayments_usdt_deposit_session('${USER_ID}'::uuid) as result
   `);
-  return result.rows[0].result;
+  const reserved = result.rows[0].result;
+  if (reserved.disposition !== "claimed") return reserved;
+  const configured = await db.query(
+    `select public.configure_nowpayments_usdt_deposit_session_amounts(
+       $1::uuid, $2::uuid, $3::uuid, '1', '1'
+     ) as result`,
+    [USER_ID, reserved.id, reserved.qhash_order_id],
+  );
+  return { ...configured.rows[0].result, disposition: "claimed" };
 }
 
 async function lifecycleCounts(db) {
@@ -900,7 +932,7 @@ test("production lifecycle backfill activates exactly one address without financ
   await db.exec("update public.nowpayments_usdt_config set enabled = true where id = 'USDT-BEP20'");
   const reused = await Promise.all([
     db.query(`select public.get_current_nowpayments_usdt_deposit_session('${USER_ID}'::uuid) as result`),
-    db.query(`select public.claim_nowpayments_usdt_deposit_session('${USER_ID}'::uuid, '1', '1') as result`),
+    db.query(`select public.claim_nowpayments_usdt_deposit_session('${USER_ID}'::uuid) as result`),
   ]);
   assert.equal(reused[0].rows[0].result.disposition, "activated");
   assert.equal(reused[1].rows[0].result.disposition, "activated");
@@ -1001,10 +1033,7 @@ test("late original settlement credits safely but cannot activate and replacemen
   const db = await createMigratedDatabase(t);
   await applyMigration(db, permanentAddressMigration);
   await db.exec("update public.nowpayments_usdt_config set enabled = true where id = 'USDT-BEP20'");
-  const claimed = await db.query(`
-    select public.claim_nowpayments_usdt_deposit_session('${USER_ID}'::uuid, '1', '1') as result
-  `);
-  const session = claimed.rows[0].result;
+  const session = await claimSession(db);
   await db.query(`
     update public.nowpayments_usdt_payments
     set provider_payment_id = '88001',
@@ -1041,11 +1070,9 @@ test("late original settlement credits safely but cannot activate and replacemen
   assert.equal(late.rows[0].ledger, 1);
 
   await db.exec("update public.nowpayments_usdt_config set enabled = true where id = 'USDT-BEP20'");
-  const replacement = await db.query(`
-    select public.claim_nowpayments_usdt_deposit_session('${USER_ID}'::uuid, '1', '1') as result
-  `);
-  assert.equal(replacement.rows[0].result.disposition, "claimed");
-  assert.notEqual(replacement.rows[0].result.id, session.id);
+  const replacement = await claimSession(db);
+  assert.equal(replacement.disposition, "claimed");
+  assert.notEqual(replacement.id, session.id);
   assert.equal(
     (await db.query("select count(*)::integer as count from public.nowpayments_usdt_payments")).rows[0].count,
     2,
@@ -1132,61 +1159,437 @@ test("a repeated child finishing before the deadline never activates without ori
   }]);
 });
 
-test("claim and qualifying original settlement serialize to one permanent session", async (t) => {
-  const db = await createMigratedDatabase(t);
-  await applyMigration(db, permanentAddressMigration);
-  await db.exec("update public.nowpayments_usdt_config set enabled = true where id = 'USDT-BEP20'");
-  const session = await claimSession(db);
-  const deadline = new Date(Date.now() + 1500).toISOString();
-  await db.query(`
-    update public.nowpayments_usdt_payments
-    set provider_payment_id = '88301',
-        provider_payment_status = 'waiting',
-        pay_address = $1,
-        provider_created_at = now() - interval '1 minute',
-        provider_valid_until = $2::timestamptz,
-        session_status = 'ready',
-        provisioned_at = now()
-    where id = $3::uuid
-  `, [PAY_ADDRESS, deadline, session.id]);
-  await db.exec(`
-    create function public.test_hold_qualified_settlement_lock()
-    returns trigger language plpgsql as $delay$
-    begin
-      if new.credited_at is not null and old.credited_at is null then
-        perform pg_sleep(2);
-      end if;
-      return new;
-    end;
-    $delay$;
-    create trigger zz_test_hold_qualified_settlement_lock
-    after update on public.nowpayments_usdt_provider_payments
-    for each row execute function public.test_hold_qualified_settlement_lock();
-  `);
+function disposablePostgresUrl(t) {
+  const raw = process.env.TEST_DATABASE_URL;
+  if (!raw) {
+    t.skip("TEST_DATABASE_URL is required for the native PostgreSQL concurrency fixture");
+    return null;
+  }
+  const parsed = new URL(raw);
+  const databaseName = decodeURIComponent(parsed.pathname.slice(1));
+  if (
+    parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:"
+    || !["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)
+    || !/^qhash_test_[a-z0-9_]+$/.test(databaseName)
+  ) {
+    throw new Error(
+      "TEST_DATABASE_URL must target an explicitly disposable local qhash_test_* database",
+    );
+  }
+  return raw;
+}
 
-  const settlementPromise = settle(db, {
-    providerPaymentId: "88301",
-    qhashOrderId: session.qhash_order_id,
-    actuallyPaid: "3",
-    outcomeAmount: "2.95",
+function nativeDb(client) {
+  return {
+    exec(sql) { return client.query(sql); },
+    query(sql, parameters) { return client.query(sql, parameters); },
+  };
+}
+
+async function resetNativeLifecycleFixture(client) {
+  await client.query("drop schema if exists public cascade; create schema public");
+  const db = nativeDb(client);
+  await createFixture(db);
+  for (const migration of [
+    foundationMigration,
+    sessionMigration,
+    settlementMigration,
+    grossCreditMigration,
+    permanentAddressMigration,
+  ]) {
+    await applyMigration(db, migration);
+  }
+}
+
+async function seedTerminalNativeOriginal(client, providerPaymentId) {
+  await client.query(
+    "update public.nowpayments_usdt_config set enabled = true where id = 'USDT-BEP20'",
+  );
+  const reserved = (await client.query(
+    "select public.claim_nowpayments_usdt_deposit_session($1::uuid) as result",
+    [USER_ID],
+  )).rows[0].result;
+  assert.equal(reserved.disposition, "claimed");
+  await client.query(
+    `select public.configure_nowpayments_usdt_deposit_session_amounts(
+       $1::uuid, $2::uuid, $3::uuid, '1', '1'
+     )`,
+    [USER_ID, reserved.id, reserved.qhash_order_id],
+  );
+  const createdAt = new Date(Date.now() - 60_000).toISOString();
+  const deadline = new Date(Date.now() + 120_000).toISOString();
+  await client.query(
+    `select public.complete_nowpayments_usdt_deposit_session(
+       $1::uuid, $2::uuid, $3, $4, 'waiting', $5::timestamptz, $6::timestamptz
+     )`,
+    [reserved.id, reserved.qhash_order_id, providerPaymentId, PAY_ADDRESS, createdAt, deadline],
+  );
+  await client.query(
+    `select public.record_nowpayments_usdt_deposit_session_status(
+       $1::uuid, $2::uuid, $3, 'expired'
+     )`,
+    [reserved.id, reserved.qhash_order_id, providerPaymentId],
+  );
+  return { ...reserved, deadline };
+}
+
+async function settleNativeOriginal(client, session, providerPaymentId, functionName) {
+  const result = await client.query(
+    `select public.${functionName}(
+       $1, null, $2, $3, 'usdtbsc', 'finished', '3', '2.95', 'usdtbsc'
+     ) as result`,
+    [providerPaymentId, session.qhash_order_id, PAY_ADDRESS],
+  );
+  return result.rows[0].result;
+}
+
+async function waitForBackendWait(
+  observer,
+  backendPid,
+  expectedWaitType,
+  expectedBlockerPid = null,
+  timeoutMs = 3_000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const activity = await observer.query(
+      `select
+         wait_event_type,
+         wait_event,
+         query,
+         case when $2::integer is null then null
+              else $2::integer = any(pg_catalog.pg_blocking_pids(pid))
+          end as expected_blocker
+       from pg_catalog.pg_stat_activity
+       where pid = $1`,
+      [backendPid, expectedBlockerPid],
+    );
+    if (
+      activity.rows[0]?.wait_event_type === expectedWaitType
+      && (expectedBlockerPid === null || activity.rows[0].expected_blocker === true)
+    ) return activity.rows[0];
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`backend ${backendPid} did not enter ${expectedWaitType} wait within ${timeoutMs}ms`);
+}
+
+async function bounded(promise, timeoutMs, label) {
+  let timeout;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(`${label} exceeded ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function nativeLifecycleCounts(client) {
+  return (await client.query(`
+    select
+      (select count(*)::integer from public.nowpayments_usdt_payments) as sessions,
+      (select count(*)::integer from public.nowpayments_usdt_provider_payments) as providers,
+      (select count(*)::integer from public.nowpayments_usdt_payments where address_activated_at is not null) as activated,
+      (select count(*)::integer from public.nowpayments_usdt_payments where session_status = 'provisioning') as provisioning,
+      (select count(*)::integer from public.nowpayments_usdt_ledger_entries where entry_type = 'deposit_credit') as credits,
+      (select coalesce(sum(available_balance_usdt), 0)::text from public.nowpayments_usdt_wallets) as available
+  `)).rows[0];
+}
+
+test("native PostgreSQL serializes qualifying settlement against replacement claim", {
+  timeout: 30_000,
+}, async (t) => {
+  const connectionString = disposablePostgresUrl(t);
+  if (!connectionString) return;
+
+  const setup = new Client({ connectionString, application_name: "qhash-lifecycle-observer" });
+  const settlementClient = new Client({ connectionString, application_name: "qhash-lifecycle-settlement" });
+  const claimClient = new Client({ connectionString, application_name: "qhash-lifecycle-claim" });
+  await Promise.all([setup.connect(), settlementClient.connect(), claimClient.connect()]);
+  t.after(async () => {
+    await Promise.allSettled([
+      setup.query("rollback"),
+      settlementClient.query("rollback"),
+      claimClient.query("rollback"),
+    ]);
+    await Promise.allSettled([setup.end(), settlementClient.end(), claimClient.end()]);
   });
-  const claimPromise = new Promise((resolve, reject) => {
-    setTimeout(() => claimSession(db).then(resolve, reject), 1600);
+
+  const backendIds = await Promise.all(
+    [setup, settlementClient, claimClient].map(async (client) => (
+      await client.query("select pg_backend_pid()::integer as pid")
+    ).rows[0].pid),
+  );
+  assert.equal(new Set(backendIds).size, 3, "fixture must use three independent backends");
+
+  await t.test("negative control exposes the former permanent-plus-pending race", async () => {
+    await resetNativeLifecycleFixture(setup);
+    const session = await seedTerminalNativeOriginal(setup, "88300");
+    await setup.query(`
+      create function public.test_old_unlocked_nowpayments_claim(p_user_id uuid)
+      returns jsonb
+      language plpgsql
+      set search_path = pg_catalog, public
+      as $old$
+      declare
+        v_session public.nowpayments_usdt_payments%rowtype;
+      begin
+        select * into v_session
+        from public.nowpayments_usdt_payments
+        where user_id = p_user_id and address_activated_at is not null
+        limit 1;
+        if found then
+          return to_jsonb(v_session) || jsonb_build_object('disposition', 'activated');
+        end if;
+
+        select * into v_session
+        from public.nowpayments_usdt_payments
+        where user_id = p_user_id
+          and session_status in ('provisioning', 'ready', 'manual_recovery')
+        limit 1;
+        if found then
+          return to_jsonb(v_session) || jsonb_build_object('disposition', 'existing');
+        end if;
+
+        insert into public.nowpayments_usdt_payments (
+          user_id, provider_payment_id, provider_payment_status,
+          verification_status, asset, network, provider_currency,
+          technical_reference_amount_usdt, provider_minimum_usdt,
+          outcome_amount, outcome_currency, verified_at, session_status
+        ) values (
+          p_user_id, null, null, 'pending', 'USDT', 'BEP20', 'usdtbsc',
+          null, null, null, 'USDT', null, 'provisioning'
+        ) returning * into v_session;
+        return to_jsonb(v_session) || jsonb_build_object('disposition', 'claimed');
+      end;
+      $old$;
+    `);
+
+    await settlementClient.query("begin");
+    await settlementClient.query("set local statement_timeout = '8s'; set local lock_timeout = '4s'");
+    const settlement = await settleNativeOriginal(
+      settlementClient,
+      session,
+      "88300",
+      "settle_verified_nowpayments_usdt_payment_serialized_inner",
+    );
+    assert.equal(settlement.status, "credited");
+
+    const oldProviderCounters = {
+      configurationReads: 0,
+      minimumLookups: 0,
+      createPaymentCalls: 0,
+    };
+    oldProviderCounters.configurationReads += 1;
+    oldProviderCounters.minimumLookups += 1;
+    await claimClient.query("begin");
+    await claimClient.query("set local statement_timeout = '8s'; set local lock_timeout = '4s'");
+    const oldClaim = (await claimClient.query(
+      "select public.test_old_unlocked_nowpayments_claim($1::uuid) as result",
+      [USER_ID],
+    )).rows[0].result;
+    if (oldClaim.disposition === "claimed") oldProviderCounters.createPaymentCalls += 1;
+    await claimClient.query("commit");
+    await settlementClient.query("commit");
+
+    assert.equal(oldClaim.disposition, "claimed");
+    assert.deepEqual(oldProviderCounters, {
+      configurationReads: 1,
+      minimumLookups: 1,
+      createPaymentCalls: 1,
+    });
+    assert.deepEqual(await nativeLifecycleCounts(setup), {
+      sessions: 2,
+      providers: 1,
+      activated: 1,
+      provisioning: 1,
+      credits: 1,
+      available: "3.000000000000000000",
+    });
   });
-  const [settlement, claim] = await Promise.all([settlementPromise, claimPromise]);
-  assert.equal(settlement.status, "credited");
-  assert.equal(claim.disposition, "activated");
-  assert.equal(claim.id, session.id);
-  assert.ok(new Date(claim.address_activated_at) < new Date(deadline));
-  assert.deepEqual(await lifecycleCounts(db), {
-    sessions: 1,
-    providers: 1,
-    activated: 1,
-    provisioning: 0,
-    credits: 1,
-    available: "3.000000000000000000",
+
+  await t.test("fixed claim blocks on the settlement transaction and returns the permanent address", async () => {
+    await resetNativeLifecycleFixture(setup);
+    const session = await seedTerminalNativeOriginal(setup, "88301");
+
+    await settlementClient.query("begin");
+    await settlementClient.query("set local statement_timeout = '8s'; set local lock_timeout = '4s'");
+    const settlement = await settleNativeOriginal(
+      settlementClient,
+      session,
+      "88301",
+      "settle_verified_nowpayments_usdt_payment",
+    );
+    assert.equal(settlement.status, "credited");
+
+    await claimClient.query("begin");
+    await claimClient.query("set local statement_timeout = '8s'; set local lock_timeout = '4s'");
+    const providerCounters = {
+      configurationReads: 0,
+      minimumLookups: 0,
+      createPaymentCalls: 0,
+    };
+    let getCurrentCalls = 0;
+    let claimRpcCalls = 0;
+    const store = {
+      async getCurrent() {
+        // Model the stale pre-settlement read that motivated the production
+        // claim recheck. The actual database claim below must do the blocking.
+        getCurrentCalls += 1;
+        return { disposition: "none" };
+      },
+      async claim(userId) {
+        claimRpcCalls += 1;
+        return (await claimClient.query(
+          "select public.claim_nowpayments_usdt_deposit_session($1::uuid) as result",
+          [userId],
+        )).rows[0].result;
+      },
+      async configureAmounts() {
+        throw new Error("permanent-address reuse must not configure an amount");
+      },
+      async complete() {
+        throw new Error("permanent-address reuse must not complete a payment");
+      },
+      async markManualRecovery() {
+        throw new Error("permanent-address reuse must not mark recovery");
+      },
+    };
+    const provider = {
+      async getMinimum() {
+        providerCounters.configurationReads += 1;
+        providerCounters.minimumLookups += 1;
+        throw new Error("permanent-address reuse must not read provider configuration");
+      },
+      async createPayment() {
+        providerCounters.createPaymentCalls += 1;
+        throw new Error("permanent-address reuse must not create a payment");
+      },
+    };
+    const claimPromise = getOrCreateNowpaymentsDepositSession({
+      userId: USER_ID,
+      store,
+      provider,
+    });
+    const wait = await waitForBackendWait(
+      setup,
+      backendIds[2],
+      "Lock",
+      backendIds[1],
+    );
+    assert.ok(wait.wait_event, "claim must expose a concrete transaction-held lock wait");
+    assert.equal(wait.expected_blocker, true);
+    assert.match(wait.query, /claim_nowpayments_usdt_deposit_session/);
+    assert.equal(getCurrentCalls, 1);
+    assert.equal(claimRpcCalls, 1);
+
+    const resolvedWhileLocked = await Promise.race([
+      claimPromise.then(() => true),
+      new Promise((resolve) => setTimeout(() => resolve(false), 75)),
+    ]);
+    assert.equal(resolvedWhileLocked, false, "claim must remain blocked until settlement commits");
+
+    await settlementClient.query("commit");
+    const claim = await bounded(claimPromise, 3_000, "serialized claim");
+    await claimClient.query("commit");
+
+    assert.equal(claim.disposition, "activated");
+    assert.equal(claim.id, session.id);
+    assert.equal(getCurrentCalls, 1);
+    assert.equal(claimRpcCalls, 1);
+    assert.deepEqual(providerCounters, {
+      configurationReads: 0,
+      minimumLookups: 0,
+      createPaymentCalls: 0,
+    });
+    assert.ok(new Date(claim.address_activated_at) < new Date(session.deadline));
+    assert.deepEqual(await nativeLifecycleCounts(setup), {
+      sessions: 1,
+      providers: 1,
+      activated: 1,
+      provisioning: 0,
+      credits: 1,
+      available: "3.000000000000000000",
+    });
   });
-  await db.exec("update public.nowpayments_usdt_config set enabled = false where id = 'USDT-BEP20'");
+
+  await t.test("claim-first ordering holds the shared lock without replacing a future terminal original", async () => {
+    await resetNativeLifecycleFixture(setup);
+    const session = await seedTerminalNativeOriginal(setup, "88302");
+
+    await claimClient.query("begin");
+    await claimClient.query("set local statement_timeout = '8s'; set local lock_timeout = '4s'");
+    const providerCounters = {
+      configurationReads: 0,
+      minimumLookups: 0,
+      createPaymentCalls: 0,
+    };
+    const claim = (await claimClient.query(
+      "select public.claim_nowpayments_usdt_deposit_session($1::uuid) as result",
+      [USER_ID],
+    )).rows[0].result;
+    if (claim.disposition === "claimed") {
+      providerCounters.configurationReads += 1;
+      providerCounters.minimumLookups += 1;
+      providerCounters.createPaymentCalls += 1;
+    }
+    assert.equal(claim.disposition, "existing");
+    assert.equal(claim.id, session.id);
+    assert.deepEqual(providerCounters, {
+      configurationReads: 0,
+      minimumLookups: 0,
+      createPaymentCalls: 0,
+    });
+    assert.deepEqual(await nativeLifecycleCounts(setup), {
+      sessions: 1,
+      providers: 0,
+      activated: 0,
+      provisioning: 0,
+      credits: 0,
+      available: "0",
+    });
+
+    await settlementClient.query("begin");
+    await settlementClient.query("set local statement_timeout = '8s'; set local lock_timeout = '4s'");
+    const settlementPromise = settleNativeOriginal(
+      settlementClient,
+      session,
+      "88302",
+      "settle_verified_nowpayments_usdt_payment",
+    );
+    const wait = await waitForBackendWait(
+      setup,
+      backendIds[1],
+      "Lock",
+      backendIds[2],
+    );
+    assert.ok(wait.wait_event, "settlement must expose a concrete transaction-held lock wait");
+    assert.equal(wait.expected_blocker, true);
+    assert.match(wait.query, /settle_verified_nowpayments_usdt_payment/);
+
+    const resolvedWhileLocked = await Promise.race([
+      settlementPromise.then(() => true),
+      new Promise((resolve) => setTimeout(() => resolve(false), 75)),
+    ]);
+    assert.equal(resolvedWhileLocked, false, "settlement must remain blocked until claim commits");
+
+    await claimClient.query("commit");
+    const settlement = await bounded(settlementPromise, 3_000, "claim-first settlement");
+    await settlementClient.query("commit");
+
+    assert.equal(settlement.status, "credited");
+    assert.deepEqual(await nativeLifecycleCounts(setup), {
+      sessions: 1,
+      providers: 1,
+      activated: 1,
+      provisioning: 0,
+      credits: 1,
+      available: "3.000000000000000000",
+    });
+  });
 });
 
 test("migration preflight rejects missing original evidence and every ownership linkage drift", async (t) => {

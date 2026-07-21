@@ -82,6 +82,10 @@ function asNullableTimestamp(value: unknown): string | null {
   return value === null ? null : asTimestamp(value);
 }
 
+function asNullablePositiveDecimal(value: unknown): string | null {
+  return value === null ? null : normalizePositiveDecimal(value);
+}
+
 function decodeSession(
   value: unknown,
   expectedUserId: string,
@@ -90,10 +94,17 @@ function decodeSession(
   const userId = asString(row.user_id, UUID_PATTERN);
   const sessionStatus = asString(row.session_status);
   const providerStatus = asNullableString(row.provider_payment_status);
+  const technicalReferenceAmount = asNullablePositiveDecimal(
+    row.technical_reference_amount_usdt,
+  );
+  const providerMinimum = asNullablePositiveDecimal(row.provider_minimum_usdt);
   if (
     userId !== expectedUserId
     || !SESSION_STATUSES.has(sessionStatus)
     || (providerStatus !== null && !PROVIDER_STATUSES.has(providerStatus as NowpaymentsProviderStatus))
+    || ((technicalReferenceAmount === null) !== (providerMinimum === null))
+    || ((sessionStatus === "ready" || sessionStatus === "terminal")
+      && (technicalReferenceAmount === null || providerMinimum === null))
   ) {
     throw new NowpaymentsDepositSessionError("database_invalid_response");
   }
@@ -106,10 +117,8 @@ function decodeSession(
     provider_payment_id: asNullableString(row.provider_payment_id, /^\d{1,200}$/),
     provider_payment_status: providerStatus as NowpaymentsProviderStatus | null,
     pay_address: asNullableString(row.pay_address, /^0x[0-9A-Fa-f]{40}$/),
-    technical_reference_amount_usdt: normalizePositiveDecimal(
-      row.technical_reference_amount_usdt,
-    ),
-    provider_minimum_usdt: normalizePositiveDecimal(row.provider_minimum_usdt),
+    technical_reference_amount_usdt: technicalReferenceAmount,
+    provider_minimum_usdt: providerMinimum,
     provider_created_at: asNullableTimestamp(row.provider_created_at),
     provider_valid_until: asNullableTimestamp(row.provider_valid_until),
     address_activated_at: asNullableTimestamp(row.address_activated_at),
@@ -150,11 +159,9 @@ function createSessionStore(
       };
     },
 
-    async claim(userId, providerMinimumUsdt, technicalReferenceAmountUsdt) {
+    async claim(userId) {
       const result = await call("claim_nowpayments_usdt_deposit_session", {
         p_user_id: userId,
-        p_provider_minimum_usdt: providerMinimumUsdt,
-        p_technical_reference_amount_usdt: technicalReferenceAmountUsdt,
       });
       if (
         result.disposition !== "claimed"
@@ -168,6 +175,24 @@ function createSessionStore(
         ...decodeSession(result, expectedUserId),
         disposition: result.disposition,
       };
+    },
+
+    async configureAmounts(
+      session,
+      providerMinimumUsdt,
+      technicalReferenceAmountUsdt,
+    ) {
+      const result = await call("configure_nowpayments_usdt_deposit_session_amounts", {
+        p_user_id: session.user_id,
+        p_session_id: session.id,
+        p_qhash_order_id: session.qhash_order_id,
+        p_provider_minimum_usdt: providerMinimumUsdt,
+        p_technical_reference_amount_usdt: technicalReferenceAmountUsdt,
+      });
+      if (result.disposition !== "configured") {
+        throw new NowpaymentsDepositSessionError("database_invalid_response");
+      }
+      return decodeSession(result, expectedUserId);
     },
 
     async complete(session, result) {
@@ -338,6 +363,13 @@ export default async (req: Request, context?: Context): Promise<Response> => {
         createPayment: (input) => getProvider().createPayment(input),
       },
     });
+
+    if (
+      session.technical_reference_amount_usdt === null
+      || session.provider_minimum_usdt === null
+    ) {
+      throw new NowpaymentsDepositSessionError("session_invalid");
+    }
 
     const addressLifecycle = session.address_activated_at
       ? "permanently_activated"
