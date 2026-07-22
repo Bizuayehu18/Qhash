@@ -369,6 +369,7 @@ export interface Database {
           deposit_minimum_usdt: number
           withdrawal_minimum_usdt: number
           withdrawal_fee_percent: number
+          withdrawals_enabled: boolean
           created_at: string
           updated_at: string
         }
@@ -381,11 +382,13 @@ export interface Database {
           deposit_minimum_usdt?: number
           withdrawal_minimum_usdt?: number
           withdrawal_fee_percent?: number
+          withdrawals_enabled?: boolean
           created_at?: string
           updated_at?: string
         }
         Update: {
           enabled?: boolean
+          withdrawals_enabled?: boolean
           updated_at?: string
         }
         Relationships: []
@@ -568,17 +571,21 @@ export interface Database {
           asset: 'USDT'
           network: 'BEP20'
           provider_currency: 'usdtbsc'
-          amount_usdt: number
+          gross_amount_usdt: number
           fee_percent: number
           fee_amount_usdt: number
           net_amount_usdt: number
           status: NowpaymentsWithdrawalStatus
-          provider_payout_id: string | null
           requested_at: string
-          submitted_at: string | null
-          finished_at: string | null
-          failed_at: string | null
-          failure_code: string | null
+          initial_admin_id: string | null
+          current_admin_id: string | null
+          claimed_at: string | null
+          send_locked_at: string | null
+          broadcasted_at: string | null
+          completed_at: string | null
+          rejected_at: string | null
+          rejection_reason: string | null
+          current_broadcast_id: string | null
           created_at: string
           updated_at: string
         }
@@ -589,27 +596,129 @@ export interface Database {
           asset?: 'USDT'
           network?: 'BEP20'
           provider_currency?: 'usdtbsc'
-          amount_usdt: number
+          gross_amount_usdt: number
           fee_percent?: number
           status?: NowpaymentsWithdrawalStatus
-          provider_payout_id?: string | null
           requested_at?: string
-          submitted_at?: string | null
-          finished_at?: string | null
-          failed_at?: string | null
-          failure_code?: string | null
+          initial_admin_id?: string | null
+          current_admin_id?: string | null
+          claimed_at?: string | null
+          send_locked_at?: string | null
+          broadcasted_at?: string | null
+          completed_at?: string | null
+          rejected_at?: string | null
+          rejection_reason?: string | null
+          current_broadcast_id?: string | null
           created_at?: string
           updated_at?: string
         }
         Update: {
           status?: NowpaymentsWithdrawalStatus
-          provider_payout_id?: string | null
-          submitted_at?: string | null
-          finished_at?: string | null
-          failed_at?: string | null
-          failure_code?: string | null
+          initial_admin_id?: string | null
+          current_admin_id?: string | null
+          claimed_at?: string | null
+          send_locked_at?: string | null
+          broadcasted_at?: string | null
+          completed_at?: string | null
+          rejected_at?: string | null
+          rejection_reason?: string | null
+          current_broadcast_id?: string | null
           updated_at?: string
         }
+        Relationships: []
+      }
+      nowpayments_usdt_withdrawal_events: {
+        Row: {
+          id: string
+          withdrawal_id: string
+          user_id: string
+          actor_id: string
+          action_id: string
+          action_type: NowpaymentsWithdrawalActionType
+          from_status: NowpaymentsWithdrawalStatus | null
+          to_status: NowpaymentsWithdrawalStatus
+          canonical_payload: string
+          result_snapshot: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          withdrawal_id: string
+          user_id: string
+          actor_id: string
+          action_id: string
+          action_type: NowpaymentsWithdrawalActionType
+          from_status?: NowpaymentsWithdrawalStatus | null
+          to_status: NowpaymentsWithdrawalStatus
+          canonical_payload: string
+          result_snapshot: Json
+          created_at?: string
+        }
+        Update: Record<string, never>
+        Relationships: []
+      }
+      nowpayments_usdt_withdrawal_broadcasts: {
+        Row: {
+          id: string
+          withdrawal_id: string
+          recorded_by: string
+          transaction_hash: string
+          destination_address: string
+          net_amount_usdt: number
+          supersedes_broadcast_id: string | null
+          correction_reason: string | null
+          recorded_at: string
+        }
+        Insert: {
+          id?: string
+          withdrawal_id: string
+          recorded_by: string
+          transaction_hash: string
+          destination_address: string
+          net_amount_usdt: number
+          supersedes_broadcast_id?: string | null
+          correction_reason?: string | null
+          recorded_at?: string
+        }
+        Update: Record<string, never>
+        Relationships: []
+      }
+      nowpayments_usdt_withdrawal_verifications: {
+        Row: {
+          id: string
+          withdrawal_id: string
+          broadcast_id: string
+          verified_by: string
+          chain_id: 56
+          token_contract: '0x55d398326f99059ff775485246999027b3197955'
+          transaction_success: true
+          exactly_one_matching_transfer: true
+          destination_address: string
+          net_amount_usdt: number
+          block_number: number
+          transfer_log_index: number
+          confirmations: number
+          verified_at: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          withdrawal_id: string
+          broadcast_id: string
+          verified_by: string
+          chain_id?: 56
+          token_contract?: '0x55d398326f99059ff775485246999027b3197955'
+          transaction_success?: true
+          exactly_one_matching_transfer?: true
+          destination_address: string
+          net_amount_usdt: number
+          block_number: number
+          transfer_log_index: number
+          confirmations: number
+          verified_at: string
+          created_at?: string
+        }
+        Update: Record<string, never>
         Relationships: []
       }
       nowpayments_usdt_ledger_entries: {
@@ -950,6 +1059,76 @@ export interface Database {
         }
         Returns: Json
       }
+      request_nowpayments_usdt_withdrawal: {
+        Args: {
+          p_user_id: string
+          p_request_id: string
+          p_gross_amount_usdt: string
+          p_destination_address: string
+        }
+        Returns: Json
+      }
+      claim_nowpayments_usdt_withdrawal_review: {
+        Args: { p_withdrawal_id: string; p_admin_id: string; p_action_id: string }
+        Returns: Json
+      }
+      lock_nowpayments_usdt_withdrawal_send: {
+        Args: {
+          p_withdrawal_id: string
+          p_admin_id: string
+          p_action_id: string
+          p_external_liquidity_confirmed: boolean
+          p_destination_manually_verified: boolean
+        }
+        Returns: Json
+      }
+      record_nowpayments_usdt_withdrawal_broadcast: {
+        Args: {
+          p_withdrawal_id: string
+          p_admin_id: string
+          p_action_id: string
+          p_transaction_hash: string
+          p_correction_reason: string | null
+        }
+        Returns: Json
+      }
+      complete_nowpayments_usdt_withdrawal: {
+        Args: {
+          p_withdrawal_id: string
+          p_admin_id: string
+          p_action_id: string
+          p_transaction_hash: string
+          p_chain_id: number
+          p_token_contract: string
+          p_transaction_success: boolean
+          p_exactly_one_matching_transfer: boolean
+          p_destination_address: string
+          p_net_amount_usdt: string
+          p_block_number: number
+          p_transfer_log_index: number
+          p_confirmations: number
+          p_verified_at: string
+        }
+        Returns: Json
+      }
+      reject_nowpayments_usdt_withdrawal: {
+        Args: {
+          p_withdrawal_id: string
+          p_admin_id: string
+          p_action_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
+      take_over_nowpayments_usdt_withdrawal: {
+        Args: {
+          p_withdrawal_id: string
+          p_new_admin_id: string
+          p_action_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
     }
     Enums: {
       transaction_type: TransactionType
@@ -977,6 +1156,9 @@ export type NowpaymentsUsdtWallet = Database['public']['Tables']['nowpayments_us
 export type NowpaymentsUsdtPayment = Database['public']['Tables']['nowpayments_usdt_payments']['Row']
 export type NowpaymentsUsdtProviderPayment = Database['public']['Tables']['nowpayments_usdt_provider_payments']['Row']
 export type NowpaymentsUsdtWithdrawal = Database['public']['Tables']['nowpayments_usdt_withdrawals']['Row']
+export type NowpaymentsUsdtWithdrawalEvent = Database['public']['Tables']['nowpayments_usdt_withdrawal_events']['Row']
+export type NowpaymentsUsdtWithdrawalBroadcast = Database['public']['Tables']['nowpayments_usdt_withdrawal_broadcasts']['Row']
+export type NowpaymentsUsdtWithdrawalVerification = Database['public']['Tables']['nowpayments_usdt_withdrawal_verifications']['Row']
 export type NowpaymentsUsdtLedgerEntry = Database['public']['Tables']['nowpayments_usdt_ledger_entries']['Row']
 export type CryptoDepositAddress = Database['public']['Tables']['crypto_deposit_addresses']['Row']
 export type CryptoDeposit = Database['public']['Tables']['crypto_deposits']['Row']
@@ -995,5 +1177,6 @@ export type NowpaymentsProviderPaymentKind = 'original' | 'repeated'
 export type NowpaymentsProviderPaymentStatus = 'waiting' | 'partially_paid' | 'confirming' | 'confirmed' | 'sending' | 'finished' | 'failed' | 'refunded' | 'expired'
 export type NowpaymentsDepositSessionStatus = 'provisioning' | 'ready' | 'manual_recovery' | 'terminal'
 export type NowpaymentsManualRecoveryReason = 'stale_provisioning_claim' | 'create_payment_timeout' | 'create_payment_network_error' | 'create_payment_http_error' | 'create_payment_invalid_response' | 'create_payment_finalize_failed' | 'payment_status_invalid_response'
-export type NowpaymentsWithdrawalStatus = 'requested' | 'reserved' | 'submitted' | 'finished' | 'failed' | 'refunded' | 'cancelled'
+export type NowpaymentsWithdrawalStatus = 'reserved' | 'reviewing' | 'send_locked' | 'broadcasted' | 'completed' | 'rejected'
+export type NowpaymentsWithdrawalActionType = 'request' | 'claim_review' | 'send_lock' | 'record_broadcast' | 'complete' | 'reject' | 'admin_takeover'
 export type NowpaymentsUsdtLedgerEntryType = 'deposit_credit' | 'deposit_credit_correction' | 'withdrawal_reserve' | 'withdrawal_release' | 'withdrawal_settlement' | 'admin_adjustment'
