@@ -525,6 +525,38 @@ test("every pinned BSC precompile is rejected case-insensitively with boundary c
   }
 });
 
+test("broadcast and completion revalidate the stored destination before any mutation", () => {
+  for (const name of [
+    "record_nowpayments_usdt_withdrawal_broadcast",
+    "complete_nowpayments_usdt_withdrawal",
+  ]) {
+    const body = migrationFunctionBody(name);
+    const retryReturn = body.indexOf("return v_existing_event.result_snapshot");
+    const revalidation = body.indexOf(
+      "assert_safe_nowpayments_usdt_withdrawal_destination(\n    v_withdrawal.destination_address",
+    );
+    const walletLock = body.indexOf("select * into v_wallet");
+    const firstMutation = Math.min(
+      ...["insert into public.nowpayments_usdt_withdrawal_broadcasts",
+        "insert into public.nowpayments_usdt_withdrawal_verifications",
+        "insert into public.nowpayments_usdt_withdrawal_events",
+        "insert into public.nowpayments_usdt_ledger_entries",
+        "update public.nowpayments_usdt_withdrawals",
+        "update public.nowpayments_usdt_wallets"]
+        .map((needle) => body.indexOf(needle))
+        .filter((index) => index >= 0),
+    );
+    assert.ok(retryReturn >= 0 && retryReturn < revalidation, `${name} must return exact retries first`);
+    assert.ok(revalidation >= 0 && revalidation < walletLock, `${name} must validate before wallet locking`);
+    assert.ok(revalidation < firstMutation, `${name} must validate before its first mutation`);
+    assert.equal(
+      body.match(/assert_safe_nowpayments_usdt_withdrawal_destination/g)?.length,
+      1,
+      `${name} must have one terminal-boundary revalidation`,
+    );
+  }
+});
+
 test("broadcast correction is append-only, takeover is audited, and hashes are globally unique", async (t) => {
   const db = await createDatabase(t);
   await seedWallet(db);
@@ -755,7 +787,11 @@ async function waitForLock(observer, pid, blocker, timeoutMs = 3000) {
   throw new Error("expected independent PostgreSQL backend to block on a lock");
 }
 
-async function seedNativeDepositSession(client, providerPaymentId) {
+async function seedNativeDepositSession(
+  client,
+  providerPaymentId,
+  payAddress = "0x9999999999999999999999999999999999999999",
+) {
   const claimed = (await client.query(
     "select public.claim_nowpayments_usdt_deposit_session($1::uuid) as result",
     [USER_ID],
@@ -773,19 +809,44 @@ async function seedNativeDepositSession(client, providerPaymentId) {
        $1::uuid,$2::uuid,$3,$4,'waiting',$5::timestamptz,$6::timestamptz
      )`,
     [claimed.id, claimed.qhash_order_id, providerPaymentId,
-      "0x9999999999999999999999999999999999999999", createdAt, validUntil],
+      payAddress, createdAt, validUntil],
   );
   return claimed;
 }
 
-async function settleNativeDeposit(client, session, providerPaymentId) {
+async function settleNativeDeposit(
+  client,
+  session,
+  providerPaymentId,
+  payAddress = "0x9999999999999999999999999999999999999999",
+) {
   return (await client.query(
     `select public.settle_verified_nowpayments_usdt_payment(
        $1,null,$2,$3,'usdtbsc','finished','3','2.95','usdtbsc'
      ) as result`,
-    [providerPaymentId, session.qhash_order_id,
-      "0x9999999999999999999999999999999999999999"],
+    [providerPaymentId, session.qhash_order_id, payAddress],
   )).rows[0].result;
+}
+
+async function withdrawalFingerprint(client, withdrawalId = REQUEST_1) {
+  return (await client.query(`
+    select
+      to_jsonb(w) as withdrawal,
+      wallet.available_balance_usdt::text as available,
+      wallet.reserved_balance_usdt::text as reserved,
+      (select count(*)::integer from public.nowpayments_usdt_withdrawal_broadcasts
+        where withdrawal_id=w.id) as broadcasts,
+      (select count(*)::integer from public.nowpayments_usdt_withdrawal_verifications
+        where withdrawal_id=w.id) as verifications,
+      (select count(*)::integer from public.nowpayments_usdt_withdrawal_events
+        where withdrawal_id=w.id) as events,
+      (select count(*)::integer from public.nowpayments_usdt_ledger_entries
+        where withdrawal_id=w.id) as ledger,
+      (select count(*)::integer from public.nowpayments_usdt_ledger_entries) as total_ledger
+    from public.nowpayments_usdt_withdrawals w
+    join public.nowpayments_usdt_wallets wallet on wallet.user_id=w.user_id
+    where w.id=$1::uuid
+  `, [withdrawalId])).rows[0];
 }
 
 test("native PostgreSQL serializes requests, admin actions, and balance races on profile rows", {
@@ -889,6 +950,155 @@ test("native PostgreSQL serializes requests, admin actions, and balance races on
           to_regclass('public.nowpayments_usdt_withdrawal_events') is not null as events_added
       `)).rows, [{ flag_added: false, events_added: false }]);
     }
+  });
+
+  await t.test("broadcast revalidates every dynamic controlled-address category without mutation", async () => {
+    const categories = [
+      {
+        name: "current deposit address",
+        register: (client, index) => client.query(
+          `insert into public.crypto_deposit_addresses
+             (id,user_id,network,asset,address,status)
+           values ($1::uuid,$2::uuid,'BSC','USDT',$3,'active')`,
+          [`cccccccc-cccc-4ccc-8ccc-${String(100 + index).padStart(12, "0")}`, USER_ID, DESTINATION],
+        ),
+      },
+      {
+        name: "historical deposit address",
+        register: (client, index) => client.query(
+          `insert into public.crypto_deposit_addresses
+             (id,user_id,network,asset,address,status)
+           values ($1::uuid,$2::uuid,'BSC','USDT',$3,'historical')`,
+          [`cccccccc-cccc-4ccc-8ccc-${String(200 + index).padStart(12, "0")}`, USER_ID, DESTINATION],
+        ),
+      },
+      {
+        name: "pending NOWPayments address",
+        register: (client, index) => seedNativeDepositSession(
+          client, String(99000 + index), DESTINATION,
+        ),
+      },
+      {
+        name: "permanent NOWPayments address",
+        register: async (client, index) => {
+          const providerId = String(99100 + index);
+          const session = await seedNativeDepositSession(client, providerId, DESTINATION);
+          await settleNativeDeposit(client, session, providerId, DESTINATION);
+        },
+      },
+      {
+        name: "retired native-crypto address",
+        register: (client, index) => client.query(
+          `insert into public.crypto_deposit_addresses
+             (id,user_id,network,asset,address,status)
+           values ($1::uuid,$2::uuid,'BSC','USDT',$3,'retired')`,
+          [`cccccccc-cccc-4ccc-8ccc-${String(300 + index).padStart(12, "0")}`, USER_ID, DESTINATION],
+        ),
+      },
+      {
+        name: "QHash-controlled registry address",
+        register: (client, index) => client.query(
+          `insert into public.crypto_deposit_addresses
+             (id,user_id,network,asset,address,status)
+           values ($1::uuid,$2::uuid,'BSC','USDT',$3,'treasury')`,
+          [`cccccccc-cccc-4ccc-8ccc-${String(400 + index).padStart(12, "0")}`, USER_ID, DESTINATION],
+        ),
+      },
+    ];
+
+    for (const [index, category] of categories.entries()) {
+      await resetNative();
+      await requestWithdrawal(nativeDb(observer));
+      await claim(nativeDb(observer));
+      await sendLock(nativeDb(observer));
+      await category.register(second, index);
+      const before = await withdrawalFingerprint(observer);
+      assert.equal(before.withdrawal.status, "send_locked", category.name);
+      assert.equal(before.reserved, "10.000000000000000000", category.name);
+      await assert.rejects(
+        broadcast(nativeDb(first), { id: actionId(580 + index) }),
+        /qhash_controlled_withdrawal_destination/,
+        category.name,
+      );
+      assert.deepEqual(await withdrawalFingerprint(observer), before, category.name);
+    }
+  });
+
+  await t.test("completion revalidation quarantines a newly controlled destination without mutation", async () => {
+    await resetNative();
+    await requestWithdrawal(nativeDb(observer));
+    await claim(nativeDb(observer));
+    await sendLock(nativeDb(observer));
+    await broadcast(nativeDb(observer));
+    await second.query(
+      `insert into public.crypto_deposit_addresses
+         (id,user_id,network,asset,address,status)
+       values ('cccccccc-cccc-4ccc-8ccc-000000000500',$1::uuid,'BSC','USDT',$2,'active')`,
+      [USER_ID, DESTINATION],
+    );
+    const before = await withdrawalFingerprint(observer);
+    assert.equal(before.withdrawal.status, "broadcasted");
+    assert.equal(before.reserved, "10.000000000000000000");
+    await assert.rejects(
+      complete(nativeDb(first), { id: actionId(590) }),
+      /qhash_controlled_withdrawal_destination/,
+    );
+    assert.deepEqual(await withdrawalFingerprint(observer), before);
+  });
+
+  await t.test("terminal retries return before revalidation but changed actions never inherit the result", async () => {
+    await resetNative();
+    await requestWithdrawal(nativeDb(observer));
+    await claim(nativeDb(observer));
+    await sendLock(nativeDb(observer));
+    const originalBroadcast = await broadcast(nativeDb(observer));
+    await second.query(
+      `insert into public.crypto_deposit_addresses
+         (id,user_id,network,asset,address,status)
+       values ('cccccccc-cccc-4ccc-8ccc-000000000600',$1::uuid,'BSC','USDT',$2,'active')`,
+      [USER_ID, DESTINATION],
+    );
+    const broadcastBefore = await withdrawalFingerprint(observer);
+    assert.deepEqual(await broadcast(nativeDb(first)), originalBroadcast);
+    assert.deepEqual(await withdrawalFingerprint(observer), broadcastBefore);
+    await assert.rejects(
+      broadcast(nativeDb(first), {
+        id: actionId(3), hash: HASH_2, reason: "changed retry payload",
+      }),
+      /action_id_conflict/,
+    );
+    await assert.rejects(
+      broadcast(nativeDb(first), {
+        id: actionId(591), hash: HASH_2, reason: "new action key",
+      }),
+      /qhash_controlled_withdrawal_destination/,
+    );
+    assert.deepEqual(await withdrawalFingerprint(observer), broadcastBefore);
+
+    await resetNative();
+    await requestWithdrawal(nativeDb(observer));
+    await claim(nativeDb(observer));
+    await sendLock(nativeDb(observer));
+    await broadcast(nativeDb(observer));
+    const originalCompletion = await complete(nativeDb(observer));
+    await second.query(
+      `insert into public.crypto_deposit_addresses
+         (id,user_id,network,asset,address,status)
+       values ('cccccccc-cccc-4ccc-8ccc-000000000601',$1::uuid,'BSC','USDT',$2,'active')`,
+      [USER_ID, DESTINATION],
+    );
+    const completionBefore = await withdrawalFingerprint(observer);
+    assert.deepEqual(await complete(nativeDb(first)), originalCompletion);
+    assert.deepEqual(await withdrawalFingerprint(observer), completionBefore);
+    await assert.rejects(
+      complete(nativeDb(first), { id: actionId(4), confirmations: 121 }),
+      /action_id_conflict/,
+    );
+    await assert.rejects(
+      complete(nativeDb(first), { id: actionId(592) }),
+      /invalid_nowpayments_usdt_withdrawal_owner_or_state|qhash_controlled_withdrawal_destination/,
+    );
+    assert.deepEqual(await withdrawalFingerprint(observer), completionBefore);
   });
 
   await resetNative();

@@ -1081,6 +1081,10 @@ begin
     or v_withdrawal.current_admin_id <> p_admin_id
   then raise exception 'invalid_nowpayments_usdt_withdrawal_owner_or_state'; end if;
 
+  perform public.assert_safe_nowpayments_usdt_withdrawal_destination(
+    v_withdrawal.destination_address
+  );
+
   select * into v_wallet from public.nowpayments_usdt_wallets
   where user_id = v_user_id for update;
   if not found or v_wallet.reserved_balance_usdt < v_withdrawal.gross_amount_usdt then
@@ -1237,6 +1241,9 @@ begin
   if v_withdrawal.status <> 'broadcasted' or v_withdrawal.current_admin_id <> p_admin_id then
     raise exception 'invalid_nowpayments_usdt_withdrawal_owner_or_state';
   end if;
+  perform public.assert_safe_nowpayments_usdt_withdrawal_destination(
+    v_withdrawal.destination_address
+  );
   select * into v_broadcast from public.nowpayments_usdt_withdrawal_broadcasts
   where id = v_withdrawal.current_broadcast_id
     and withdrawal_id = v_withdrawal.id
