@@ -18,8 +18,248 @@ begin
     or to_regclass('public.crypto_deposit_addresses') is null
     or to_regclass('public.profiles') is null
     or to_regprocedure('public.settle_verified_nowpayments_usdt_payment(text,text,text,text,text,text,text,text,text)') is null
+    or to_regprocedure('public.settle_verified_nowpayments_usdt_payment_serialized_inner(text,text,text,text,text,text,text,text,text)') is null
   then
     raise exception 'NOWPayments USDT withdrawal foundation is incomplete';
+  end if;
+
+  if coalesce((
+      select jsonb_agg(jsonb_build_array(
+        column_name, data_type, udt_name, numeric_precision, numeric_scale,
+        is_nullable, column_default, is_generated, generation_expression
+      ) order by ordinal_position)
+      from information_schema.columns
+      where table_schema = 'public' and table_name = 'nowpayments_usdt_wallets'
+    ), '[]'::jsonb) <> '[
+      ["user_id","uuid","uuid",null,null,"NO",null,"NEVER",null],
+      ["asset","text","text",null,null,"NO","''USDT''::text","NEVER",null],
+      ["available_balance_usdt","numeric","numeric",36,18,"NO","0","NEVER",null],
+      ["reserved_balance_usdt","numeric","numeric",36,18,"NO","0","NEVER",null],
+      ["created_at","timestamp with time zone","timestamptz",null,null,"NO","now()","NEVER",null],
+      ["updated_at","timestamp with time zone","timestamptz",null,null,"NO","now()","NEVER",null]
+    ]'::jsonb
+  then
+    raise exception 'unexpected NOWPayments USDT wallet column fingerprint';
+  end if;
+
+  if coalesce((
+      select jsonb_agg(jsonb_build_array(
+        column_name, data_type, udt_name, numeric_precision, numeric_scale,
+        is_nullable, column_default, is_generated, generation_expression
+      ) order by ordinal_position)
+      from information_schema.columns
+      where table_schema = 'public' and table_name = 'nowpayments_usdt_ledger_entries'
+    ), '[]'::jsonb) <> '[
+      ["id","uuid","uuid",null,null,"NO","gen_random_uuid()","NEVER",null],
+      ["user_id","uuid","uuid",null,null,"NO",null,"NEVER",null],
+      ["entry_type","text","text",null,null,"NO",null,"NEVER",null],
+      ["asset","text","text",null,null,"NO","''USDT''::text","NEVER",null],
+      ["available_delta_usdt","numeric","numeric",36,18,"NO","0","NEVER",null],
+      ["reserved_delta_usdt","numeric","numeric",36,18,"NO","0","NEVER",null],
+      ["available_before_usdt","numeric","numeric",36,18,"NO",null,"NEVER",null],
+      ["available_after_usdt","numeric","numeric",36,18,"NO",null,"NEVER",null],
+      ["reserved_before_usdt","numeric","numeric",36,18,"NO",null,"NEVER",null],
+      ["reserved_after_usdt","numeric","numeric",36,18,"NO",null,"NEVER",null],
+      ["payment_id","uuid","uuid",null,null,"YES",null,"NEVER",null],
+      ["withdrawal_id","uuid","uuid",null,null,"YES",null,"NEVER",null],
+      ["description","text","text",null,null,"YES",null,"NEVER",null],
+      ["metadata","jsonb","jsonb",null,null,"NO","''{}''::jsonb","NEVER",null],
+      ["created_at","timestamp with time zone","timestamptz",null,null,"NO","now()","NEVER",null],
+      ["provider_payment_record_id","uuid","uuid",null,null,"YES",null,"NEVER",null]
+    ]'::jsonb
+  then
+    raise exception 'unexpected NOWPayments USDT ledger column fingerprint';
+  end if;
+
+  if coalesce((
+      select jsonb_agg(jsonb_build_array(
+        conname, contype, convalidated,
+        case when contype = 'f' then confdeltype else null end,
+        regexp_replace(lower(pg_get_constraintdef(oid)), '\s+', '', 'g')
+      ) order by conname)
+      from pg_constraint
+      where conrelid = 'public.nowpayments_usdt_wallets'::regclass
+    ), '[]'::jsonb) <> '[
+      ["nowpayments_usdt_wallets_asset_check","c",true,null,"check((asset=''usdt''::text))"],
+      ["nowpayments_usdt_wallets_available_balance_check","c",true,null,"check((available_balance_usdt>=(0)::numeric))"],
+      ["nowpayments_usdt_wallets_pkey","p",true,null,"primarykey(user_id)"],
+      ["nowpayments_usdt_wallets_reserved_balance_check","c",true,null,"check((reserved_balance_usdt>=(0)::numeric))"],
+      ["nowpayments_usdt_wallets_user_id_fkey","f",true,"a","foreignkey(user_id)referencesprofiles(id)"]
+    ]'::jsonb
+  then
+    raise exception 'unexpected NOWPayments USDT wallet constraint fingerprint';
+  end if;
+
+  if coalesce((
+      select jsonb_agg(jsonb_build_array(
+        conname, contype, convalidated,
+        case when contype = 'f' then confdeltype else null end,
+        regexp_replace(lower(pg_get_constraintdef(oid)), '\s+', '', 'g')
+      ) order by conname)
+      from pg_constraint
+      where conrelid = 'public.nowpayments_usdt_ledger_entries'::regclass
+    ), '[]'::jsonb) <> '[
+      ["nowpayments_usdt_ledger_entries_asset_check","c",true,null,"check((asset=''usdt''::text))"],
+      ["nowpayments_usdt_ledger_entries_available_arithmetic_check","c",true,null,"check((available_after_usdt=(available_before_usdt+available_delta_usdt)))"],
+      ["nowpayments_usdt_ledger_entries_balances_check","c",true,null,"check(((available_before_usdt>=(0)::numeric)and(available_after_usdt>=(0)::numeric)and(reserved_before_usdt>=(0)::numeric)and(reserved_after_usdt>=(0)::numeric)))"],
+      ["nowpayments_usdt_ledger_entries_delta_check","c",true,null,"check(((available_delta_usdt<>(0)::numeric)or(reserved_delta_usdt<>(0)::numeric)))"],
+      ["nowpayments_usdt_ledger_entries_payment_id_fkey","f",true,"a","foreignkey(payment_id)referencesnowpayments_usdt_payments(id)"],
+      ["nowpayments_usdt_ledger_entries_pkey","p",true,null,"primarykey(id)"],
+      ["nowpayments_usdt_ledger_entries_provider_payment_record_id_fkey","f",true,"a","foreignkey(provider_payment_record_id)referencesnowpayments_usdt_provider_payments(id)"],
+      ["nowpayments_usdt_ledger_entries_reference_check","c",true,null,"check((((entry_type=any(array[''deposit_credit''::text,''deposit_credit_correction''::text]))and(payment_idisnotnull)and(provider_payment_record_idisnotnull)and(withdrawal_idisnull))or((entry_type=any(array[''withdrawal_reserve''::text,''withdrawal_release''::text,''withdrawal_settlement''::text]))and(payment_idisnull)and(provider_payment_record_idisnull)and(withdrawal_idisnotnull))or((entry_type=''admin_adjustment''::text)and(payment_idisnull)and(provider_payment_record_idisnull)and(withdrawal_idisnull))))"],
+      ["nowpayments_usdt_ledger_entries_reserved_arithmetic_check","c",true,null,"check((reserved_after_usdt=(reserved_before_usdt+reserved_delta_usdt)))"],
+      ["nowpayments_usdt_ledger_entries_type_check","c",true,null,"check((entry_type=any(array[''deposit_credit''::text,''deposit_credit_correction''::text,''withdrawal_reserve''::text,''withdrawal_release''::text,''withdrawal_settlement''::text,''admin_adjustment''::text])))"],
+      ["nowpayments_usdt_ledger_entries_user_id_fkey","f",true,"a","foreignkey(user_id)referencesprofiles(id)"],
+      ["nowpayments_usdt_ledger_entries_withdrawal_id_fkey","f",true,"a","foreignkey(withdrawal_id)referencesnowpayments_usdt_withdrawals(id)"]
+    ]'::jsonb
+  then
+    raise exception 'unexpected NOWPayments USDT ledger constraint fingerprint';
+  end if;
+
+  if coalesce((
+      select jsonb_agg(jsonb_build_array(
+        indexname, regexp_replace(lower(indexdef), '\s+', '', 'g')
+      ) order by indexname)
+      from pg_indexes
+      where schemaname = 'public' and tablename = 'nowpayments_usdt_wallets'
+    ), '[]'::jsonb) <> '[
+      ["nowpayments_usdt_wallets_pkey","createuniqueindexnowpayments_usdt_wallets_pkeyonpublic.nowpayments_usdt_walletsusingbtree(user_id)"]
+    ]'::jsonb
+  then
+    raise exception 'unexpected NOWPayments USDT wallet index fingerprint';
+  end if;
+
+  if coalesce((
+      select jsonb_agg(jsonb_build_array(
+        indexname, regexp_replace(lower(indexdef), '\s+', '', 'g')
+      ) order by indexname)
+      from pg_indexes
+      where schemaname = 'public' and tablename = 'nowpayments_usdt_ledger_entries'
+    ), '[]'::jsonb) <> '[
+      ["idx_nowpayments_usdt_ledger_entries_user_created","createindexidx_nowpayments_usdt_ledger_entries_user_createdonpublic.nowpayments_usdt_ledger_entriesusingbtree(user_id,created_atdesc)"],
+      ["idx_nowpayments_usdt_ledger_entries_withdrawal","createindexidx_nowpayments_usdt_ledger_entries_withdrawalonpublic.nowpayments_usdt_ledger_entriesusingbtree(withdrawal_id)where(withdrawal_idisnotnull)"],
+      ["nowpayments_usdt_ledger_entries_pkey","createuniqueindexnowpayments_usdt_ledger_entries_pkeyonpublic.nowpayments_usdt_ledger_entriesusingbtree(id)"],
+      ["nowpayments_usdt_ledger_entries_provider_correction_key","createuniqueindexnowpayments_usdt_ledger_entries_provider_correction_keyonpublic.nowpayments_usdt_ledger_entriesusingbtree(provider_payment_record_id)where(entry_type=''deposit_credit_correction''::text)"],
+      ["nowpayments_usdt_ledger_entries_provider_payment_credit_key","createuniqueindexnowpayments_usdt_ledger_entries_provider_payment_credit_keyonpublic.nowpayments_usdt_ledger_entriesusingbtree(provider_payment_record_id)where(entry_type=''deposit_credit''::text)"]
+    ]'::jsonb
+  then
+    raise exception 'unexpected NOWPayments USDT ledger index fingerprint';
+  end if;
+
+  if exists (
+      select 1
+      from pg_class relation
+      where relation.oid in (
+        'public.nowpayments_usdt_wallets'::regclass,
+        'public.nowpayments_usdt_ledger_entries'::regclass
+      )
+        and (not relation.relrowsecurity or relation.relforcerowsecurity)
+    ) or exists (
+      select 1
+      from pg_policy
+      where polrelid in (
+        'public.nowpayments_usdt_wallets'::regclass,
+        'public.nowpayments_usdt_ledger_entries'::regclass
+      )
+    )
+  then
+    raise exception 'unexpected NOWPayments USDT wallet or ledger RLS fingerprint';
+  end if;
+
+  if not has_table_privilege('service_role', 'public.nowpayments_usdt_wallets', 'SELECT')
+    or not has_table_privilege('service_role', 'public.nowpayments_usdt_ledger_entries', 'SELECT')
+    or has_table_privilege('service_role', 'public.nowpayments_usdt_wallets', 'INSERT')
+    or has_table_privilege('service_role', 'public.nowpayments_usdt_wallets', 'UPDATE')
+    or has_table_privilege('service_role', 'public.nowpayments_usdt_wallets', 'DELETE')
+    or has_table_privilege('service_role', 'public.nowpayments_usdt_wallets', 'TRUNCATE')
+    or has_table_privilege('service_role', 'public.nowpayments_usdt_ledger_entries', 'INSERT')
+    or has_table_privilege('service_role', 'public.nowpayments_usdt_ledger_entries', 'UPDATE')
+    or has_table_privilege('service_role', 'public.nowpayments_usdt_ledger_entries', 'DELETE')
+    or has_table_privilege('service_role', 'public.nowpayments_usdt_ledger_entries', 'TRUNCATE')
+    or has_table_privilege('anon', 'public.nowpayments_usdt_wallets', 'SELECT')
+    or has_table_privilege('anon', 'public.nowpayments_usdt_ledger_entries', 'SELECT')
+    or has_table_privilege('authenticated', 'public.nowpayments_usdt_wallets', 'SELECT')
+    or has_table_privilege('authenticated', 'public.nowpayments_usdt_ledger_entries', 'SELECT')
+  then
+    raise exception 'unexpected NOWPayments USDT wallet or ledger grant fingerprint';
+  end if;
+
+  if (select count(*) from pg_trigger
+      where tgrelid = 'public.nowpayments_usdt_wallets'::regclass and not tgisinternal) <> 1
+    or not exists (
+      select 1
+      from pg_trigger trigger_row
+      join pg_proc trigger_function on trigger_function.oid = trigger_row.tgfoid
+      join pg_namespace function_schema on function_schema.oid = trigger_function.pronamespace
+      where trigger_row.tgrelid = 'public.nowpayments_usdt_wallets'::regclass
+        and not trigger_row.tgisinternal
+        and trigger_row.tgname = 'set_nowpayments_usdt_wallets_updated_at'
+        and trigger_row.tgtype = 19
+        and trigger_row.tgenabled = 'O'
+        and function_schema.nspname = 'public'
+        and trigger_function.proname = 'set_nowpayments_usdt_updated_at'
+        and pg_get_function_identity_arguments(trigger_function.oid) = ''
+    )
+    or (select count(*) from pg_trigger
+        where tgrelid = 'public.nowpayments_usdt_ledger_entries'::regclass and not tgisinternal) <> 1
+    or not exists (
+      select 1
+      from pg_trigger trigger_row
+      join pg_proc trigger_function on trigger_function.oid = trigger_row.tgfoid
+      join pg_namespace function_schema on function_schema.oid = trigger_function.pronamespace
+      where trigger_row.tgrelid = 'public.nowpayments_usdt_ledger_entries'::regclass
+        and not trigger_row.tgisinternal
+        and trigger_row.tgname = 'reject_nowpayments_usdt_ledger_mutation'
+        and trigger_row.tgtype = 58
+        and trigger_row.tgenabled = 'O'
+        and function_schema.nspname = 'public'
+        and trigger_function.proname = 'reject_nowpayments_usdt_ledger_mutation'
+        and pg_get_function_identity_arguments(trigger_function.oid) = ''
+    )
+  then
+    raise exception 'unexpected NOWPayments USDT wallet or ledger trigger fingerprint';
+  end if;
+
+  if exists (
+      select 1
+      from pg_proc protected_function
+      where protected_function.oid in (
+        'public.set_nowpayments_usdt_updated_at()'::regprocedure,
+        'public.reject_nowpayments_usdt_ledger_mutation()'::regprocedure
+      )
+        and (
+          protected_function.prosecdef
+          or protected_function.proconfig is distinct from array['search_path=pg_catalog, public']::text[]
+          or has_function_privilege('service_role', protected_function.oid, 'EXECUTE')
+          or has_function_privilege('anon', protected_function.oid, 'EXECUTE')
+          or has_function_privilege('authenticated', protected_function.oid, 'EXECUTE')
+        )
+    ) or exists (
+      select 1
+      from pg_proc protected_function
+      where protected_function.oid in (
+        'public.settle_verified_nowpayments_usdt_payment(text,text,text,text,text,text,text,text,text)'::regprocedure,
+        'public.settle_verified_nowpayments_usdt_payment_serialized_inner(text,text,text,text,text,text,text,text,text)'::regprocedure
+      )
+        and (
+          not protected_function.prosecdef
+          or protected_function.proconfig is distinct from array['search_path=pg_catalog, public']::text[]
+          or has_function_privilege('anon', protected_function.oid, 'EXECUTE')
+          or has_function_privilege('authenticated', protected_function.oid, 'EXECUTE')
+        )
+    )
+    or not has_function_privilege(
+      'service_role',
+      'public.settle_verified_nowpayments_usdt_payment(text,text,text,text,text,text,text,text,text)',
+      'EXECUTE'
+    )
+    or has_function_privilege(
+      'service_role',
+      'public.settle_verified_nowpayments_usdt_payment_serialized_inner(text,text,text,text,text,text,text,text,text)',
+      'EXECUTE'
+    )
+  then
+    raise exception 'unexpected NOWPayments USDT protected function fingerprint';
   end if;
 
   if (select count(*) from public.nowpayments_usdt_config) <> 1
@@ -275,11 +515,37 @@ as $function$
 declare
   v_address text := lower(btrim(p_value));
 begin
+  -- Conservative union pinned to the official BNB Chain BSC client v1.7.3,
+  -- core/vm/contracts.go blob f8b2d0856d0d1a492ecf12032ea34dc0ca380055:
+  -- https://github.com/bnb-chain/bsc/blob/v1.7.3/core/vm/contracts.go
   if p_value is null
     or v_address !~ '^0x[0-9a-f]{40}$'
     or v_address in (
       '0x0000000000000000000000000000000000000000',
       '0x0000000000000000000000000000000000000001',
+      '0x0000000000000000000000000000000000000002',
+      '0x0000000000000000000000000000000000000003',
+      '0x0000000000000000000000000000000000000004',
+      '0x0000000000000000000000000000000000000005',
+      '0x0000000000000000000000000000000000000006',
+      '0x0000000000000000000000000000000000000007',
+      '0x0000000000000000000000000000000000000008',
+      '0x0000000000000000000000000000000000000009',
+      '0x000000000000000000000000000000000000000a',
+      '0x000000000000000000000000000000000000000b',
+      '0x000000000000000000000000000000000000000c',
+      '0x000000000000000000000000000000000000000d',
+      '0x000000000000000000000000000000000000000e',
+      '0x000000000000000000000000000000000000000f',
+      '0x0000000000000000000000000000000000000010',
+      '0x0000000000000000000000000000000000000011',
+      '0x0000000000000000000000000000000000000064',
+      '0x0000000000000000000000000000000000000065',
+      '0x0000000000000000000000000000000000000066',
+      '0x0000000000000000000000000000000000000067',
+      '0x0000000000000000000000000000000000000068',
+      '0x0000000000000000000000000000000000000069',
+      '0x0000000000000000000000000000000000000100',
       '0x000000000000000000000000000000000000dead',
       '0xdead000000000000000000000000000000000000',
       '0xbe19677ee642cfe21fff5899b258f5010651c33e'
@@ -441,20 +707,18 @@ begin
     raise exception 'nowpayments_usdt_withdrawal_user_ineligible';
   end if;
 
-  select withdrawals_enabled into v_enabled
-  from public.nowpayments_usdt_config
-  where id = 'USDT-BEP20'
-  for share;
-  if not found then
-    raise exception 'nowpayments_usdt_configuration_missing';
-  end if;
-
-  select * into v_existing_event
-  from public.nowpayments_usdt_withdrawal_events
-  where action_id = v_request_id
+  select * into v_withdrawal
+  from public.nowpayments_usdt_withdrawals
+  where id = v_request_id
   for update;
   if found then
-    if v_existing_event.action_type <> 'request'
+    select * into v_existing_event
+    from public.nowpayments_usdt_withdrawal_events
+    where action_id = v_request_id
+    for update;
+    if not found
+      or v_withdrawal.user_id <> p_user_id
+      or v_existing_event.action_type <> 'request'
       or v_existing_event.user_id <> p_user_id
       or v_existing_event.actor_id <> p_user_id
       or v_existing_event.withdrawal_id <> v_request_id
@@ -463,6 +727,33 @@ begin
       raise exception 'nowpayments_usdt_action_id_conflict';
     end if;
     return v_existing_event.result_snapshot;
+  end if;
+
+  select * into v_withdrawal
+  from public.nowpayments_usdt_withdrawals
+  where user_id = p_user_id
+    and status in ('reserved', 'reviewing', 'send_locked', 'broadcasted')
+  order by created_at, id
+  limit 1
+  for update;
+  if found then
+    raise exception 'open_nowpayments_usdt_withdrawal_exists';
+  end if;
+
+  select * into v_existing_event
+  from public.nowpayments_usdt_withdrawal_events
+  where action_id = v_request_id
+  for update;
+  if found then
+    raise exception 'nowpayments_usdt_action_id_conflict';
+  end if;
+
+  select withdrawals_enabled into v_enabled
+  from public.nowpayments_usdt_config
+  where id = 'USDT-BEP20'
+  for share;
+  if not found then
+    raise exception 'nowpayments_usdt_configuration_missing';
   end if;
 
   if not v_enabled then
@@ -482,15 +773,6 @@ begin
   v_max := trunc(v_wallet.available_balance_usdt * 1000000) / 1000000;
   if v_gross > v_max then
     raise exception 'insufficient_nowpayments_usdt_available_balance';
-  end if;
-
-  if exists (
-    select 1 from public.nowpayments_usdt_withdrawals
-    where user_id = p_user_id
-      and status in ('reserved', 'reviewing', 'send_locked', 'broadcasted')
-    for update
-  ) then
-    raise exception 'open_nowpayments_usdt_withdrawal_exists';
   end if;
 
   insert into public.nowpayments_usdt_withdrawals (

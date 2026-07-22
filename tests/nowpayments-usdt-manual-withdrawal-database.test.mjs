@@ -37,6 +37,25 @@ const TREASURY = "0xbe19677ee642cfe21fff5899b258f5010651c33e";
 const TOKEN = "0x55d398326f99059ff775485246999027b3197955";
 const HASH_1 = `0x${"1".repeat(64)}`;
 const HASH_2 = `0x${"2".repeat(64)}`;
+const BSC_PRECOMPILE_SOURCE =
+  "https://github.com/bnb-chain/bsc/blob/v1.7.3/core/vm/contracts.go";
+const BSC_PRECOMPILE_VALUES = [
+  ...Array.from({ length: 0x11 }, (_, index) => index + 1),
+  ...Array.from({ length: 0x06 }, (_, index) => 0x64 + index),
+  0x100,
+];
+
+function evmAddress(value) {
+  return `0x${BigInt(value).toString(16).padStart(40, "0")}`;
+}
+
+function migrationFunctionBody(name) {
+  const start = withdrawalMigration.indexOf(`create function public.${name}(`);
+  if (start < 0) throw new Error(`missing migration function ${name}`);
+  const end = withdrawalMigration.indexOf("\n$function$;", start);
+  if (end < 0) throw new Error(`unterminated migration function ${name}`);
+  return withdrawalMigration.slice(start, end);
+}
 
 function actionId(suffix) {
   return `90000000-0000-4000-8000-${String(suffix).padStart(12, "0")}`;
@@ -140,6 +159,29 @@ async function createDatabase(t) {
   t.after(() => db.close());
   await installWithdrawalDatabase(db);
   return db;
+}
+
+async function assertPreflightDriftFails(driftSql, expectedError) {
+  const db = new PGlite();
+  try {
+    await createFoundation(db);
+    for (const migration of prerequisiteMigrations) await applyMigration(db, migration);
+    await db.exec(driftSql);
+    await assert.rejects(applyMigration(db, withdrawalMigration), expectedError);
+    const untouched = (await db.query(`
+      select
+        exists (
+          select 1 from information_schema.columns
+          where table_schema='public' and table_name='nowpayments_usdt_config'
+            and column_name='withdrawals_enabled'
+        ) as flag_added,
+        to_regclass('public.nowpayments_usdt_withdrawal_events') is not null as events_added,
+        to_regprocedure('public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)') is not null as request_added
+    `)).rows[0];
+    assert.deepEqual(untouched, { flag_added: false, events_added: false, request_added: false });
+  } finally {
+    await db.close();
+  }
 }
 
 async function seedWallet(db, userId = USER_ID, available = "20") {
@@ -290,6 +332,43 @@ test("migration is withdrawal-only, disabled by default, and service-role-only",
   assert.deepEqual(foreignKeys.rows, [{ foreign_keys: 13, cascading: 0 }]);
 });
 
+test("every withdrawal function follows the profile-withdrawal-wallet lock order", () => {
+  const requestBody = migrationFunctionBody("request_nowpayments_usdt_withdrawal");
+  const requestProfile = requestBody.indexOf("from public.profiles");
+  const matchingWithdrawal = requestBody.indexOf("where id = v_request_id", requestProfile);
+  const openWithdrawal = requestBody.indexOf("where user_id = p_user_id", matchingWithdrawal);
+  const exactEvent = requestBody.indexOf("where action_id = v_request_id", openWithdrawal);
+  const flagRead = requestBody.indexOf("select withdrawals_enabled", exactEvent);
+  const walletLock = requestBody.indexOf("select * into v_wallet", flagRead);
+  assert.ok(
+    requestProfile >= 0
+      && requestProfile < matchingWithdrawal
+      && matchingWithdrawal < openWithdrawal
+      && openWithdrawal < exactEvent
+      && exactEvent < flagRead
+      && flagRead < walletLock,
+    "request must lock profile, matching/open withdrawal, then read flag, then lock wallet",
+  );
+
+  for (const name of [
+    "claim_nowpayments_usdt_withdrawal_review",
+    "lock_nowpayments_usdt_withdrawal_send",
+    "record_nowpayments_usdt_withdrawal_broadcast",
+    "complete_nowpayments_usdt_withdrawal",
+    "reject_nowpayments_usdt_withdrawal",
+    "take_over_nowpayments_usdt_withdrawal",
+  ]) {
+    const body = migrationFunctionBody(name);
+    const profile = body.indexOf("perform 1 from public.profiles");
+    const withdrawal = body.indexOf("select * into v_withdrawal", profile);
+    const wallet = body.indexOf("select * into v_wallet", withdrawal);
+    assert.ok(
+      profile >= 0 && profile < withdrawal && withdrawal < wallet,
+      `${name} must lock profile, withdrawal, then wallet`,
+    );
+  }
+});
+
 test("request reserves gross, computes exact fee/net, and completion settles gross once", async (t) => {
   const db = await createDatabase(t);
   await seedWallet(db);
@@ -368,6 +447,7 @@ test("destination, decimal, idempotency, hash, and verification evidence fail cl
     TREASURY,
     "0x0000000000000000000000000000000000000000",
     "0x000000000000000000000000000000000000dead",
+    "0xdead000000000000000000000000000000000000",
     "not-an-address",
   ];
   for (const [index, destination] of invalidDestinations.entries()) {
@@ -402,6 +482,47 @@ test("destination, decimal, idempotency, hash, and verification evidence fail cl
     { id: actionId(304), success: false },
     { id: actionId(305), uniqueTransfer: false },
   ]) await assert.rejects(complete(db, invalid), /verification/);
+});
+
+test("every pinned BSC precompile is rejected case-insensitively with boundary controls allowed", async (t) => {
+  const db = await createDatabase(t);
+  assert.match(withdrawalMigration, new RegExp(BSC_PRECOMPILE_SOURCE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(withdrawalMigration, /f8b2d0856d0d1a492ecf12032ea34dc0ca380055/);
+
+  for (const lowercase of [
+    evmAddress(0),
+    "0x000000000000000000000000000000000000dead",
+    "0xdead000000000000000000000000000000000000",
+    TREASURY,
+  ]) {
+    for (const address of [lowercase, lowercase.toUpperCase()]) {
+      await assert.rejects(
+        db.query("select public.assert_safe_nowpayments_usdt_withdrawal_destination($1)", [address]),
+        /invalid_nowpayments_usdt_withdrawal_destination|qhash_controlled_withdrawal_destination/,
+      );
+    }
+  }
+
+  for (const value of BSC_PRECOMPILE_VALUES) {
+    const lowercase = evmAddress(value);
+    for (const address of [lowercase, lowercase.toUpperCase()]) {
+      await assert.rejects(
+        db.query("select public.assert_safe_nowpayments_usdt_withdrawal_destination($1)", [address]),
+        /invalid_nowpayments_usdt_withdrawal_destination/,
+        `${address} from ${BSC_PRECOMPILE_SOURCE}`,
+      );
+    }
+  }
+
+  for (const value of [0x12, 0x63, 0x6a, 0xff, 0x101]) {
+    const expected = evmAddress(value);
+    for (const address of [expected, expected.toUpperCase()]) {
+      assert.equal((await db.query(
+        "select public.assert_safe_nowpayments_usdt_withdrawal_destination($1) as address",
+        [address],
+      )).rows[0].address, expected);
+    }
+  }
 });
 
 test("broadcast correction is append-only, takeover is audited, and hashes are globally unique", async (t) => {
@@ -465,7 +586,7 @@ test("max floors 18-decimal balances to six decimals and leaves sub-unit dust av
   assert.equal(result.available_balance_usdt, "0.000000900000000000");
 });
 
-test("current provider addresses and frozen users/admins are rejected before mutation", async (t) => {
+test("pending, permanent, historical, and retired controlled addresses are rejected before mutation", async (t) => {
   const db = await createDatabase(t);
   await seedWallet(db);
   await setWithdrawals(db, true);
@@ -477,6 +598,20 @@ test("current provider addresses and frozen users/admins are rejected before mut
     }),
     /qhash_controlled_withdrawal_destination/,
   );
+  await db.query(`
+    insert into public.crypto_deposit_addresses (id,user_id,network,asset,address,status) values
+      ('cccccccc-cccc-4ccc-8ccc-cccccccccca1','${USER_ID}','BSC','USDT','0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','active'),
+      ('cccccccc-cccc-4ccc-8ccc-cccccccccca2','${USER_ID}','BSC','USDT','0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','historical')
+  `);
+  for (const address of [
+    TREASURY.toUpperCase(),
+    "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  ]) await assert.rejects(
+    db.query("select public.assert_safe_nowpayments_usdt_withdrawal_destination($1)", [address]),
+    /qhash_controlled_withdrawal_destination|invalid_nowpayments_usdt_withdrawal_destination/,
+  );
+
   await db.query("update public.profiles set is_frozen=true where id=$1", [USER_ID]);
   await assert.rejects(
     requestWithdrawal(db, { requestId: actionId(601) }),
@@ -488,6 +623,22 @@ test("current provider addresses and frozen users/admins are rejected before mut
   await assert.rejects(
     claim(db, actionId(602), ADMIN_1_ID, actionId(603)),
     /admin_ineligible/,
+  );
+
+  const permanentDb = await createDatabase(t);
+  await seedWallet(permanentDb);
+  const permanentSession = await seedNativeDepositSession(permanentDb, "88101");
+  await settleNativeDeposit(permanentDb, permanentSession, "88101");
+  assert.ok((await permanentDb.query(
+    "select address_activated_at from public.nowpayments_usdt_payments where id=$1::uuid",
+    [permanentSession.id],
+  )).rows[0].address_activated_at);
+  await assert.rejects(
+    permanentDb.query(
+      "select public.assert_safe_nowpayments_usdt_withdrawal_destination($1)",
+      ["0X9999999999999999999999999999999999999999"],
+    ),
+    /qhash_controlled_withdrawal_destination/,
   );
 });
 
@@ -505,6 +656,40 @@ test("migration preflight refuses any pre-existing withdrawal row", async (t) =>
     applyMigration(db, withdrawalMigration),
     /withdrawal table must be empty/,
   );
+});
+
+test("migration preflight rejects wallet and ledger catalog drift before mutation", async (t) => {
+  await t.test("wallet column type and precision drift", () => assertPreflightDriftFails(
+    "alter table public.nowpayments_usdt_wallets alter column available_balance_usdt type numeric(36,17)",
+    /wallet column fingerprint/,
+  ));
+  await t.test("ledger balance/reference constraint drift", () => assertPreflightDriftFails(`
+    alter table public.nowpayments_usdt_ledger_entries
+      drop constraint nowpayments_usdt_ledger_entries_reference_check,
+      add constraint nowpayments_usdt_ledger_entries_reference_check check (entry_type <> '')
+  `, /ledger constraint fingerprint/));
+  await t.test("ledger index and predicate drift", () => assertPreflightDriftFails(
+    "drop index public.nowpayments_usdt_ledger_entries_provider_correction_key",
+    /ledger index fingerprint/,
+  ));
+  await t.test("wallet RLS drift", () => assertPreflightDriftFails(
+    "alter table public.nowpayments_usdt_wallets disable row level security",
+    /RLS fingerprint/,
+  ));
+  await t.test("ledger grant drift", () => assertPreflightDriftFails(
+    "grant insert on public.nowpayments_usdt_ledger_entries to service_role",
+    /grant fingerprint/,
+  ));
+  await t.test("wallet updated-at trigger identity drift", () => assertPreflightDriftFails(
+    "drop trigger set_nowpayments_usdt_wallets_updated_at on public.nowpayments_usdt_wallets",
+    /trigger fingerprint/,
+  ));
+  await t.test("ledger foreign-key delete-action drift", () => assertPreflightDriftFails(`
+    alter table public.nowpayments_usdt_ledger_entries
+      drop constraint nowpayments_usdt_ledger_entries_withdrawal_id_fkey,
+      add constraint nowpayments_usdt_ledger_entries_withdrawal_id_fkey
+        foreign key (withdrawal_id) references public.nowpayments_usdt_withdrawals(id) on delete cascade
+  `, /ledger constraint fingerprint/));
 });
 
 test("migration and withdrawal lifecycle leave ETB, CBE, TeleBirr, plan purchase, deposits, and retired evidence untouched", async (t) => {
@@ -628,6 +813,83 @@ test("native PostgreSQL serializes requests, admin actions, and balance races on
     await seedWallet(nativeDb(observer));
     await setWithdrawals(nativeDb(observer), true);
   }
+
+  async function resetNativePrerequisites() {
+    await Promise.allSettled([first.query("rollback"), second.query("rollback")]);
+    await observer.query("drop schema if exists public cascade; create schema public");
+    await createFoundation(nativeDb(observer));
+    for (const migration of prerequisiteMigrations) {
+      await applyMigration(nativeDb(observer), migration);
+    }
+  }
+
+  await t.test("unsafe wallet-first versus withdrawal-first negative control deadlocks without the profile lock", async () => {
+    await resetNative();
+    await requestWithdrawal(nativeDb(observer));
+    await first.query("begin");
+    await second.query("begin");
+    await first.query("set local statement_timeout='8s'; set local deadlock_timeout='100ms'");
+    await second.query("set local statement_timeout='8s'; set local deadlock_timeout='100ms'");
+    await first.query(
+      "select 1 from public.nowpayments_usdt_wallets where user_id=$1::uuid for update",
+      [USER_ID],
+    );
+    await second.query(
+      "select 1 from public.nowpayments_usdt_withdrawals where id=$1::uuid for update",
+      [REQUEST_1],
+    );
+    const walletFirstThenWithdrawal = first.query(
+      "select 1 from public.nowpayments_usdt_withdrawals where id=$1::uuid for update",
+      [REQUEST_1],
+    );
+    await waitForLock(observer, pids[1], pids[2]);
+    const withdrawalFirstThenWallet = second.query(
+      "select 1 from public.nowpayments_usdt_wallets where user_id=$1::uuid for update",
+      [USER_ID],
+    );
+    const unsafeResults = await Promise.allSettled([
+      walletFirstThenWithdrawal,
+      withdrawalFirstThenWallet,
+    ]);
+    const deadlocks = unsafeResults.filter(
+      (result) => result.status === "rejected" && result.reason?.code === "40P01",
+    );
+    assert.equal(deadlocks.length, 1, "the old opposing lock order must produce a real PostgreSQL deadlock");
+    assert.equal(unsafeResults.filter((result) => result.status === "fulfilled").length, 1);
+    await Promise.allSettled([first.query("rollback"), second.query("rollback")]);
+  });
+
+  await t.test("native wallet and ledger catalog drift aborts before withdrawal mutation", async () => {
+    for (const fixture of [
+      {
+        name: "wallet precision",
+        drift: "alter table public.nowpayments_usdt_wallets alter column reserved_balance_usdt type numeric(36,17)",
+        error: /wallet column fingerprint/,
+      },
+      {
+        name: "ledger immutable trigger",
+        drift: "drop trigger reject_nowpayments_usdt_ledger_mutation on public.nowpayments_usdt_ledger_entries",
+        error: /trigger fingerprint/,
+      },
+    ]) {
+      await resetNativePrerequisites();
+      await observer.query(fixture.drift);
+      await assert.rejects(
+        applyMigration(nativeDb(observer), withdrawalMigration),
+        fixture.error,
+        fixture.name,
+      );
+      assert.deepEqual((await observer.query(`
+        select
+          exists (
+            select 1 from information_schema.columns
+            where table_schema='public' and table_name='nowpayments_usdt_config'
+              and column_name='withdrawals_enabled'
+          ) as flag_added,
+          to_regclass('public.nowpayments_usdt_withdrawal_events') is not null as events_added
+      `)).rows, [{ flag_added: false, events_added: false }]);
+    }
+  });
 
   await resetNative();
 
@@ -826,6 +1088,62 @@ test("native PostgreSQL serializes requests, admin actions, and balance races on
       [REQUEST_1, ADMIN_1_ID, actionId(520), "disabled flag still permits release"],
     )).rows[0].result;
     assert.equal(rejected.status, "rejected");
+  });
+
+  await t.test("concurrent flag disable serializes with request, review, and send-lock boundaries", async () => {
+    const stages = [
+      {
+        name: "request",
+        expected: "reserved",
+        prepare: async () => {},
+        run: (client, suffix) => requestWithdrawal(nativeDb(client), { requestId: actionId(suffix) }),
+      },
+      {
+        name: "review",
+        expected: "reviewing",
+        prepare: async () => { await requestWithdrawal(nativeDb(observer)); },
+        run: (client, suffix) => claim(nativeDb(client), REQUEST_1, ADMIN_1_ID, actionId(suffix)),
+      },
+      {
+        name: "send-lock",
+        expected: "send_locked",
+        prepare: async () => {
+          await requestWithdrawal(nativeDb(observer));
+          await claim(nativeDb(observer));
+        },
+        run: (client, suffix) => sendLock(nativeDb(client), REQUEST_1, ADMIN_1_ID, actionId(suffix)),
+      },
+    ];
+
+    for (const [index, stage] of stages.entries()) {
+      await resetNative();
+      await stage.prepare();
+      await first.query("begin");
+      const operationResult = await stage.run(first, 540 + index * 10);
+      assert.equal(operationResult.status, stage.expected);
+      const disableAfterOperation = second.query(`
+        update public.nowpayments_usdt_config
+        set withdrawals_enabled=false where id='USDT-BEP20'
+      `);
+      await waitForLock(observer, pids[2], pids[1]);
+      await first.query("commit");
+      await disableAfterOperation;
+      assert.equal((await observer.query(
+        "select withdrawals_enabled from public.nowpayments_usdt_config where id='USDT-BEP20'",
+      )).rows[0].withdrawals_enabled, false, `${stage.name} must finish before disable commits`);
+
+      await resetNative();
+      await stage.prepare();
+      await first.query("begin");
+      await first.query(`
+        update public.nowpayments_usdt_config
+        set withdrawals_enabled=false where id='USDT-BEP20'
+      `);
+      const operationAfterDisable = stage.run(second, 545 + index * 10);
+      await waitForLock(observer, pids[2], pids[1]);
+      await first.query("commit");
+      await assert.rejects(operationAfterDisable, /nowpayments_usdt_withdrawals_disabled/);
+    }
   });
 
   await t.test("committed send lock survives worker disconnect and hash reuse fails globally", async () => {
