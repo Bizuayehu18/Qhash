@@ -27,6 +27,7 @@ import {
 import { submitWithdrawalFn, getUserWithdrawalsFn } from "@/lib/server/withdrawals.js";
 import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
+import { NowpaymentsUsdtWithdrawal } from "@/components/withdrawal/NowpaymentsUsdtWithdrawal.js";
 
 export const Route = createFileRoute("/_app/withdraw")({ component: WithdrawPage });
 
@@ -158,6 +159,7 @@ function WithdrawPage() {
 
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<WithdrawalMethod | null>(null);
+  const [usdtSelected, setUsdtSelected] = useState(false);
   const [withdrawalStep, setWithdrawalStep] = useState<WithdrawalStep>("details");
   const [accountName, setAccountName] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
@@ -186,7 +188,7 @@ function WithdrawPage() {
   const netAmount = useMemo(() => Math.max(parsedAmount - feeAmount, 0), [parsedAmount, feeAmount]);
   const hasEnoughBalance = walletBalance === null || parsedAmount <= walletBalance;
   const selectedMeta = method ? METHOD_META[method] : null;
-  const isFormView = method !== null;
+  const isFormView = method !== null || usdtSelected;
 
   const clearRetryTimer = useCallback(() => {
     if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
@@ -316,6 +318,7 @@ function WithdrawPage() {
   const resetForm = () => {
     setAmount("");
     setMethod(null);
+    setUsdtSelected(false);
     setWithdrawalStep("details");
     setAccountName("");
     setAccountNumber("");
@@ -452,11 +455,19 @@ function WithdrawPage() {
     >
       <div className={isFormView ? "space-y-3" : "space-y-3 lg:col-span-7 xl:col-span-8"}>
         <WithdrawalPageHeader />
-        <BalanceStrip walletBalance={walletBalance} />
+        {!usdtSelected && <BalanceStrip walletBalance={walletBalance} />}
 
-        {!method ? (
+        {usdtSelected ? (
+          <NowpaymentsUsdtWithdrawal
+            accessToken={accessToken}
+            onBack={() => setUsdtSelected(false)}
+          />
+        ) : !method ? (
           <>
-            <MethodPicker onSelect={handleMethodSelect} />
+            <MethodPicker
+              onSelect={handleMethodSelect}
+              onSelectUsdt={() => setUsdtSelected(true)}
+            />
             <FundPasswordStatusLine
               securityStatus={securityStatus}
               loading={loadingSecurityStatus}
@@ -516,7 +527,7 @@ function WithdrawalPageHeader() {
       </p>
       <h1 className="mt-1 text-lg font-bold leading-tight text-gray-100">Withdraw</h1>
       <p className="mt-1 text-xs text-gray-500">
-        Request a withdrawal to your CBE or TeleBirr account.
+        Request a withdrawal via CBE, TeleBirr, or USDT BEP20.
       </p>
     </div>
   );
@@ -551,12 +562,18 @@ function BalanceStrip({ walletBalance }: { walletBalance: number | null }) {
   );
 }
 
-function MethodPicker({ onSelect }: { onSelect: (method: WithdrawalMethod) => void }) {
+function MethodPicker({
+  onSelect,
+  onSelectUsdt,
+}: {
+  onSelect: (method: WithdrawalMethod) => void;
+  onSelectUsdt: () => void;
+}) {
   return (
     <section className="space-y-2.5">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-bold text-gray-100">Choose Withdrawal Method</h2>
-        <Badge variant="neon" className="shrink-0 text-[9px]">2 options</Badge>
+        <Badge variant="neon" className="shrink-0 text-[9px]">3 options</Badge>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-[#1a1a1a] bg-[#111]">
@@ -569,6 +586,31 @@ function MethodPicker({ onSelect }: { onSelect: (method: WithdrawalMethod) => vo
           />
         ))}
       </div>
+
+      <button
+        type="button"
+        onClick={onSelectUsdt}
+        className="group w-full rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111] px-3.5 py-2.5 text-left transition-colors hover:bg-[rgba(0,255,65,0.035)] card-press"
+      >
+        <span className="flex items-center gap-3">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[rgba(0,255,65,0.18)] bg-[rgba(0,255,65,0.06)] text-[#00ff41]">
+            <ArrowUpCircle size={16} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-bold leading-tight text-gray-100">
+              USDT Withdrawal
+            </span>
+            <span className="mt-0.5 block truncate text-[11px] text-gray-500">
+              BNB Smart Chain (BEP20 only)
+            </span>
+          </span>
+          <Badge variant="neon" className="shrink-0 text-[9px]">USDT</Badge>
+          <ChevronRight
+            size={15}
+            className="shrink-0 text-gray-600 transition-colors group-hover:text-[#00ff41]"
+          />
+        </span>
+      </button>
     </section>
   );
 }
