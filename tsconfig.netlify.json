@@ -5,6 +5,7 @@
     "netlify/functions/nowpayments-usdt-deposit-overview.mts",
     "netlify/functions/nowpayments-usdt-withdrawal-overview.mts",
     "netlify/functions/nowpayments-usdt-withdrawal-request.mts",
+    "netlify/functions/nowpayments-usdt-withdrawal-admin.mts",
     "netlify/functions/nowpayments-usdt-ipn.mts",
     "netlify/functions/nowpayments-usdt-reconcile-payment.mts",
     "netlify/functions/lib/nowpayments-client.mts",
@@ -13,6 +14,8 @@
     "netlify/functions/lib/nowpayments-settlement.mts",
     "src/lib/nowpayments-deposit-ui.ts",
     "src/lib/nowpayments-withdrawal-ui.ts",
+    "src/lib/nowpayments-withdrawal-admin-ui.ts",
+    "src/components/admin/NowpaymentsUsdtWithdrawalAdmin.tsx",
     "src/lib/database.types.ts"
   ],
   "compilerOptions": {
