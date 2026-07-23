@@ -65,6 +65,82 @@ function safeInteger(value: string): number | null {
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
+type AdminActionNoticeId = string | number;
+
+export function createAdminWithdrawalActionLifecycle(
+  identity: {
+    userId: string;
+    tokenGeneration: number;
+  },
+  createKey: () => string = () => globalThis.crypto.randomUUID(),
+) {
+  const controller = new AbortController();
+  const promiseHolder: { current: Promise<void> | null } = { current: null };
+  const actionKeys = createAdminWithdrawalActionKeyManager(createKey);
+  let active = true;
+  let busy = false;
+  let noticeId: AdminActionNoticeId | null = null;
+
+  return {
+    identity,
+    signal: controller.signal,
+    isActive: () => active,
+    isBusy: () => busy,
+    run(
+      fingerprint: string,
+      operation: (context: {
+        actionId: string;
+        signal: AbortSignal;
+      }) => Promise<void>,
+      onBusyChange: (nextBusy: boolean) => void,
+    ): Promise<void> {
+      if (!active) return Promise.resolve();
+      return runAdminWithdrawalSingleFlight(promiseHolder, async () => {
+        if (!active) return;
+        const actionId = actionKeys.keyFor(fingerprint);
+        busy = true;
+        onBusyChange(true);
+        try {
+          await operation({
+            actionId,
+            signal: controller.signal,
+          });
+        } finally {
+          if (active) {
+            busy = false;
+            onBusyChange(false);
+          }
+        }
+      });
+    },
+    clearActionKey() {
+      if (active) actionKeys.clear();
+    },
+    setNotice(
+      nextNoticeId: AdminActionNoticeId,
+      dismiss: (id: AdminActionNoticeId) => void,
+    ) {
+      if (!active) {
+        dismiss(nextNoticeId);
+        return;
+      }
+      if (noticeId !== null) dismiss(noticeId);
+      noticeId = nextNoticeId;
+    },
+    invalidate(dismiss: (id: AdminActionNoticeId) => void = () => undefined) {
+      if (!active) return;
+      active = false;
+      busy = false;
+      controller.abort();
+      actionKeys.clear();
+      if (noticeId !== null) {
+        dismiss(noticeId);
+        noticeId = null;
+      }
+    },
+  };
+}
+
 export function NowpaymentsUsdtWithdrawalAdmin({
   accessToken,
   userId,
@@ -90,7 +166,6 @@ export function NowpaymentsUsdtWithdrawalAdmin({
   const [filter, setFilter] = useState<"all" | NowpaymentsAdminWithdrawalStatus>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<DialogKind | null>(null);
-  const [actionBusy, setActionBusy] = useState(false);
   const [reason, setReason] = useState("");
   const [transactionHash, setTransactionHash] = useState("");
   const [liquidityConfirmed, setLiquidityConfirmed] = useState(false);
@@ -102,23 +177,27 @@ export function NowpaymentsUsdtWithdrawalAdmin({
   const [transferLogIndex, setTransferLogIndex] = useState("");
   const [confirmations, setConfirmations] = useState("");
   const [verifiedAt, setVerifiedAt] = useState("");
+  const [actionState, setActionState] = useState<{
+    lifecycle: ReturnType<typeof createAdminWithdrawalActionLifecycle> | null;
+    busy: boolean;
+  }>({
+    lifecycle: null,
+    busy: false,
+  });
 
   const mountedRef = useRef(true);
   const authIdentityRef = useRef(authIdentity);
   authIdentityRef.current = authIdentity;
+  const authGenerationRef = useRef(0);
   const requestGuardRef = useRef<ReturnType<
     typeof createLatestAdminWithdrawalRequestGuard
   > | null>(null);
   if (requestGuardRef.current === null) {
     requestGuardRef.current = createLatestAdminWithdrawalRequestGuard();
   }
-  const actionPromiseRef = useRef<Promise<void> | null>(null);
-  const actionKeysRef = useRef<ReturnType<
-    typeof createAdminWithdrawalActionKeyManager
+  const actionLifecycleRef = useRef<ReturnType<
+    typeof createAdminWithdrawalActionLifecycle
   > | null>(null);
-  if (actionKeysRef.current === null) {
-    actionKeysRef.current = createAdminWithdrawalActionKeyManager();
-  }
 
   const visibleState = overviewState.identity === authIdentity
     ? overviewState
@@ -133,6 +212,10 @@ export function NowpaymentsUsdtWithdrawalAdmin({
   const visibleWithdrawals = overview?.withdrawals.filter(
     (row) => filter === "all" || row.status === filter,
   ) ?? [];
+  const actionBusy = actionState.lifecycle !== null
+    && actionState.lifecycle === actionLifecycleRef.current
+    && actionState.lifecycle.isActive()
+    && actionState.busy;
 
   const loadOverview = useCallback(async () => {
     if (!accessToken || !authIdentity) {
@@ -182,17 +265,6 @@ export function NowpaymentsUsdtWithdrawalAdmin({
     }
   }, [accessToken, authIdentity]);
 
-  useEffect(() => {
-    mountedRef.current = true;
-    setSelectedId(null);
-    setDialog(null);
-    void loadOverview();
-    return () => {
-      mountedRef.current = false;
-      requestGuardRef.current!.invalidate();
-    };
-  }, [loadOverview]);
-
   const resetDialog = useCallback(() => {
     setDialog(null);
     setReason("");
@@ -208,6 +280,36 @@ export function NowpaymentsUsdtWithdrawalAdmin({
     setVerifiedAt("");
   }, []);
 
+  useEffect(() => {
+    mountedRef.current = true;
+    const tokenGeneration = authGenerationRef.current + 1;
+    authGenerationRef.current = tokenGeneration;
+    const previousLifecycle = actionLifecycleRef.current;
+    previousLifecycle?.invalidate((noticeId) => toast.dismiss(noticeId));
+    const nextLifecycle = authIdentity === null
+      ? null
+      : createAdminWithdrawalActionLifecycle({
+          userId: authIdentity.userId,
+          tokenGeneration,
+        });
+    actionLifecycleRef.current = nextLifecycle;
+    setActionState({
+      lifecycle: nextLifecycle,
+      busy: false,
+    });
+    setSelectedId(null);
+    resetDialog();
+    void loadOverview();
+    return () => {
+      mountedRef.current = false;
+      requestGuardRef.current!.invalidate();
+      if (actionLifecycleRef.current === nextLifecycle) {
+        nextLifecycle?.invalidate((noticeId) => toast.dismiss(noticeId));
+        actionLifecycleRef.current = null;
+      }
+    };
+  }, [authIdentity, loadOverview, resetDialog]);
+
   const openDialog = (kind: DialogKind, withdrawal: NowpaymentsAdminWithdrawal) => {
     resetDialog();
     setSelectedId(withdrawal.id);
@@ -221,43 +323,71 @@ export function NowpaymentsUsdtWithdrawalAdmin({
     fingerprint: string,
     buildInput: (actionId: string) => NowpaymentsAdminActionInput,
     successMessage: string,
-  ) => runAdminWithdrawalSingleFlight(actionPromiseRef, async () => {
-    if (!accessToken || !authIdentity) return;
-    const actionIdentity = authIdentity;
-    const actionId = actionKeysRef.current!.keyFor(fingerprint);
-    requestGuardRef.current!.invalidate();
-    setActionBusy(true);
-    try {
-      await submitNowpaymentsAdminWithdrawalAction(
-        accessToken,
-        buildInput(actionId),
-      );
-      if (!mountedRef.current || authIdentityRef.current !== actionIdentity) return;
-      actionKeysRef.current!.clear();
-      resetDialog();
-      toast.success(successMessage);
-      await loadOverview();
-    } catch (error) {
-      if (!mountedRef.current || authIdentityRef.current !== actionIdentity) return;
-      if (error instanceof NowpaymentsAdminWithdrawalError) {
-        const messages: Record<NowpaymentsAdminWithdrawalError["kind"], string> = {
-          authentication: "Your session expired. Sign in again.",
-          authorization: "Administrator access is unavailable.",
-          disabled: "USDT withdrawals are disabled.",
-          conflict: "The withdrawal changed or this action conflicts. Refresh before continuing.",
-          validation: "Check the supplied withdrawal evidence.",
-          unavailable: "The administrator action failed. It is safe to retry the same action.",
-        };
-        toast.error(messages[error.kind]);
-      } else {
-        toast.error("The administrator action failed. It is safe to retry the same action.");
-      }
-    } finally {
-      if (mountedRef.current && authIdentityRef.current === actionIdentity) {
-        setActionBusy(false);
-      }
+  ) => {
+    if (!accessToken || !authIdentity) return Promise.resolve();
+    const lifecycle = actionLifecycleRef.current;
+    if (
+      lifecycle === null
+      || !lifecycle.isActive()
+      || lifecycle.identity.userId !== authIdentity.userId
+    ) {
+      return Promise.resolve();
     }
-  });
+    const actionIdentity = authIdentity;
+    const isCurrentAction = () => (
+      mountedRef.current
+      && authIdentityRef.current === actionIdentity
+      && actionLifecycleRef.current === lifecycle
+      && lifecycle.isActive()
+    );
+    return lifecycle.run(
+      fingerprint,
+      async ({ actionId, signal }) => {
+        if (!isCurrentAction()) return;
+        requestGuardRef.current!.invalidate();
+        try {
+          await submitNowpaymentsAdminWithdrawalAction(
+            accessToken,
+            buildInput(actionId),
+            (input, init) => fetch(input, {
+              ...init,
+              signal,
+            }),
+          );
+          if (!isCurrentAction()) return;
+          lifecycle.clearActionKey();
+          resetDialog();
+          const noticeId = toast.success(successMessage);
+          lifecycle.setNotice(noticeId, (id) => toast.dismiss(id));
+          await loadOverview();
+        } catch (error) {
+          if (!isCurrentAction()) return;
+          let message = "The administrator action failed. It is safe to retry the same action.";
+          if (error instanceof NowpaymentsAdminWithdrawalError) {
+            const messages: Record<NowpaymentsAdminWithdrawalError["kind"], string> = {
+              authentication: "Your session expired. Sign in again.",
+              authorization: "Administrator access is unavailable.",
+              disabled: "USDT withdrawals are disabled.",
+              conflict: "The withdrawal changed or this action conflicts. Refresh before continuing.",
+              validation: "Check the supplied withdrawal evidence.",
+              unavailable: "The administrator action failed. It is safe to retry the same action.",
+            };
+            message = messages[error.kind];
+          }
+          const noticeId = toast.error(message);
+          lifecycle.setNotice(noticeId, (id) => toast.dismiss(id));
+        }
+      },
+      (busy) => {
+        if (isCurrentAction()) {
+          setActionState({
+            lifecycle,
+            busy,
+          });
+        }
+      },
+    );
+  };
 
   const beginReview = (withdrawal: NowpaymentsAdminWithdrawal) => {
     void performAction(

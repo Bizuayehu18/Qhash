@@ -3,6 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import adminHandler from "../netlify/functions/nowpayments-usdt-withdrawal-admin.mts";
 import {
+  createAdminWithdrawalActionLifecycle,
+} from "../src/components/admin/NowpaymentsUsdtWithdrawalAdmin.tsx";
+import {
   createAdminWithdrawalActionKeyManager,
   createLatestAdminWithdrawalRequestGuard,
   fetchNowpaymentsAdminWithdrawalOverview,
@@ -865,6 +868,270 @@ test("stale-response guard, single-flight, and stable keys prevent cross-auth co
   assert.equal(manager.keyFor(`reject|${WITHDRAWAL_ID}|changed`), OTHER_ACTION_ID);
 });
 
+test("administrator actions are isolated by administrator and authentication generation", async (t) => {
+  const fingerprint = `reject|${WITHDRAWAL_ID}|normalized reason`;
+
+  await t.test("Admin B is immediately usable and Admin A late success/finally is ignored", async () => {
+    const adminAResult = deferred();
+    const adminBResult = deferred();
+    const adminABusy = [];
+    const adminBBusy = [];
+    const commits = [];
+    const dismissed = [];
+    const adminA = createAdminWithdrawalActionLifecycle(
+      { userId: ADMIN_ID, tokenGeneration: 1 },
+      () => ACTION_ID,
+    );
+    let adminAActionId;
+    const adminAPromise = adminA.run(
+      fingerprint,
+      async ({ actionId }) => {
+        adminAActionId = actionId;
+        await adminAResult.promise;
+        if (adminA.isActive()) commits.push("admin-a-success");
+      },
+      (busy) => adminABusy.push(busy),
+    );
+    adminA.setNotice("admin-a-error", (id) => dismissed.push(id));
+    assert.equal(adminA.isBusy(), true);
+
+    adminA.invalidate((id) => dismissed.push(id));
+    const adminB = createAdminWithdrawalActionLifecycle(
+      { userId: OTHER_ADMIN_ID, tokenGeneration: 2 },
+      () => OTHER_ACTION_ID,
+    );
+    assert.equal(adminA.signal.aborted, true);
+    assert.equal(adminA.isBusy(), false);
+    assert.equal(adminB.isBusy(), false);
+    assert.deepEqual(dismissed, ["admin-a-error"]);
+
+    let adminBActionId;
+    const adminBPromise = adminB.run(
+      fingerprint,
+      async ({ actionId }) => {
+        adminBActionId = actionId;
+        await adminBResult.promise;
+        if (adminB.isActive()) commits.push("admin-b-success");
+      },
+      (busy) => adminBBusy.push(busy),
+    );
+    assert.equal(adminB.isBusy(), true);
+    assert.notEqual(adminAActionId, adminBActionId);
+
+    adminAResult.resolve("late success");
+    await adminAPromise;
+    assert.equal(adminB.isBusy(), true);
+    assert.deepEqual(adminABusy, [true]);
+    assert.deepEqual(commits, []);
+    const adminBDuplicate = adminB.run(
+      fingerprint,
+      async () => {
+        throw new Error("double click must not start");
+      },
+      () => {
+        throw new Error("double click must not change busy state");
+      },
+    );
+    assert.strictEqual(adminBDuplicate, adminBPromise);
+
+    adminBResult.resolve("success");
+    await adminBPromise;
+    assert.equal(adminB.isBusy(), false);
+    assert.deepEqual(adminBBusy, [true, false]);
+    assert.deepEqual(commits, ["admin-b-success"]);
+    let adminBRetryActionId;
+    await adminB.run(
+      fingerprint,
+      async ({ actionId }) => {
+        adminBRetryActionId = actionId;
+      },
+      (busy) => adminBBusy.push(busy),
+    );
+    assert.equal(adminBRetryActionId, adminBActionId);
+    assert.deepEqual(adminBBusy, [true, false, true, false]);
+  });
+
+  await t.test("Admin A late failure and notice cannot affect Admin B", async () => {
+    const adminAResult = deferred();
+    const adminBBusy = [];
+    const errors = [];
+    const dismissed = [];
+    const adminA = createAdminWithdrawalActionLifecycle(
+      { userId: ADMIN_ID, tokenGeneration: 3 },
+      () => ACTION_ID,
+    );
+    const adminAPromise = adminA.run(
+      fingerprint,
+      async () => {
+        try {
+          await adminAResult.promise;
+        } catch {
+          if (adminA.isActive()) errors.push("admin-a-error");
+        }
+      },
+      () => undefined,
+    );
+    adminA.invalidate((id) => dismissed.push(id));
+    const adminB = createAdminWithdrawalActionLifecycle(
+      { userId: OTHER_ADMIN_ID, tokenGeneration: 4 },
+      () => OTHER_ACTION_ID,
+    );
+    const adminBResult = deferred();
+    const adminBPromise = adminB.run(
+      fingerprint,
+      async () => adminBResult.promise,
+      (busy) => adminBBusy.push(busy),
+    );
+
+    adminAResult.reject(new Error("late private failure"));
+    await adminAPromise;
+    adminA.setNotice("late-admin-a-notice", (id) => dismissed.push(id));
+    assert.deepEqual(errors, []);
+    assert.deepEqual(dismissed, ["late-admin-a-notice"]);
+    assert.equal(adminB.isBusy(), true);
+    assert.deepEqual(adminBBusy, [true]);
+
+    adminBResult.resolve("success");
+    await adminBPromise;
+    assert.deepEqual(adminBBusy, [true, false]);
+  });
+
+  await t.test("same administrator token rotation aborts and receives a new action ID", async () => {
+    const oldResult = deferred();
+    const oldGeneration = createAdminWithdrawalActionLifecycle(
+      { userId: ADMIN_ID, tokenGeneration: 5 },
+      () => ACTION_ID,
+    );
+    const oldPromise = oldGeneration.run(
+      fingerprint,
+      async () => oldResult.promise,
+      () => undefined,
+    );
+    oldGeneration.invalidate();
+    const newGeneration = createAdminWithdrawalActionLifecycle(
+      { userId: ADMIN_ID, tokenGeneration: 6 },
+      () => OTHER_ACTION_ID,
+    );
+    let newActionId;
+    await newGeneration.run(
+      fingerprint,
+      async ({ actionId }) => {
+        newActionId = actionId;
+      },
+      () => undefined,
+    );
+    oldResult.resolve("late");
+    await oldPromise;
+    assert.equal(oldGeneration.signal.aborted, true);
+    assert.equal(newGeneration.signal.aborted, false);
+    assert.equal(newActionId, OTHER_ACTION_ID);
+  });
+
+  await t.test("unmount aborts the POST and suppresses late state", async () => {
+    const pending = deferred();
+    const busy = [];
+    const commits = [];
+    const lifecycle = createAdminWithdrawalActionLifecycle(
+      { userId: ADMIN_ID, tokenGeneration: 7 },
+      () => ACTION_ID,
+    );
+    const completion = lifecycle.run(
+      fingerprint,
+      async () => {
+        await pending.promise;
+        if (lifecycle.isActive()) commits.push("late");
+      },
+      (nextBusy) => busy.push(nextBusy),
+    );
+    lifecycle.invalidate();
+    assert.equal(lifecycle.signal.aborted, true);
+    assert.equal(lifecycle.isBusy(), false);
+    pending.resolve("late");
+    await completion;
+    assert.deepEqual(busy, [true]);
+    assert.deepEqual(commits, []);
+  });
+
+  await t.test("exact retry reuses its action ID while payload or action changes replace it", async () => {
+    const keys = [
+      ACTION_ID,
+      OTHER_ACTION_ID,
+      "88888888-8888-4888-8888-888888888888",
+      "99999999-9999-4999-8999-999999999999",
+    ];
+    const lifecycle = createAdminWithdrawalActionLifecycle(
+      { userId: ADMIN_ID, tokenGeneration: 8 },
+      () => keys.shift(),
+    );
+    const observed = [];
+    await assert.rejects(
+      lifecycle.run(
+        fingerprint,
+        async ({ actionId }) => {
+          observed.push(actionId);
+          throw new Error("ambiguous transport failure");
+        },
+        () => undefined,
+      ),
+      /ambiguous transport failure/,
+    );
+    await lifecycle.run(
+      fingerprint,
+      async ({ actionId }) => {
+        observed.push(actionId);
+      },
+      () => undefined,
+    );
+    await lifecycle.run(
+      `reject|${WITHDRAWAL_ID}|changed reason`,
+      async ({ actionId }) => {
+        observed.push(actionId);
+      },
+      () => undefined,
+    );
+    await lifecycle.run(
+      `reject|${OTHER_WITHDRAWAL_ID}|changed reason`,
+      async ({ actionId }) => {
+        observed.push(actionId);
+      },
+      () => undefined,
+    );
+    await lifecycle.run(
+      `send_lock|${WITHDRAWAL_ID}|true|true|true`,
+      async ({ actionId }) => {
+        observed.push(actionId);
+      },
+      () => undefined,
+    );
+    assert.deepEqual(observed, [
+      ACTION_ID,
+      ACTION_ID,
+      OTHER_ACTION_ID,
+      "88888888-8888-4888-8888-888888888888",
+      "99999999-9999-4999-8999-999999999999",
+    ]);
+  });
+
+  await t.test("double click remains a single POST for the current generation", async () => {
+    const pending = deferred();
+    let posts = 0;
+    const lifecycle = createAdminWithdrawalActionLifecycle(
+      { userId: ADMIN_ID, tokenGeneration: 9 },
+      () => ACTION_ID,
+    );
+    const operation = async () => {
+      posts += 1;
+      await pending.promise;
+    };
+    const first = lifecycle.run(fingerprint, operation, () => undefined);
+    const duplicate = lifecycle.run(fingerprint, operation, () => undefined);
+    assert.strictEqual(first, duplicate);
+    assert.equal(posts, 1);
+    pending.resolve("success");
+    await first;
+  });
+});
+
 test("browser helpers use only the QHash admin endpoint and keep six-decimal amounts exact", async () => {
   const calls = [];
   const request = async (url, init) => {
@@ -938,7 +1205,15 @@ test("source scope has no provider, wallet, signing, payout, direct client datab
   assert.match(handler, /isPublishedProductionDeployContext\(context\)/);
   assert.match(component, /createLatestAdminWithdrawalRequestGuard/);
   assert.match(component, /runAdminWithdrawalSingleFlight/);
-  assert.match(component, /AbortController|request\.signal/);
+  assert.match(component, /createAdminWithdrawalActionLifecycle/);
+  assert.match(component, /const controller = new AbortController\(\)/);
+  assert.match(component, /actionLifecycleRef\.current === lifecycle/);
+  assert.match(component, /authIdentityRef\.current === actionIdentity/);
+  assert.match(
+    component,
+    /submitNowpaymentsAdminWithdrawalAction\([\s\S]*?\(input, init\) => fetch\(input, \{[\s\S]*?signal,/,
+  );
+  assert.match(component, /previousLifecycle\?\.invalidate/);
   assert.match(component, /120 confirmations/);
   assert.match(component, /Recipient must receive/);
   assert.match(component, /role="dialog"/);
