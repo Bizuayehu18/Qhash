@@ -2,10 +2,17 @@ do $preflight$
 declare
   v_function regprocedure :=
     to_regprocedure('public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)');
+  v_expected_owner oid := to_regrole('postgres');
   v_service_role oid := to_regrole('service_role');
-  v_unexpected_execute_grants integer;
+  v_anon_role oid := to_regrole('anon');
+  v_authenticated_role oid := to_regrole('authenticated');
 begin
-  if v_function is null then
+  if v_function is null
+    or v_expected_owner is null
+    or v_service_role is null
+    or v_anon_role is null
+    or v_authenticated_role is null
+  then
     raise exception 'Unexpected withdrawal-request function fingerprint';
   end if;
 
@@ -47,32 +54,54 @@ begin
     raise exception 'Unexpected withdrawal-request function fingerprint';
   end if;
 
-  if not pg_catalog.has_function_privilege(
+  perform 1
+  from pg_catalog.pg_proc p
+  where p.oid = v_function
+    and p.proowner = v_expected_owner
+    and p.proacl is not null
+    and pg_catalog.has_function_privilege(
       'service_role',
       v_function::oid,
       'EXECUTE'
     )
-    or pg_catalog.has_function_privilege('anon', v_function::oid, 'EXECUTE')
-    or pg_catalog.has_function_privilege(
+    and not pg_catalog.has_function_privilege(
+      'anon',
+      v_function::oid,
+      'EXECUTE'
+    )
+    and not pg_catalog.has_function_privilege(
       'authenticated',
       v_function::oid,
       'EXECUTE'
     )
-  then
-    raise exception 'Unexpected withdrawal-request function privileges';
-  end if;
+    and (
+      select count(*)
+      from pg_catalog.aclexplode(p.proacl) acl
+    ) = 2
+    and (
+      select count(*)
+      from pg_catalog.aclexplode(p.proacl) acl
+      where acl.grantee = v_expected_owner
+        and acl.grantor = v_expected_owner
+        and acl.privilege_type = 'EXECUTE'
+        and not acl.is_grantable
+    ) = 1
+    and (
+      select count(*)
+      from pg_catalog.aclexplode(p.proacl) acl
+      where acl.grantee = v_service_role
+        and acl.grantor = v_expected_owner
+        and acl.privilege_type = 'EXECUTE'
+        and not acl.is_grantable
+    ) = 1
+    and not exists (
+      select 1
+      from pg_catalog.aclexplode(p.proacl) acl
+      where acl.grantee in (0::oid, v_anon_role, v_authenticated_role)
+        and acl.privilege_type = 'EXECUTE'
+    );
 
-  select count(*)::integer
-  into v_unexpected_execute_grants
-  from pg_catalog.pg_proc p
-  cross join lateral pg_catalog.aclexplode(
-    coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))
-  ) acl
-  where p.oid = v_function
-    and acl.privilege_type = 'EXECUTE'
-    and acl.grantee not in (p.proowner, v_service_role);
-
-  if v_unexpected_execute_grants <> 0 then
+  if not found then
     raise exception 'Unexpected withdrawal-request function privileges';
   end if;
 end
@@ -262,8 +291,10 @@ do $postflight$
 declare
   v_function regprocedure :=
     to_regprocedure('public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)');
+  v_expected_owner oid := to_regrole('postgres');
   v_service_role oid := to_regrole('service_role');
-  v_unexpected_execute_grants integer;
+  v_anon_role oid := to_regrole('anon');
+  v_authenticated_role oid := to_regrole('authenticated');
 begin
   perform 1
   from pg_catalog.pg_proc p
@@ -303,32 +334,54 @@ begin
     raise exception 'Withdrawal-request function replacement failed';
   end if;
 
-  if not pg_catalog.has_function_privilege(
+  perform 1
+  from pg_catalog.pg_proc p
+  where p.oid = v_function
+    and p.proowner = v_expected_owner
+    and p.proacl is not null
+    and pg_catalog.has_function_privilege(
       'service_role',
       v_function::oid,
       'EXECUTE'
     )
-    or pg_catalog.has_function_privilege('anon', v_function::oid, 'EXECUTE')
-    or pg_catalog.has_function_privilege(
+    and not pg_catalog.has_function_privilege(
+      'anon',
+      v_function::oid,
+      'EXECUTE'
+    )
+    and not pg_catalog.has_function_privilege(
       'authenticated',
       v_function::oid,
       'EXECUTE'
     )
-  then
-    raise exception 'Withdrawal-request function privilege preservation failed';
-  end if;
+    and (
+      select count(*)
+      from pg_catalog.aclexplode(p.proacl) acl
+    ) = 2
+    and (
+      select count(*)
+      from pg_catalog.aclexplode(p.proacl) acl
+      where acl.grantee = v_expected_owner
+        and acl.grantor = v_expected_owner
+        and acl.privilege_type = 'EXECUTE'
+        and not acl.is_grantable
+    ) = 1
+    and (
+      select count(*)
+      from pg_catalog.aclexplode(p.proacl) acl
+      where acl.grantee = v_service_role
+        and acl.grantor = v_expected_owner
+        and acl.privilege_type = 'EXECUTE'
+        and not acl.is_grantable
+    ) = 1
+    and not exists (
+      select 1
+      from pg_catalog.aclexplode(p.proacl) acl
+      where acl.grantee in (0::oid, v_anon_role, v_authenticated_role)
+        and acl.privilege_type = 'EXECUTE'
+    );
 
-  select count(*)::integer
-  into v_unexpected_execute_grants
-  from pg_catalog.pg_proc p
-  cross join lateral pg_catalog.aclexplode(
-    coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))
-  ) acl
-  where p.oid = v_function
-    and acl.privilege_type = 'EXECUTE'
-    and acl.grantee not in (p.proowner, v_service_role);
-
-  if v_unexpected_execute_grants <> 0 then
+  if not found then
     raise exception 'Withdrawal-request function privilege preservation failed';
   end if;
 end

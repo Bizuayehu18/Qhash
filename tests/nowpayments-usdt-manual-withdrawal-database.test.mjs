@@ -167,6 +167,7 @@ async function installWithdrawalDatabase(db) {
   for (const migration of prerequisiteMigrations) await applyMigration(db, migration);
   await db.exec("update public.nowpayments_usdt_config set enabled = true where id = 'USDT-BEP20'");
   await applyMigration(db, withdrawalMigration);
+  await normalizeWithdrawalRequestSecurityToProduction(db);
   await applyMigration(db, maximumPrecisionMigration);
 }
 
@@ -175,6 +176,102 @@ async function installWithdrawalDatabaseBeforeMaximumPrecisionRepair(db) {
   for (const migration of prerequisiteMigrations) await applyMigration(db, migration);
   await db.exec("update public.nowpayments_usdt_config set enabled = true where id = 'USDT-BEP20'");
   await applyMigration(db, withdrawalMigration);
+  await normalizeWithdrawalRequestSecurityToProduction(db);
+}
+
+async function normalizeWithdrawalRequestSecurityToProduction(db) {
+  await db.exec(`
+    do $role$
+    begin
+      if to_regrole('postgres') is null then
+        create role postgres;
+      end if;
+      alter role postgres bypassrls;
+    end
+    $role$;
+
+    alter function
+      public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)
+    owner to postgres;
+    grant usage on schema public to postgres;
+    grant execute on all functions in schema public to postgres;
+    grant all privileges on all tables in schema public to postgres;
+    grant all privileges on all sequences in schema public to postgres;
+    revoke all on function
+      public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)
+    from public, anon, authenticated, service_role, postgres;
+    set role postgres;
+    grant execute on function
+      public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)
+    to postgres;
+    grant execute on function
+      public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)
+    to service_role;
+    reset role;
+  `);
+}
+
+async function withdrawalRequestFunctionSecurityFingerprint(db) {
+  return (await db.query(`
+    select
+      p.prosrc as source,
+      pg_catalog.pg_get_userbyid(p.proowner) as function_owner,
+      p.prosecdef as security_definer,
+      p.proconfig as function_config,
+      p.proacl::text as explicit_acl,
+      (
+        select jsonb_agg(
+          jsonb_build_object(
+            'grantee',
+            case when acl.grantee = 0
+              then 'PUBLIC'
+              else grantee_role.rolname
+            end,
+            'grantor', grantor_role.rolname,
+            'privilege', acl.privilege_type,
+            'grantable', acl.is_grantable
+          )
+          order by
+            case when acl.grantee = 0
+              then 'PUBLIC'
+              else grantee_role.rolname
+            end,
+            grantor_role.rolname,
+            acl.privilege_type,
+            acl.is_grantable
+        )
+        from pg_catalog.aclexplode(p.proacl) acl
+        left join pg_catalog.pg_roles grantee_role
+          on grantee_role.oid = acl.grantee
+        left join pg_catalog.pg_roles grantor_role
+          on grantor_role.oid = acl.grantor
+      ) as acl_entries
+    from pg_catalog.pg_proc p
+    where p.oid =
+      'public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)'::regprocedure
+  `)).rows[0];
+}
+
+async function assertMaximumPrecisionPrivilegeDriftFails(t, driftSql) {
+  const db = new PGlite();
+  t.after(() => db.close());
+  await installWithdrawalDatabaseBeforeMaximumPrecisionRepair(db);
+  await db.exec(driftSql);
+  const before = await withdrawalRequestFunctionSecurityFingerprint(db);
+  await assert.rejects(
+    applyMigration(db, maximumPrecisionMigration),
+    /Unexpected withdrawal-request function privileges/,
+  );
+  const after = await withdrawalRequestFunctionSecurityFingerprint(db);
+  assert.deepEqual(after, before);
+  assert.match(
+    after.source,
+    /trunc\(v_wallet\.available_balance_usdt \* 1000000\) \/ 1000000/,
+  );
+  assert.doesNotMatch(
+    after.source,
+    /trunc\(v_wallet\.available_balance_usdt, 6\)/,
+  );
 }
 
 async function createDatabase(t) {
@@ -860,34 +957,113 @@ test("maximum precision migration preflight rejects source or privilege drift be
     assert.deepEqual(after, before);
   });
 
-  await t.test("privilege drift", async (st) => {
+  await t.test("wrong function owner", (st) =>
+    assertMaximumPrecisionPrivilegeDriftFails(st, `
+      create role unexpected_withdrawal_function_owner;
+      alter function
+        public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)
+      owner to unexpected_withdrawal_function_owner
+    `));
+
+  await t.test("service_role EXECUTE WITH GRANT OPTION", (st) =>
+    assertMaximumPrecisionPrivilegeDriftFails(st, `
+      grant execute on function
+        public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)
+      to service_role with grant option
+    `));
+
+  await t.test("unexpected EXECUTE grantee", (st) =>
+    assertMaximumPrecisionPrivilegeDriftFails(st, `
+      create role unexpected_withdrawal_executor;
+      grant execute on function
+        public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)
+      to unexpected_withdrawal_executor
+    `));
+
+  for (const role of ["public", "anon", "authenticated"]) {
+    await t.test(`${role} EXECUTE`, (st) =>
+      assertMaximumPrecisionPrivilegeDriftFails(st, `
+        grant execute on function
+          public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)
+        to ${role}
+      `));
+  }
+
+  await t.test("unexpected owner ACL entry state", (st) =>
+    assertMaximumPrecisionPrivilegeDriftFails(st, `
+      grant execute on function
+        public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)
+      to postgres with grant option
+    `));
+
+  await t.test("missing expected service_role EXECUTE", (st) =>
+    assertMaximumPrecisionPrivilegeDriftFails(st, `
+      revoke execute on function
+        public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)
+      from service_role
+    `));
+
+  await t.test("correct exact owner and ACL fingerprint succeeds", async (st) => {
     const db = new PGlite();
     st.after(() => db.close());
     await installWithdrawalDatabaseBeforeMaximumPrecisionRepair(db);
-    await db.exec(`
-      grant execute on function
-        public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)
-      to authenticated
-    `);
-    await assert.rejects(
-      applyMigration(db, maximumPrecisionMigration),
-      /Unexpected withdrawal-request function privileges/,
+    const before = await withdrawalRequestFunctionSecurityFingerprint(db);
+    assert.equal(before.function_owner, "postgres");
+    assert.equal(
+      before.explicit_acl,
+      "{postgres=X/postgres,service_role=X/postgres}",
     );
-    const state = (await db.query(`
-      select
-        has_function_privilege(
-          'authenticated',
-          'public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)',
-          'EXECUTE'
-        ) as authenticated_still_has_execute,
-        md5(prosrc) as source_md5
-      from pg_proc
-      where oid = 'public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)'::regprocedure
-    `)).rows[0];
-    assert.deepEqual(state, {
-      authenticated_still_has_execute: true,
-      source_md5: "db604f242d56375f6d3cb96236d863d8",
-    });
+    assert.deepEqual(before.acl_entries, [
+      {
+        grantee: "postgres",
+        grantor: "postgres",
+        privilege: "EXECUTE",
+        grantable: false,
+      },
+      {
+        grantee: "service_role",
+        grantor: "postgres",
+        privilege: "EXECUTE",
+        grantable: false,
+      },
+    ]);
+
+    await applyMigration(db, maximumPrecisionMigration);
+    const after = await withdrawalRequestFunctionSecurityFingerprint(db);
+    assert.equal(after.function_owner, before.function_owner);
+    assert.equal(after.explicit_acl, before.explicit_acl);
+    assert.deepEqual(after.acl_entries, before.acl_entries);
+    assert.equal(after.security_definer, true);
+    assert.deepEqual(after.function_config, ["search_path=pg_catalog, public"]);
+    assert.match(
+      after.source,
+      /trunc\(v_wallet\.available_balance_usdt, 6\)/,
+    );
+  });
+
+  await t.test("postflight rejects privilege drift and rolls back replacement", async (st) => {
+    const db = new PGlite();
+    st.after(() => db.close());
+    await installWithdrawalDatabaseBeforeMaximumPrecisionRepair(db);
+    const before = await withdrawalRequestFunctionSecurityFingerprint(db);
+    const postflightDriftMigration = maximumPrecisionMigration.replace(
+      "\n$function$;\n\ndo $postflight$",
+      `
+$function$;
+
+grant execute on function
+  public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)
+to service_role with grant option;
+
+do $postflight$`,
+    );
+    assert.notEqual(postflightDriftMigration, maximumPrecisionMigration);
+    await assert.rejects(
+      applyMigration(db, postflightDriftMigration),
+      /Withdrawal-request function privilege preservation failed/,
+    );
+    const after = await withdrawalRequestFunctionSecurityFingerprint(db);
+    assert.deepEqual(after, before);
   });
 });
 
@@ -1156,6 +1332,144 @@ test("native PostgreSQL serializes requests, admin actions, and balance races on
       await applyMigration(nativeDb(observer), migration);
     }
   }
+
+  await t.test("native PostgreSQL pins the exact withdrawal-request owner and ACL before replacement", async (st) => {
+    const nativePrivilegeDrifts = [
+      {
+        name: "wrong owner",
+        sql: `
+          do $role$
+          begin
+            if to_regrole('unexpected_native_function_owner') is null then
+              create role unexpected_native_function_owner;
+            end if;
+          end
+          $role$;
+          alter function
+            public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)
+          owner to unexpected_native_function_owner
+        `,
+      },
+      {
+        name: "service_role grant option",
+        sql: `
+          grant execute on function
+            public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)
+          to service_role with grant option
+        `,
+      },
+      {
+        name: "unexpected execute grantee",
+        sql: `
+          do $role$
+          begin
+            if to_regrole('unexpected_native_executor') is null then
+              create role unexpected_native_executor;
+            end if;
+          end
+          $role$;
+          grant execute on function
+            public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)
+          to unexpected_native_executor
+        `,
+      },
+      {
+        name: "public execute",
+        sql: `
+          grant execute on function
+            public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)
+          to public
+        `,
+      },
+      {
+        name: "anon execute",
+        sql: `
+          grant execute on function
+            public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)
+          to anon
+        `,
+      },
+      {
+        name: "authenticated execute",
+        sql: `
+          grant execute on function
+            public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)
+          to authenticated
+        `,
+      },
+      {
+        name: "unexpected owner ACL entry state",
+        sql: `
+          grant execute on function
+            public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)
+          to postgres with grant option
+        `,
+      },
+      {
+        name: "missing service_role execute",
+        sql: `
+          revoke execute on function
+            public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)
+          from service_role
+        `,
+      },
+    ];
+
+    for (const drift of nativePrivilegeDrifts) {
+      await st.test(drift.name, async () => {
+        await resetNativePrerequisites();
+        await applyMigration(nativeDb(observer), withdrawalMigration);
+        await normalizeWithdrawalRequestSecurityToProduction(nativeDb(observer));
+        await observer.query(drift.sql);
+        const before = await withdrawalRequestFunctionSecurityFingerprint(nativeDb(observer));
+        await assert.rejects(
+          applyMigration(nativeDb(observer), maximumPrecisionMigration),
+          /Unexpected withdrawal-request function privileges/,
+        );
+        const after = await withdrawalRequestFunctionSecurityFingerprint(nativeDb(observer));
+        assert.deepEqual(after, before);
+        assert.match(
+          after.source,
+          /trunc\(v_wallet\.available_balance_usdt \* 1000000\) \/ 1000000/,
+        );
+      });
+    }
+
+    await st.test("correct exact owner and ACL", async () => {
+      await resetNativePrerequisites();
+      await applyMigration(nativeDb(observer), withdrawalMigration);
+      await normalizeWithdrawalRequestSecurityToProduction(nativeDb(observer));
+      const before = await withdrawalRequestFunctionSecurityFingerprint(nativeDb(observer));
+      assert.equal(before.function_owner, "postgres");
+      assert.equal(
+        before.explicit_acl,
+        "{postgres=X/postgres,service_role=X/postgres}",
+      );
+      assert.deepEqual(before.acl_entries, [
+        {
+          grantee: "postgres",
+          grantor: "postgres",
+          privilege: "EXECUTE",
+          grantable: false,
+        },
+        {
+          grantee: "service_role",
+          grantor: "postgres",
+          privilege: "EXECUTE",
+          grantable: false,
+        },
+      ]);
+      await applyMigration(nativeDb(observer), maximumPrecisionMigration);
+      const after = await withdrawalRequestFunctionSecurityFingerprint(nativeDb(observer));
+      assert.equal(after.function_owner, before.function_owner);
+      assert.equal(after.explicit_acl, before.explicit_acl);
+      assert.deepEqual(after.acl_entries, before.acl_entries);
+      assert.match(
+        after.source,
+        /trunc\(v_wallet\.available_balance_usdt, 6\)/,
+      );
+    });
+  });
 
   await t.test("native PostgreSQL preserves the exact large maximum under concurrent requests", async () => {
     const balance = "123456789012345678.123456999999999999";
