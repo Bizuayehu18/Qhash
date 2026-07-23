@@ -32,6 +32,7 @@ import { formatDateTime } from "@/lib/format.js";
 import { useAuthStore } from "@/store/authStore.js";
 import { supabase } from "@/lib/supabase.js";
 import { withTimeout } from "@/lib/async.js";
+import { NowpaymentsUsdtWithdrawalAdmin } from "@/components/admin/NowpaymentsUsdtWithdrawalAdmin.js";
 import { getAdminStatsFn } from "@/lib/server/admin.js";
 import {
   getPaymentMethodsFn,
@@ -76,9 +77,11 @@ const ADMIN_AUTO_RETRY_DELAY_MS = 1_500;
 const ADMIN_MAX_AUTO_RETRIES = 2;
 
 function AdminPage() {
-  const { user, profile } = useAuthStore();
+  const { user, profile, session } = useAuthStore();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<"overview" | "deposits" | "withdrawals" | "audit" | "security" | "settings">("overview");
+  const [activeTab, setActiveTab] = useState<
+    "overview" | "deposits" | "withdrawals" | "usdt-withdrawals" | "audit" | "security" | "settings"
+  >("overview");
 
   useEffect(() => {
     if (profile && !profile.is_admin) navigate({ to: "/dashboard" });
@@ -102,7 +105,8 @@ function AdminPage() {
         {([
           { key: "overview", label: "Overview" },
           { key: "deposits", label: "Deposits" },
-          { key: "withdrawals", label: "Withdrawals" },
+          { key: "withdrawals", label: "ETB Withdrawals" },
+          { key: "usdt-withdrawals", label: "USDT Withdrawals" },
           { key: "audit", label: "Verification Audit" },
           { key: "security", label: "Security" },
           { key: "settings", label: "Settings" },
@@ -124,6 +128,12 @@ function AdminPage() {
       {activeTab === "overview" && <OverviewTab userId={user?.id} />}
       {activeTab === "deposits" && <DepositsTab userId={user?.id} />}
       {activeTab === "withdrawals" && <WithdrawalsTab userId={user?.id} />}
+      {activeTab === "usdt-withdrawals" && (
+        <NowpaymentsUsdtWithdrawalAdmin
+          accessToken={session?.access_token ?? null}
+          userId={user?.id}
+        />
+      )}
       {activeTab === "audit" && <AuditLogsTab userId={user?.id} />}
       {activeTab === "security" && <AdminSecurityTab userId={user?.id} />}
       {activeTab === "settings" && <SettingsTab userId={user?.id} />}
