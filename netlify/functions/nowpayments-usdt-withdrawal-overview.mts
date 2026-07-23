@@ -18,6 +18,7 @@ const WITHDRAWAL_STATUSES = new Set([
 ]);
 
 type WithdrawalRow = {
+  id: string;
   user_id: string;
   destination_address: string;
   gross_amount_usdt: string;
@@ -35,6 +36,7 @@ type WithdrawalRow = {
 
 type BroadcastRow = {
   id: string;
+  withdrawal_id: string;
   transaction_hash: string;
 };
 
@@ -69,7 +71,9 @@ function validateWithdrawal(value: unknown, userId: string): WithdrawalRow {
   }
   const row = value as Record<string, unknown>;
   if (
-    row.user_id !== userId
+    typeof row.id !== "string"
+    || !UUID_PATTERN.test(row.id)
+    || row.user_id !== userId
     || typeof row.destination_address !== "string"
     || !ADDRESS_PATTERN.test(row.destination_address)
     || !isDecimal(row.gross_amount_usdt)
@@ -103,6 +107,8 @@ function validateBroadcast(value: unknown): BroadcastRow {
   if (
     typeof row.id !== "string"
     || !UUID_PATTERN.test(row.id)
+    || typeof row.withdrawal_id !== "string"
+    || !UUID_PATTERN.test(row.withdrawal_id)
     || typeof row.transaction_hash !== "string"
     || !TRANSACTION_HASH_PATTERN.test(row.transaction_hash)
   ) {
@@ -190,7 +196,7 @@ export default async (req: Request, context?: Context): Promise<Response> => {
     admin
       .from("nowpayments_usdt_withdrawals")
       .select(
-        "user_id,destination_address,gross_amount_usdt::text,fee_percent::text,fee_amount_usdt::text,net_amount_usdt::text,status,requested_at,updated_at,broadcasted_at,completed_at,rejected_at,current_broadcast_id",
+        "id,user_id,destination_address,gross_amount_usdt::text,fee_percent::text,fee_amount_usdt::text,net_amount_usdt::text,status,requested_at,updated_at,broadcasted_at,completed_at,rejected_at,current_broadcast_id",
       )
       .eq("user_id", userId)
       .order("requested_at", { ascending: false })
@@ -219,18 +225,48 @@ export default async (req: Request, context?: Context): Promise<Response> => {
 
     const withdrawals = ((withdrawalsResult.data ?? []) as unknown[])
       .map((row) => validateWithdrawal(row, userId));
-    const broadcastIds = withdrawals
-      .map((row) => row.current_broadcast_id)
-      .filter((value): value is string => value !== null);
+    if (new Set(withdrawals.map((row) => row.id)).size !== withdrawals.length) {
+      throw new Error("duplicate_withdrawal_read");
+    }
+    const expectedBroadcasts = withdrawals.flatMap((row) => (
+      row.current_broadcast_id
+        ? [{ withdrawalId: row.id, broadcastId: row.current_broadcast_id }]
+        : []
+    ));
+    const broadcastIds = expectedBroadcasts.map((row) => row.broadcastId);
+    if (new Set(broadcastIds).size !== broadcastIds.length) {
+      throw new Error("duplicate_broadcast_relationship");
+    }
     let broadcasts: BroadcastRow[] = [];
-    if (broadcastIds.length > 0) {
+    if (expectedBroadcasts.length > 0) {
+      const withdrawalIds = expectedBroadcasts.map((row) => row.withdrawalId);
       const { data, error } = await admin
         .from("nowpayments_usdt_withdrawal_broadcasts")
-        .select("id,transaction_hash")
-        .in("id", broadcastIds);
+        .select("id,withdrawal_id,transaction_hash")
+        .in("id", broadcastIds)
+        .in("withdrawal_id", withdrawalIds);
       if (error) throw new Error("broadcast_read_failed");
       broadcasts = ((data ?? []) as unknown[]).map(validateBroadcast);
-      if (broadcasts.length !== new Set(broadcastIds).size) {
+      const expectedByBroadcastId = new Map(
+        expectedBroadcasts.map((row) => [row.broadcastId, row.withdrawalId] as const),
+      );
+      const seenBroadcastIds = new Set<string>();
+      const seenWithdrawalIds = new Set<string>();
+      for (const broadcast of broadcasts) {
+        if (
+          seenBroadcastIds.has(broadcast.id)
+          || seenWithdrawalIds.has(broadcast.withdrawal_id)
+          || expectedByBroadcastId.get(broadcast.id) !== broadcast.withdrawal_id
+        ) {
+          throw new Error("invalid_broadcast_relationship");
+        }
+        seenBroadcastIds.add(broadcast.id);
+        seenWithdrawalIds.add(broadcast.withdrawal_id);
+      }
+      if (
+        broadcasts.length !== expectedBroadcasts.length
+        || seenBroadcastIds.size !== expectedBroadcasts.length
+      ) {
         throw new Error("broadcast_read_incomplete");
       }
     }

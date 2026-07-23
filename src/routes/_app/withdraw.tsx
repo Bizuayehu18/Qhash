@@ -460,6 +460,7 @@ function WithdrawPage() {
         {usdtSelected ? (
           <NowpaymentsUsdtWithdrawal
             accessToken={accessToken}
+            userId={user?.id ?? null}
             onBack={() => setUsdtSelected(false)}
           />
         ) : !method ? (

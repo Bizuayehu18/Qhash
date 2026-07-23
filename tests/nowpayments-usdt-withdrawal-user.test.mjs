@@ -5,6 +5,7 @@ import overviewHandler from "../netlify/functions/nowpayments-usdt-withdrawal-ov
 import requestHandler from "../netlify/functions/nowpayments-usdt-withdrawal-request.mts";
 import {
   calculateWithdrawalPreview,
+  createLatestWithdrawalOverviewRequestGuard,
   createWithdrawalAttemptKeyManager,
   fetchNowpaymentsWithdrawalOverview,
   floorUsdtToSix,
@@ -21,6 +22,8 @@ const USER_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_USER_ID = "22222222-2222-4222-8222-222222222222";
 const ACTION_ID = "33333333-3333-4333-8333-333333333333";
 const BROADCAST_ID = "44444444-4444-4444-8444-444444444444";
+const WITHDRAWAL_ID = "55555555-5555-4555-8555-555555555555";
+const OTHER_WITHDRAWAL_ID = "66666666-6666-4666-8666-666666666666";
 const ADDRESS = "0x1111111111111111111111111111111111111111";
 const OTHER_ADDRESS = "0x2222222222222222222222222222222222222222";
 const HASH = `0x${"a".repeat(64)}`;
@@ -28,6 +31,7 @@ const PUBLISHED_PRODUCTION_CONTEXT = { deploy: { context: "production", publishe
 
 function validOverviewWithdrawal(overrides = {}) {
   return {
+    id: WITHDRAWAL_ID,
     user_id: USER_ID,
     destination_address: ADDRESS,
     gross_amount_usdt: "3.000000",
@@ -122,7 +126,11 @@ async function withRuntime(options, operation) {
       return Response.json(options.withdrawals ?? []);
     }
     if (url.includes("/rest/v1/nowpayments_usdt_withdrawal_broadcasts")) {
-      return Response.json(options.broadcasts ?? [{ id: BROADCAST_ID, transaction_hash: HASH }]);
+      return Response.json(options.broadcasts ?? [{
+        id: BROADCAST_ID,
+        withdrawal_id: WITHDRAWAL_ID,
+        transaction_hash: HASH,
+      }]);
     }
     if (url.includes("/rest/v1/rpc/request_nowpayments_usdt_withdrawal")) {
       const rawBody = typeof init.body === "string" ? init.body : "{}";
@@ -184,6 +192,29 @@ function validRequestBody(overrides = {}) {
     idempotency_key: ACTION_ID,
     ...overrides,
   };
+}
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
+function startGuardedOverview(guard, identity, operation, commits) {
+  const request = guard.begin(identity);
+  const completion = (async () => {
+    try {
+      const value = await operation;
+      if (request.isCurrent()) commits.push({ identity, kind: "success", value });
+    } catch (error) {
+      if (request.isCurrent()) commits.push({ identity, error, kind: "failure" });
+    }
+  })();
+  return { completion, request };
 }
 
 test("both endpoints fail closed outside a published production deploy before environment or network access", async () => {
@@ -264,12 +295,20 @@ test("overview is user-scoped, exact-string, readable while disabled, and saniti
     assert.equal(body.history[0].transaction_hash, HASH);
     const serialized = JSON.stringify(body);
     assert.doesNotMatch(serialized, /admin|sensitive|service-role|withdrawal_id|idempotency/i);
+    assert.doesNotMatch(serialized, new RegExp(OTHER_USER_ID));
     const scopedUrls = requests
       .map((request) => request.url)
       .filter((url) => url.includes("nowpayments_usdt_wallets") || url.includes("nowpayments_usdt_withdrawals"));
     assert.equal(scopedUrls.length, 2);
     assert.ok(scopedUrls.every((url) => url.includes(`user_id=eq.${USER_ID}`)));
     assert.ok(scopedUrls.every((url) => !url.includes(OTHER_USER_ID)));
+    const broadcastUrl = requests
+      .map((request) => request.url)
+      .find((url) => url.includes("nowpayments_usdt_withdrawal_broadcasts"));
+    assert.ok(broadcastUrl);
+    assert.match(broadcastUrl, new RegExp(`id=in\\.%28${BROADCAST_ID}%29`));
+    assert.match(broadcastUrl, new RegExp(`withdrawal_id=in\\.%28${WITHDRAWAL_ID}%29`));
+    assert.doesNotMatch(broadcastUrl, new RegExp(OTHER_USER_ID));
   });
 });
 
@@ -282,6 +321,173 @@ test("overview rejects ownership drift and never exposes another user", async ()
       assert.doesNotMatch(await response.text(), new RegExp(OTHER_USER_ID));
     },
   );
+});
+
+test("overview fails closed for missing, cross-user, cross-withdrawal, duplicate, or malformed broadcasts", async () => {
+  const foreignHash = `0x${"b".repeat(64)}`;
+  const cases = [
+    {
+      name: "missing",
+      broadcasts: [],
+    },
+    {
+      name: "cross-user broadcast id",
+      broadcasts: [{
+        id: BROADCAST_ID,
+        withdrawal_id: OTHER_WITHDRAWAL_ID,
+        transaction_hash: foreignHash,
+      }],
+    },
+    {
+      name: "same-user other withdrawal",
+      withdrawals: [
+        validOverviewWithdrawal(),
+        validOverviewWithdrawal({
+          id: OTHER_WITHDRAWAL_ID,
+          current_broadcast_id: null,
+          destination_address: OTHER_ADDRESS,
+        }),
+      ],
+      broadcasts: [{
+        id: BROADCAST_ID,
+        withdrawal_id: OTHER_WITHDRAWAL_ID,
+        transaction_hash: foreignHash,
+      }],
+    },
+    {
+      name: "duplicate relationship",
+      broadcasts: [
+        {
+          id: BROADCAST_ID,
+          withdrawal_id: WITHDRAWAL_ID,
+          transaction_hash: HASH,
+        },
+        {
+          id: BROADCAST_ID,
+          withdrawal_id: WITHDRAWAL_ID,
+          transaction_hash: foreignHash,
+        },
+      ],
+    },
+    {
+      name: "database drift",
+      broadcasts: [{
+        id: BROADCAST_ID,
+        withdrawal_id: "not-a-uuid",
+        transaction_hash: foreignHash,
+      }],
+    },
+  ];
+
+  for (const fixture of cases) {
+    await withRuntime(
+      { withdrawals: [validOverviewWithdrawal()], ...fixture },
+      async () => {
+        const response = await overviewHandler(overviewRequest(), PUBLISHED_PRODUCTION_CONTEXT);
+        assert.equal(response.status, 503, fixture.name);
+        const serialized = await response.text();
+        assert.doesNotMatch(serialized, new RegExp(OTHER_USER_ID), fixture.name);
+        assert.doesNotMatch(serialized, new RegExp(OTHER_WITHDRAWAL_ID), fixture.name);
+        assert.doesNotMatch(serialized, new RegExp(OTHER_ADDRESS), fixture.name);
+        assert.doesNotMatch(serialized, new RegExp(foreignHash), fixture.name);
+        assert.doesNotMatch(serialized, /withdrawal_id|broadcast_id/i, fixture.name);
+      },
+    );
+  }
+});
+
+test("latest overview guard deterministically rejects stale, cross-auth, submitted-over, and unmounted results", async (t) => {
+  await t.test("older success resolves after newer success", async () => {
+    const guard = createLatestWithdrawalOverviewRequestGuard();
+    const identity = { userId: USER_ID, tokenGeneration: 1 };
+    const older = deferred();
+    const newer = deferred();
+    const commits = [];
+    const olderAttempt = startGuardedOverview(guard, identity, older.promise, commits);
+    const newerAttempt = startGuardedOverview(guard, identity, newer.promise, commits);
+    assert.equal(olderAttempt.request.signal.aborted, true);
+    newer.resolve("newest");
+    await newerAttempt.completion;
+    older.resolve("stale");
+    await olderAttempt.completion;
+    assert.deepEqual(commits.map((entry) => entry.value), ["newest"]);
+  });
+
+  await t.test("older failure cannot replace newer success", async () => {
+    const guard = createLatestWithdrawalOverviewRequestGuard();
+    const identity = { userId: USER_ID, tokenGeneration: 1 };
+    const older = deferred();
+    const newer = deferred();
+    const commits = [];
+    const olderAttempt = startGuardedOverview(guard, identity, older.promise, commits);
+    const newerAttempt = startGuardedOverview(guard, identity, newer.promise, commits);
+    newer.resolve("authorized");
+    await newerAttempt.completion;
+    older.reject(new Error("stale sensitive failure"));
+    await olderAttempt.completion;
+    assert.deepEqual(
+      commits.map(({ kind, value }) => ({ kind, value })),
+      [{ kind: "success", value: "authorized" }],
+    );
+  });
+
+  await t.test("token or user change prevents the old authorization from committing", async () => {
+    const guard = createLatestWithdrawalOverviewRequestGuard();
+    const firstIdentity = { userId: USER_ID, tokenGeneration: 1 };
+    const nextIdentity = { userId: OTHER_USER_ID, tokenGeneration: 2 };
+    const oldUser = deferred();
+    const newUser = deferred();
+    const commits = [];
+    const oldAttempt = startGuardedOverview(guard, firstIdentity, oldUser.promise, commits);
+    const newAttempt = startGuardedOverview(guard, nextIdentity, newUser.promise, commits);
+    newUser.resolve("new-user-data");
+    await newAttempt.completion;
+    oldUser.resolve("cross-user-data");
+    await oldAttempt.completion;
+    assert.equal(oldAttempt.request.signal.aborted, true);
+    assert.deepEqual(commits, [{
+      identity: nextIdentity,
+      kind: "success",
+      value: "new-user-data",
+    }]);
+  });
+
+  await t.test("post-submission refresh wins over the original overview", async () => {
+    const guard = createLatestWithdrawalOverviewRequestGuard();
+    const identity = { userId: USER_ID, tokenGeneration: 1 };
+    const original = deferred();
+    const refreshed = deferred();
+    const commits = [];
+    const originalAttempt = startGuardedOverview(guard, identity, original.promise, commits);
+    guard.invalidate();
+    assert.equal(originalAttempt.request.signal.aborted, true);
+    const refreshAttempt = startGuardedOverview(guard, identity, refreshed.promise, commits);
+    refreshed.resolve("withdrawal-reserved");
+    await refreshAttempt.completion;
+    original.resolve("pre-submission-wallet");
+    await originalAttempt.completion;
+    assert.deepEqual(commits.map((entry) => entry.value), ["withdrawal-reserved"]);
+  });
+
+  await t.test("unmount invalidation prevents pending success or failure from committing", async () => {
+    const guard = createLatestWithdrawalOverviewRequestGuard();
+    const identity = { userId: USER_ID, tokenGeneration: 1 };
+    const pendingSuccess = deferred();
+    const commits = [];
+    const attempt = startGuardedOverview(guard, identity, pendingSuccess.promise, commits);
+    guard.invalidate();
+    assert.equal(attempt.request.signal.aborted, true);
+    pendingSuccess.resolve("after-unmount");
+    await attempt.completion;
+    assert.deepEqual(commits, []);
+
+    const pendingFailure = deferred();
+    const secondAttempt = startGuardedOverview(guard, identity, pendingFailure.promise, commits);
+    guard.invalidate();
+    pendingFailure.reject(new Error("after-unmount failure"));
+    await secondAttempt.completion;
+    assert.deepEqual(commits, []);
+  });
 });
 
 test("fixed-point helpers enforce six decimals, minimum, exact rounding, and Max flooring", () => {
@@ -441,8 +647,10 @@ test("browser helpers call only QHash endpoints and reject disabled requests wit
       { status: 503 },
     );
   };
-  const overview = await fetchNowpaymentsWithdrawalOverview("token", request);
+  const controller = new AbortController();
+  const overview = await fetchNowpaymentsWithdrawalOverview("token", request, controller.signal);
   assert.equal(overview.withdrawals_enabled, false);
+  assert.equal(calls[0].init.signal, controller.signal);
   await assert.rejects(
     submitNowpaymentsWithdrawalRequest("token", validRequestBody(), request),
     (error) => error?.kind === "disabled" && !error.message.includes("internal detail"),
@@ -473,6 +681,19 @@ test("source boundaries contain no provider, signing, payout, client database, o
   assert.equal((requestSource.match(/\.rpc\("request_nowpayments_usdt_withdrawal"/g) ?? []).length, 1);
   assert.match(uiSource, /BigInt|formatUsdtMicros/);
   assert.doesNotMatch(uiSource, /Number\(|parseFloat|parseInt/);
+  assert.match(uiSource, /createLatestWithdrawalOverviewRequestGuard/);
+  assert.match(uiSource, /\.begin\(authIdentity\)/);
+  assert.match(uiSource, /fetchNowpaymentsWithdrawalOverview\([\s\S]*?request\.signal/);
+  assert.ok((uiSource.match(/request\.isCurrent\(\)/g) ?? []).length >= 3);
+  assert.match(
+    uiSource,
+    /overviewRequestsRef\.current!\.invalidate\(\);[\s\S]*?setSubmitting\(true\)/,
+  );
+  assert.match(
+    uiSource,
+    /return \(\) => \{[\s\S]*?mountedRef\.current = false;[\s\S]*?\.invalidate\(\)/,
+  );
+  assert.match(withdrawRoute, /userId=\{user\?\.id \?\? null\}/);
   assert.match(withdrawRoute, /submitWithdrawalFn/);
   assert.match(withdrawRoute, /CBE Withdrawal/);
   assert.match(withdrawRoute, /TeleBirr Withdrawal/);

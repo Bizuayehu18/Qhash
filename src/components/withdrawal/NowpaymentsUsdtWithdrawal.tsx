@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/Input.js";
 import { formatDateTime } from "@/lib/format.js";
 import {
   calculateWithdrawalPreview,
+  createLatestWithdrawalOverviewRequestGuard,
   createWithdrawalAttemptKeyManager,
   floorUsdtToSix,
   formatUsdtDisplay,
@@ -27,50 +28,114 @@ const HISTORY_PREVIEW_LIMIT = 8;
 
 export function NowpaymentsUsdtWithdrawal({
   accessToken,
+  userId,
   onBack,
 }: {
   accessToken: string | null;
+  userId: string | null;
   onBack: () => void;
 }) {
-  const [overview, setOverview] = useState<NowpaymentsWithdrawalOverview | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
+  const authIdentity = useMemo(
+    () => (accessToken && userId ? { userId } : null),
+    [accessToken, userId],
+  );
+  const [overviewState, setOverviewState] = useState<{
+    identity: object | null;
+    overview: NowpaymentsWithdrawalOverview | null;
+    loading: boolean;
+    loadError: boolean;
+  }>({
+    identity: null,
+    overview: null,
+    loading: true,
+    loadError: false,
+  });
   const [grossAmount, setGrossAmount] = useState("");
   const [destination, setDestination] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const mountedRef = useRef(true);
+  const authIdentityRef = useRef(authIdentity);
+  authIdentityRef.current = authIdentity;
+  const overviewRequestsRef = useRef<ReturnType<
+    typeof createLatestWithdrawalOverviewRequestGuard
+  > | null>(null);
+  if (overviewRequestsRef.current === null) {
+    overviewRequestsRef.current = createLatestWithdrawalOverviewRequestGuard();
+  }
   const submitPromiseRef = useRef<Promise<void> | null>(null);
   const attemptKeysRef = useRef<ReturnType<typeof createWithdrawalAttemptKeyManager> | null>(null);
   if (attemptKeysRef.current === null) {
     attemptKeysRef.current = createWithdrawalAttemptKeyManager();
   }
+  const visibleOverviewState = overviewState.identity === authIdentity
+    ? overviewState
+    : {
+        identity: authIdentity,
+        overview: null,
+        loading: authIdentity !== null,
+        loadError: authIdentity === null,
+      };
+  const {
+    overview,
+    loading,
+    loadError,
+  } = visibleOverviewState;
 
   const loadOverview = useCallback(async () => {
-    if (!accessToken) {
+    if (!accessToken || !authIdentity) {
+      overviewRequestsRef.current!.invalidate();
       if (mountedRef.current) {
-        setLoading(false);
-        setLoadError(true);
+        setOverviewState({
+          identity: null,
+          overview: null,
+          loading: false,
+          loadError: true,
+        });
       }
       return;
     }
-    setLoading(true);
-    setLoadError(false);
-    try {
-      const nextOverview = await fetchNowpaymentsWithdrawalOverview(accessToken);
-      if (mountedRef.current) setOverview(nextOverview);
-    } catch {
-      if (mountedRef.current) setLoadError(true);
-    } finally {
-      if (mountedRef.current) setLoading(false);
+    const request = overviewRequestsRef.current!.begin(authIdentity);
+    if (mountedRef.current && request.isCurrent()) {
+      setOverviewState((current) => ({
+        identity: authIdentity,
+        overview: current.identity === authIdentity ? current.overview : null,
+        loading: true,
+        loadError: false,
+      }));
     }
-  }, [accessToken]);
+    try {
+      const nextOverview = await fetchNowpaymentsWithdrawalOverview(
+        accessToken,
+        fetch,
+        request.signal,
+      );
+      if (mountedRef.current && request.isCurrent()) {
+        setOverviewState({
+          identity: authIdentity,
+          overview: nextOverview,
+          loading: false,
+          loadError: false,
+        });
+      }
+    } catch {
+      if (mountedRef.current && request.isCurrent()) {
+        setOverviewState((current) => ({
+          identity: authIdentity,
+          overview: current.identity === authIdentity ? current.overview : null,
+          loading: false,
+          loadError: true,
+        }));
+      }
+    }
+  }, [accessToken, authIdentity]);
 
   useEffect(() => {
     mountedRef.current = true;
     void loadOverview();
     return () => {
       mountedRef.current = false;
+      overviewRequestsRef.current!.invalidate();
     };
   }, [loadOverview]);
 
@@ -97,7 +162,7 @@ export function NowpaymentsUsdtWithdrawal({
   };
 
   const submit = async () => {
-    if (!accessToken || !overview?.withdrawals_enabled) return;
+    if (!accessToken || !authIdentity || !overview?.withdrawals_enabled) return;
     if (!amountValid) {
       toast.error("Enter at least 2 USDT with no more than six decimals.");
       return;
@@ -113,6 +178,12 @@ export function NowpaymentsUsdtWithdrawal({
 
     const normalizedAddress = destination.toLowerCase();
     const idempotencyKey = attemptKeysRef.current!.keyFor(grossAmount, normalizedAddress);
+    const submissionIdentity = authIdentity;
+    overviewRequestsRef.current!.invalidate();
+    setOverviewState((current) => ({
+      ...current,
+      loading: false,
+    }));
     setSubmitting(true);
     try {
       await submitNowpaymentsWithdrawalRequest(accessToken, {
@@ -120,12 +191,14 @@ export function NowpaymentsUsdtWithdrawal({
         destination_address: normalizedAddress,
         idempotency_key: idempotencyKey,
       });
+      if (!mountedRef.current || authIdentityRef.current !== submissionIdentity) return;
       attemptKeysRef.current!.clear();
       setGrossAmount("");
       setDestination("");
       toast.success("USDT withdrawal submitted for manual review.");
       await loadOverview();
     } catch (error) {
+      if (!mountedRef.current || authIdentityRef.current !== submissionIdentity) return;
       if (error instanceof NowpaymentsWithdrawalUiError) {
         const messages: Record<NowpaymentsWithdrawalUiError["kind"], string> = {
           authentication: "Your session has expired. Please sign in again.",
@@ -141,7 +214,9 @@ export function NowpaymentsUsdtWithdrawal({
         toast.error("USDT withdrawal could not be submitted. You can retry safely.");
       }
     } finally {
-      if (mountedRef.current) setSubmitting(false);
+      if (mountedRef.current && authIdentityRef.current === submissionIdentity) {
+        setSubmitting(false);
+      }
     }
   };
 

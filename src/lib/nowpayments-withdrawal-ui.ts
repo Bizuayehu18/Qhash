@@ -215,13 +215,49 @@ function throwForResponse(response: Response, value: unknown): never {
   throw new NowpaymentsWithdrawalUiError("unavailable");
 }
 
+export function createLatestWithdrawalOverviewRequestGuard() {
+  let generation = 0;
+  let active: {
+    controller: AbortController;
+    generation: number;
+    identity: unknown;
+  } | null = null;
+
+  return {
+    begin(identity: unknown) {
+      generation += 1;
+      active?.controller.abort();
+      const controller = new AbortController();
+      const requestGeneration = generation;
+      active = { controller, generation: requestGeneration, identity };
+      return {
+        generation: requestGeneration,
+        signal: controller.signal,
+        isCurrent: () => (
+          active?.controller === controller
+          && active.generation === requestGeneration
+          && Object.is(active.identity, identity)
+          && !controller.signal.aborted
+        ),
+      };
+    },
+    invalidate() {
+      generation += 1;
+      active?.controller.abort();
+      active = null;
+    },
+  };
+}
+
 export async function fetchNowpaymentsWithdrawalOverview(
   accessToken: string,
   request: typeof fetch = fetch,
+  signal?: AbortSignal,
 ): Promise<NowpaymentsWithdrawalOverview> {
   const response = await request("/api/crypto/nowpayments/withdrawal-overview", {
     method: "GET",
     headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" },
+    signal,
   });
   const value = await readJson(response);
   if (!response.ok) throwForResponse(response, value);
