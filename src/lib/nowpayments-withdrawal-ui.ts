@@ -1,8 +1,5 @@
 export const NOWPAYMENTS_WITHDRAWAL_STATUSES = [
-  "reserved",
-  "reviewing",
-  "send_locked",
-  "broadcasted",
+  "pending",
   "completed",
   "rejected",
 ] as const;
@@ -16,11 +13,6 @@ export type NowpaymentsWithdrawalHistoryView = {
   fee_amount_usdt: string;
   net_amount_usdt: string;
   requested_at: string;
-  updated_at: string;
-  transaction_hash: string | null;
-  completed_at: string | null;
-  rejected_at: string | null;
-  rejection_message: "Funds returned." | null;
 };
 
 export type NowpaymentsWithdrawalOverview = {
@@ -46,7 +38,6 @@ export type NowpaymentsWithdrawalRequestResult = {
 const DECIMAL_PATTERN = /^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/;
 const INPUT_DECIMAL_PATTERN = /^(?:0|[1-9]\d{0,29})(?:\.\d{1,6})?$/;
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
-const TRANSACTION_HASH_PATTERN = /^0x[0-9a-f]{64}$/;
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const STATUS_SET = new Set<string>(NOWPAYMENTS_WITHDRAWAL_STATUSES);
 const MICROS_PER_USDT = 1_000_000n;
@@ -59,6 +50,9 @@ export class NowpaymentsWithdrawalUiError extends Error {
     | "conflict"
     | "insufficient_balance"
     | "invalid_destination"
+    | "fund_password_not_set"
+    | "incorrect_fund_password"
+    | "fund_password_locked"
     | "validation"
     | "unavailable";
 
@@ -87,14 +81,6 @@ function isTimestamp(value: unknown): value is string {
   return typeof value === "string" && Number.isFinite(new Date(value).getTime());
 }
 
-function isNullableTimestamp(value: unknown): value is string | null {
-  return value === null || isTimestamp(value);
-}
-
-function isNullableTransactionHash(value: unknown): value is string | null {
-  return value === null || (typeof value === "string" && TRANSACTION_HASH_PATTERN.test(value));
-}
-
 function parseHistory(value: unknown): NowpaymentsWithdrawalHistoryView {
   if (!isObject(value)) throw new NowpaymentsWithdrawalUiError("unavailable");
   if (
@@ -106,15 +92,6 @@ function parseHistory(value: unknown): NowpaymentsWithdrawalHistoryView {
     || !isDecimal(value.fee_amount_usdt)
     || !isDecimal(value.net_amount_usdt)
     || !isTimestamp(value.requested_at)
-    || !isTimestamp(value.updated_at)
-    || !isNullableTransactionHash(value.transaction_hash)
-    || !isNullableTimestamp(value.completed_at)
-    || !isNullableTimestamp(value.rejected_at)
-    || (value.rejection_message !== null && value.rejection_message !== "Funds returned.")
-    || (value.status === "completed" && value.completed_at === null)
-    || (value.status === "rejected"
-      && (value.rejected_at === null || value.rejection_message !== "Funds returned."))
-    || (value.status !== "rejected" && value.rejection_message !== null)
   ) {
     throw new NowpaymentsWithdrawalUiError("unavailable");
   }
@@ -125,11 +102,6 @@ function parseHistory(value: unknown): NowpaymentsWithdrawalHistoryView {
     fee_amount_usdt: value.fee_amount_usdt,
     net_amount_usdt: value.net_amount_usdt,
     requested_at: value.requested_at,
-    updated_at: value.updated_at,
-    transaction_hash: value.transaction_hash,
-    completed_at: value.completed_at,
-    rejected_at: value.rejected_at,
-    rejection_message: value.rejection_message as "Funds returned." | null,
   };
 }
 
@@ -206,6 +178,15 @@ function throwForResponse(response: Response, value: unknown): never {
   if (error === "invalid_destination") {
     throw new NowpaymentsWithdrawalUiError("invalid_destination");
   }
+  if (error === "fund_password_not_set") {
+    throw new NowpaymentsWithdrawalUiError("fund_password_not_set");
+  }
+  if (error === "incorrect_fund_password") {
+    throw new NowpaymentsWithdrawalUiError("incorrect_fund_password");
+  }
+  if (error === "fund_password_locked") {
+    throw new NowpaymentsWithdrawalUiError("fund_password_locked");
+  }
   if (error === "idempotency_conflict" || error === "withdrawal_already_open") {
     throw new NowpaymentsWithdrawalUiError("conflict");
   }
@@ -269,6 +250,7 @@ export async function submitNowpaymentsWithdrawalRequest(
   input: {
     gross_amount_usdt: string;
     destination_address: string;
+    fund_password: string;
     idempotency_key: string;
   },
   request: typeof fetch = fetch,
@@ -343,12 +325,9 @@ export function formatUsdtDisplay(value: string): string {
 
 export function nowpaymentsWithdrawalStatusLabel(status: NowpaymentsWithdrawalStatus): string {
   const labels: Record<NowpaymentsWithdrawalStatus, string> = {
-    reserved: "Submitted",
-    reviewing: "Under review",
-    send_locked: "Approved for sending",
-    broadcasted: "Sent — confirming",
+    pending: "Pending",
     completed: "Completed",
-    rejected: "Rejected — funds returned",
+    rejected: "Rejected",
   };
   return labels[status];
 }
@@ -360,14 +339,14 @@ export function maskBep20Address(value: string): string {
 export function createWithdrawalAttemptKeyManager(
   createKey: () => string = () => globalThis.crypto.randomUUID(),
 ): {
-  keyFor: (grossAmount: string, destination: string) => string;
+  keyFor: (grossAmount: string, destination: string, fundPassword: string) => string;
   clear: () => void;
 } {
   let fingerprint: string | null = null;
   let key: string | null = null;
   return {
-    keyFor(grossAmount, destination) {
-      const nextFingerprint = `${grossAmount}|${destination.toLowerCase()}`;
+    keyFor(grossAmount, destination, fundPassword) {
+      const nextFingerprint = `${grossAmount}|${destination.toLowerCase()}|${fundPassword}`;
       if (nextFingerprint !== fingerprint || key === null) {
         const nextKey = createKey();
         if (!UUID_V4_PATTERN.test(nextKey)) throw new Error("invalid_idempotency_key_factory");

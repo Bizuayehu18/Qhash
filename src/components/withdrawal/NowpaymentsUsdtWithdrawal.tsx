@@ -52,6 +52,7 @@ export function NowpaymentsUsdtWithdrawal({
   });
   const [grossAmount, setGrossAmount] = useState("");
   const [destination, setDestination] = useState("");
+  const [fundPassword, setFundPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const mountedRef = useRef(true);
@@ -132,6 +133,12 @@ export function NowpaymentsUsdtWithdrawal({
 
   useEffect(() => {
     mountedRef.current = true;
+    setGrossAmount("");
+    setDestination("");
+    setFundPassword("");
+    setSubmitting(false);
+    attemptKeysRef.current!.clear();
+    submitPromiseRef.current = null;
     void loadOverview();
     return () => {
       mountedRef.current = false;
@@ -148,9 +155,14 @@ export function NowpaymentsUsdtWithdrawal({
   );
   const amountValid = preview !== null && isMinimumWithdrawal(grossAmount);
   const addressValid = isValidBep20Address(destination);
+  const fundPasswordValid = /^[0-9]{4}$/.test(fundPassword);
   const sufficientBalance = preview !== null && preview.grossMicros <= availableMicros;
   const controlsEnabled = overview?.withdrawals_enabled === true && !loading && !submitting;
-  const canSubmit = controlsEnabled && amountValid && addressValid && sufficientBalance;
+  const canSubmit = controlsEnabled
+    && amountValid
+    && addressValid
+    && fundPasswordValid
+    && sufficientBalance;
   const visibleHistory = overview?.history.slice(
     0,
     historyExpanded ? undefined : HISTORY_PREVIEW_LIMIT,
@@ -171,13 +183,21 @@ export function NowpaymentsUsdtWithdrawal({
       toast.error("Enter a valid USDT BEP20 destination address.");
       return;
     }
+    if (!fundPasswordValid) {
+      toast.error("Enter your four-digit Fund PIN.");
+      return;
+    }
     if (!sufficientBalance) {
       toast.error("Insufficient available USDT balance.");
       return;
     }
 
     const normalizedAddress = destination.toLowerCase();
-    const idempotencyKey = attemptKeysRef.current!.keyFor(grossAmount, normalizedAddress);
+    const idempotencyKey = attemptKeysRef.current!.keyFor(
+      grossAmount,
+      normalizedAddress,
+      fundPassword,
+    );
     const submissionIdentity = authIdentity;
     overviewRequestsRef.current!.invalidate();
     setOverviewState((current) => ({
@@ -189,13 +209,15 @@ export function NowpaymentsUsdtWithdrawal({
       await submitNowpaymentsWithdrawalRequest(accessToken, {
         gross_amount_usdt: grossAmount,
         destination_address: normalizedAddress,
+        fund_password: fundPassword,
         idempotency_key: idempotencyKey,
       });
       if (!mountedRef.current || authIdentityRef.current !== submissionIdentity) return;
       attemptKeysRef.current!.clear();
       setGrossAmount("");
       setDestination("");
-      toast.success("USDT withdrawal submitted for manual review.");
+      setFundPassword("");
+      toast.success("USDT withdrawal submitted.");
       await loadOverview();
     } catch (error) {
       if (!mountedRef.current || authIdentityRef.current !== submissionIdentity) return;
@@ -206,7 +228,10 @@ export function NowpaymentsUsdtWithdrawal({
           conflict: "A withdrawal is already in progress or this request changed. Refresh and review it.",
           insufficient_balance: "Insufficient available USDT balance.",
           invalid_destination: "Use a valid external USDT BEP20 destination address.",
-          validation: "Check the withdrawal amount and BEP20 destination.",
+          fund_password_not_set: "Create your four-digit Fund PIN in Security first.",
+          incorrect_fund_password: "Incorrect Fund PIN.",
+          fund_password_locked: "Fund PIN verification is temporarily locked. Try again later.",
+          validation: "Check the withdrawal amount, destination, and Fund PIN.",
           unavailable: "USDT withdrawal could not be submitted. You can retry safely.",
         };
         toast.error(messages[error.kind]);
@@ -237,7 +262,7 @@ export function NowpaymentsUsdtWithdrawal({
         </button>
         <div className="min-w-0 flex-1">
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#00ff41]/70">
-            Manual USDT withdrawal
+            USDT withdrawal
           </p>
           <h2 className="truncate text-sm font-bold text-gray-100">USDT on BNB Smart Chain</h2>
         </div>
@@ -312,6 +337,22 @@ export function NowpaymentsUsdtWithdrawal({
                 hint="Do not use TRC20, ERC20, or an exchange memo/tag."
               />
 
+              <Input
+                label="Four-digit Fund PIN"
+                type="password"
+                inputMode="numeric"
+                placeholder="••••"
+                value={fundPassword}
+                maxLength={4}
+                disabled={!controlsEnabled}
+                onChange={(event) => {
+                  const value = event.target.value.replace(/\D/g, "").slice(0, 4);
+                  setFundPassword(value);
+                }}
+                autoComplete="off"
+                hint="Use the same Fund PIN as ETB withdrawals."
+              />
+
               {preview && (
                 <div className="space-y-2 rounded-xl border border-[#1f1f1f] bg-[#0b0b0b] p-3">
                   <UsdtSummaryRow label="Gross request" value={formatUsdtMicros(preview.grossMicros)} />
@@ -331,7 +372,7 @@ export function NowpaymentsUsdtWithdrawal({
               <div className="flex items-start gap-2 rounded-xl border border-red-500/15 bg-red-500/5 px-3 py-2.5">
                 <ShieldAlert size={14} className="mt-0.5 shrink-0 text-red-300" />
                 <p className="text-[10px] leading-relaxed text-gray-400">
-                  BEP20 transfers are irreversible. Verify the destination carefully. QHash staff will send the displayed net amount manually after review.
+                  BEP20 transfers are irreversible. Verify the destination and displayed net amount carefully.
                 </p>
               </div>
 
@@ -379,14 +420,6 @@ export function NowpaymentsUsdtWithdrawal({
                       <span>Fee {formatUsdtDisplay(row.fee_amount_usdt)} USDT</span>
                       <span>Net {formatUsdtDisplay(row.net_amount_usdt)} USDT</span>
                     </div>
-                    {row.transaction_hash && (
-                      <p className="mt-1.5 truncate font-mono text-[9px] text-gray-600">
-                        Tx {row.transaction_hash}
-                      </p>
-                    )}
-                    {row.rejection_message && (
-                      <p className="mt-1.5 text-[10px] text-gray-500">{row.rejection_message}</p>
-                    )}
                   </div>
                 ))}
                 {overview.history.length > HISTORY_PREVIEW_LIMIT && (

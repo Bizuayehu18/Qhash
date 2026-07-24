@@ -8,11 +8,17 @@ const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}
 const DECIMAL_PATTERN = /^(?:0|[1-9]\d{0,29})(?:\.\d{1,6})?$/;
 const RESPONSE_DECIMAL_PATTERN = /^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/;
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
-const BODY_FIELDS = ["destination_address", "gross_amount_usdt", "idempotency_key"] as const;
+const BODY_FIELDS = [
+  "destination_address",
+  "fund_password",
+  "gross_amount_usdt",
+  "idempotency_key",
+] as const;
 
 type RequestBody = {
   gross_amount_usdt: string;
   destination_address: string;
+  fund_password: string;
   idempotency_key: string;
 };
 
@@ -71,6 +77,8 @@ async function parseBody(req: Request): Promise<RequestBody | null> {
     || typeof body.destination_address !== "string"
     || body.destination_address !== body.destination_address.trim()
     || !ADDRESS_PATTERN.test(body.destination_address)
+    || typeof body.fund_password !== "string"
+    || !/^[0-9]{4}$/.test(body.fund_password)
     || typeof body.idempotency_key !== "string"
     || !UUID_V4_PATTERN.test(body.idempotency_key)
   ) {
@@ -79,8 +87,34 @@ async function parseBody(req: Request): Promise<RequestBody | null> {
   return {
     gross_amount_usdt: body.gross_amount_usdt,
     destination_address: body.destination_address.toLowerCase(),
+    fund_password: body.fund_password,
     idempotency_key: body.idempotency_key.toLowerCase(),
   };
+}
+
+function fundPasswordError(code: unknown): Response {
+  if (code === "fund_password_not_set") {
+    return requestError(
+      "fund_password_not_set",
+      "Create your four-digit Fund PIN before withdrawing.",
+      409,
+    );
+  }
+  if (code === "incorrect_fund_password") {
+    return requestError("incorrect_fund_password", "Incorrect Fund PIN.", 403);
+  }
+  if (code === "fund_password_locked") {
+    return requestError(
+      "fund_password_locked",
+      "Fund PIN verification is temporarily locked.",
+      423,
+    );
+  }
+  return requestError(
+    "fund_password_verification_failed",
+    "Fund PIN could not be verified.",
+    503,
+  );
 }
 
 function safeRpcError(error: { message?: string } | null): Response {
@@ -256,6 +290,30 @@ export default async (req: Request, context?: Context): Promise<Response> => {
     return contentType === "application/json"
       ? requestError("invalid_request", "Invalid request body.", 400)
       : requestError("unsupported_media_type", "Use application/json.", 415);
+  }
+
+  const { data: fundPasswordResult, error: fundPasswordRpcError } = await admin.rpc(
+    "verify_fund_password_tx",
+    {
+      p_user_id: authData.user.id,
+      p_fund_password: body.fund_password,
+    },
+  );
+  if (fundPasswordRpcError) {
+    return fundPasswordError(fundPasswordRpcError.message);
+  }
+  if (
+    !fundPasswordResult
+    || typeof fundPasswordResult !== "object"
+    || Array.isArray(fundPasswordResult)
+    || fundPasswordResult.success !== true
+  ) {
+    const code = fundPasswordResult
+      && typeof fundPasswordResult === "object"
+      && !Array.isArray(fundPasswordResult)
+      ? fundPasswordResult.code
+      : null;
+    return fundPasswordError(code);
   }
 
   const { data, error } = await admin.rpc("request_nowpayments_usdt_withdrawal", {
