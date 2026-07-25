@@ -51,6 +51,18 @@ const TREASURY = "0xbe19677ee642cfe21fff5899b258f5010651c33e";
 const TOKEN = "0x55d398326f99059ff775485246999027b3197955";
 const HASH_1 = `0x${"1".repeat(64)}`;
 const HASH_2 = `0x${"2".repeat(64)}`;
+const FUNCTION_CATALOG_BINARY_KEY =
+  "convert_to(fingerprint_row::text, 'UTF8')";
+const FUNCTION_CATALOG_EN_US_KEY =
+  "fingerprint_row::text collate public.qhash_test_en_us";
+const FUNCTION_CATALOG_BINARY_ORDER =
+  `fingerprint_row\n        order by ${FUNCTION_CATALOG_BINARY_KEY}`;
+const FUNCTION_CATALOG_EN_US_ORDER =
+  `fingerprint_row\n        order by ${FUNCTION_CATALOG_EN_US_KEY}`;
+const EXPECTED_FUNCTION_CATALOG_FINGERPRINT =
+  "2614ab8e341718580bb6cbde37f2c47f";
+const PRODUCTION_LOCALE_FUNCTION_CATALOG_FINGERPRINT =
+  "8a88038809fb53859b2b57368a1e1d33";
 const BSC_PRECOMPILE_SOURCE =
   "https://github.com/bnb-chain/bsc/blob/v1.7.3/core/vm/contracts.go";
 const BSC_PRECOMPILE_VALUES = [
@@ -1249,6 +1261,21 @@ test("migration and withdrawal lifecycle leave ETB, CBE, TeleBirr, plan purchase
   assert.deepEqual(after, before);
 });
 
+test("simplified migration byte-orders both inherited function catalog aggregates", () => {
+  assert.equal(
+    simplifiedWithdrawalMigration.split(FUNCTION_CATALOG_BINARY_ORDER).length - 1,
+    2,
+  );
+  assert.match(
+    simplifiedWithdrawalMigration,
+    new RegExp(`v_functions_fingerprint <> '${EXPECTED_FUNCTION_CATALOG_FINGERPRINT}'`),
+  );
+  assert.match(
+    simplifiedWithdrawalMigration,
+    /v_functions_fingerprint <> 'cce9429bdab6c64497e439a521783b7f'/,
+  );
+});
+
 test("simplified migration exposes only atomic service-role completion and rejection", async (t) => {
   const db = await createSimplifiedDatabase(t);
   const rows = (await db.query(`
@@ -1923,6 +1950,219 @@ async function simplifiedPreflightFingerprint(client) {
     ) as fingerprint
   `)).rows[0].fingerprint;
 }
+
+async function inheritedFunctionCatalogFingerprint(client, orderKey) {
+  if (![
+    FUNCTION_CATALOG_BINARY_KEY,
+    FUNCTION_CATALOG_EN_US_KEY,
+  ].includes(orderKey)) {
+    throw new Error("unsupported test collation");
+  }
+  return (await client.query(`
+    with target_functions(name) as (
+      values
+        ('is_canonical_uuid_v4'),
+        ('assert_safe_nowpayments_usdt_withdrawal_destination'),
+        ('reject_nowpayments_usdt_ledger_mutation'),
+        ('reject_nowpayments_usdt_withdrawal_audit_mutation'),
+        ('set_nowpayments_usdt_updated_at'),
+        ('enforce_nowpayments_usdt_withdrawal_immutability'),
+        ('request_nowpayments_usdt_withdrawal'),
+        ('claim_nowpayments_usdt_withdrawal_review'),
+        ('lock_nowpayments_usdt_withdrawal_send'),
+        ('record_nowpayments_usdt_withdrawal_broadcast'),
+        ('complete_nowpayments_usdt_withdrawal'),
+        ('reject_nowpayments_usdt_withdrawal'),
+        ('take_over_nowpayments_usdt_withdrawal')
+    ),
+    function_rows as (
+      select jsonb_build_array(
+        function_schema.nspname,
+        function_row.proname,
+        pg_get_function_identity_arguments(function_row.oid),
+        pg_get_userbyid(function_row.proowner),
+        function_row.prokind,
+        function_language.lanname,
+        pg_get_function_result(function_row.oid),
+        md5(function_row.prosrc),
+        function_row.prosecdef,
+        function_row.provolatile,
+        function_row.proisstrict,
+        function_row.proparallel,
+        function_row.proconfig,
+        coalesce((
+          select jsonb_agg(
+            jsonb_build_array(
+              case when function_acl.grantee = 0
+                then 'PUBLIC'
+                else grantee_role.rolname
+              end,
+              grantor_role.rolname,
+              function_acl.privilege_type,
+              function_acl.is_grantable
+            )
+            order by
+              case when function_acl.grantee = 0
+                then 'PUBLIC'
+                else grantee_role.rolname
+              end,
+              grantor_role.rolname,
+              function_acl.privilege_type,
+              function_acl.is_grantable
+          )
+          from aclexplode(function_row.proacl) function_acl
+          left join pg_roles grantee_role
+            on grantee_role.oid = function_acl.grantee
+          left join pg_roles grantor_role
+            on grantor_role.oid = function_acl.grantor
+        ), '[]'::jsonb)
+      ) as fingerprint_row
+      from pg_proc function_row
+      join pg_namespace function_schema
+        on function_schema.oid = function_row.pronamespace
+      join pg_language function_language
+        on function_language.oid = function_row.prolang
+      join target_functions
+        on target_functions.name = function_row.proname
+      where function_schema.nspname = 'public'
+    )
+    select
+      count(*)::integer as count,
+      md5(coalesce(
+        jsonb_agg(fingerprint_row order by ${orderKey}),
+        '[]'::jsonb
+      )::text) as fingerprint,
+      jsonb_agg(fingerprint_row->>1 order by ${orderKey}) as identities
+    from function_rows
+  `)).rows[0];
+}
+
+test("native PostgreSQL reproduces the exact production locale mismatch before mutation", {
+  timeout: 120_000,
+}, async (t) => {
+  const connectionString = disposablePostgresUrl(t);
+  if (!connectionString) return;
+  const observer = new Client({
+    connectionString,
+    application_name: "qhash-withdrawal-locale-regression",
+  });
+  await observer.connect();
+  t.after(async () => {
+    await Promise.allSettled([observer.query("rollback"), observer.end()]);
+  });
+  await observer.query("drop schema if exists public cascade; create schema public");
+  await installWithdrawalDatabase(nativeDb(observer));
+  await seedWallet(nativeDb(observer));
+  await setWithdrawals(nativeDb(observer), true);
+  await observer.query(`
+    create collation public.qhash_test_en_us (
+      provider = icu,
+      locale = 'en-US',
+      deterministic = true
+    )
+  `);
+  await observer.query(
+    `update public.nowpayments_usdt_wallets
+        set available_balance_usdt = 9::numeric(36,18)
+      where user_id = $1::uuid`,
+    [USER_ID],
+  );
+  await requestWithdrawal(nativeDb(observer), { amount: "2" });
+  await claim(nativeDb(observer));
+  await setWithdrawals(nativeDb(observer), false);
+
+  const binaryCatalog = await inheritedFunctionCatalogFingerprint(
+    observer,
+    FUNCTION_CATALOG_BINARY_KEY,
+  );
+  const productionLocaleCatalog = await inheritedFunctionCatalogFingerprint(
+    observer,
+    FUNCTION_CATALOG_EN_US_KEY,
+  );
+  assert.equal(binaryCatalog.count, 13);
+  assert.equal(
+    binaryCatalog.fingerprint,
+    EXPECTED_FUNCTION_CATALOG_FINGERPRINT,
+  );
+  assert.equal(
+    productionLocaleCatalog.fingerprint,
+    PRODUCTION_LOCALE_FUNCTION_CATALOG_FINGERPRINT,
+  );
+  assert.notDeepEqual(
+    productionLocaleCatalog.identities,
+    binaryCatalog.identities,
+  );
+  assert.deepEqual(
+    productionLocaleCatalog.identities.filter((name) => ![
+      "reject_nowpayments_usdt_withdrawal",
+      "reject_nowpayments_usdt_withdrawal_audit_mutation",
+    ].includes(name)),
+    binaryCatalog.identities.filter((name) => ![
+      "reject_nowpayments_usdt_withdrawal",
+      "reject_nowpayments_usdt_withdrawal_audit_mutation",
+    ].includes(name)),
+  );
+  const binaryRejectIndex = binaryCatalog.identities.indexOf(
+    "reject_nowpayments_usdt_withdrawal",
+  );
+  const localeAuditIndex = productionLocaleCatalog.identities.indexOf(
+    "reject_nowpayments_usdt_withdrawal_audit_mutation",
+  );
+  assert.equal(
+    binaryCatalog.identities[binaryRejectIndex + 1],
+    "reject_nowpayments_usdt_withdrawal_audit_mutation",
+  );
+  assert.equal(
+    productionLocaleCatalog.identities[localeAuditIndex + 1],
+    "reject_nowpayments_usdt_withdrawal",
+  );
+
+  const financialBefore = await withdrawalFingerprint(observer);
+  assert.equal(financialBefore.withdrawal.status, "reviewing");
+  assert.equal(financialBefore.available, "7.000000000000000000");
+  assert.equal(financialBefore.reserved, "2.000000000000000000");
+  assert.equal(financialBefore.events, 2);
+  assert.equal(financialBefore.broadcasts, 0);
+  assert.equal(financialBefore.verifications, 0);
+  assert.equal(financialBefore.ledger, 1);
+  const catalogBefore = await simplifiedPreflightFingerprint(observer);
+  assert.deepEqual(catalogBefore.replacement_functions, []);
+
+  const localeSensitiveMigration = simplifiedWithdrawalMigration.replaceAll(
+    FUNCTION_CATALOG_BINARY_ORDER,
+    FUNCTION_CATALOG_EN_US_ORDER,
+  );
+  assert.equal(
+    localeSensitiveMigration.split(FUNCTION_CATALOG_EN_US_ORDER).length - 1,
+    2,
+  );
+  await assert.rejects(
+    applyMigration(nativeDb(observer), localeSensitiveMigration),
+    /unexpected inherited NOWPayments USDT withdrawal function catalog/,
+  );
+  assert.deepEqual(await simplifiedPreflightFingerprint(observer), catalogBefore);
+  assert.deepEqual(await withdrawalFingerprint(observer), financialBefore);
+
+  await applyMigration(nativeDb(observer), simplifiedWithdrawalMigration);
+  assert.deepEqual(await withdrawalFingerprint(observer), financialBefore);
+  const replacements = (await observer.query(`
+    select array_agg(p.oid::regprocedure::text order by p.oid::regprocedure::text)
+      as functions
+    from pg_proc p
+    where p.oid in (
+      to_regprocedure(
+        'public.complete_nowpayments_usdt_withdrawal_manual(uuid,uuid,text,text)'
+      ),
+      to_regprocedure(
+        'public.reject_nowpayments_usdt_withdrawal_manual(uuid,uuid,text)'
+      )
+    )
+  `)).rows[0].functions;
+  assert.deepEqual(replacements, [
+    "complete_nowpayments_usdt_withdrawal_manual(uuid,uuid,text,text)",
+    "reject_nowpayments_usdt_withdrawal_manual(uuid,uuid,text)",
+  ]);
+});
 
 test("native PostgreSQL serializes requests, admin actions, and balance races on profile rows", {
   timeout: 360_000,

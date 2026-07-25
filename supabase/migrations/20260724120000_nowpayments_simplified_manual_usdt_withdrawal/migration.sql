@@ -114,7 +114,10 @@ begin
   select
     count(*),
     md5(coalesce(
-      jsonb_agg(fingerprint_row order by fingerprint_row::text),
+      jsonb_agg(
+        fingerprint_row
+        order by convert_to(fingerprint_row::text, 'UTF8')
+      ),
       '[]'::jsonb
     )::text)
   into v_functions_count, v_functions_fingerprint
@@ -1348,7 +1351,10 @@ begin
   select
     (select count(*) from function_rows),
     (select md5(coalesce(
-      jsonb_agg(fingerprint_row order by fingerprint_row::text),
+      jsonb_agg(
+        fingerprint_row
+        order by convert_to(fingerprint_row::text, 'UTF8')
+      ),
       '[]'::jsonb
     )::text) from function_rows),
     (select count(*) from relation_rows),
