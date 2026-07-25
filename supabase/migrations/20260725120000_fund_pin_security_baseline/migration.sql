@@ -208,6 +208,227 @@ begin
     from pg_trigger trigger_row
     where trigger_row.tgrelid = 'public.user_security_settings'::regclass
       and not trigger_row.tgisinternal
+  )
+  or exists (
+    with relevant_fk as (
+      select
+        constraint_row.oid,
+        constraint_row.connamespace,
+        constraint_row.conname,
+        constraint_row.contype,
+        constraint_row.convalidated,
+        constraint_row.confmatchtype,
+        constraint_row.confupdtype,
+        constraint_row.confdeltype,
+        constraint_row.condeferrable,
+        constraint_row.condeferred,
+        constraint_row.conrelid,
+        constraint_row.confrelid,
+        constraint_row.conindid
+      from pg_constraint constraint_row
+      where constraint_row.contype = 'f'
+        and (
+          constraint_row.conrelid =
+            'public.user_security_settings'::regclass
+          or constraint_row.confrelid =
+            'public.user_security_settings'::regclass
+        )
+    ),
+    actual(
+      constraint_schema,
+      constraint_name,
+      constraint_type,
+      constraint_validated,
+      match_type,
+      update_action,
+      delete_action,
+      constraint_deferrable,
+      constraint_initially_deferred,
+      child_schema,
+      child_relation,
+      parent_schema,
+      parent_relation,
+      trigger_side,
+      event_schema,
+      event_relation,
+      opposite_schema,
+      opposite_relation,
+      trigger_type,
+      trigger_timing,
+      trigger_action,
+      trigger_level,
+      function_schema,
+      function_name,
+      function_identity_arguments,
+      function_result,
+      function_language,
+      is_internal,
+      enabled_state,
+      trigger_deferrable,
+      trigger_initially_deferred,
+      referenced_index_matches
+    ) as (
+      select
+        constraint_schema.nspname::text,
+        constraint_row.conname::text,
+        constraint_row.contype::text,
+        constraint_row.convalidated,
+        constraint_row.confmatchtype::text,
+        constraint_row.confupdtype::text,
+        constraint_row.confdeltype::text,
+        constraint_row.condeferrable,
+        constraint_row.condeferred,
+        child_schema.nspname::text,
+        child_relation.relname::text,
+        parent_schema.nspname::text,
+        parent_relation.relname::text,
+        case
+          when trigger_row.tgrelid = constraint_row.conrelid
+            then 'child'
+          when trigger_row.tgrelid = constraint_row.confrelid
+            then 'parent'
+          else 'other'
+        end,
+        event_schema.nspname::text,
+        event_relation.relname::text,
+        opposite_schema.nspname::text,
+        opposite_relation.relname::text,
+        trigger_row.tgtype::integer,
+        case
+          when (trigger_row.tgtype::integer & 64) <> 0
+            then 'INSTEAD OF'
+          when (trigger_row.tgtype::integer & 2) <> 0
+            then 'BEFORE'
+          else 'AFTER'
+        end,
+        case
+          when (trigger_row.tgtype::integer & 4) <> 0 then 'INSERT'
+          when (trigger_row.tgtype::integer & 8) <> 0 then 'DELETE'
+          when (trigger_row.tgtype::integer & 16) <> 0 then 'UPDATE'
+          when (trigger_row.tgtype::integer & 32) <> 0 then 'TRUNCATE'
+          else 'UNKNOWN'
+        end,
+        case
+          when (trigger_row.tgtype::integer & 1) <> 0
+            then 'ROW'
+          else 'STATEMENT'
+        end,
+        function_schema.nspname::text,
+        function_row.proname::text,
+        pg_get_function_identity_arguments(function_row.oid),
+        pg_get_function_result(function_row.oid),
+        function_language.lanname::text,
+        trigger_row.tgisinternal,
+        trigger_row.tgenabled::text,
+        trigger_row.tgdeferrable,
+        trigger_row.tginitdeferred,
+        trigger_row.tgconstrindid = constraint_row.conindid
+      from relevant_fk constraint_row
+      join pg_namespace constraint_schema
+        on constraint_schema.oid = constraint_row.connamespace
+      join pg_class child_relation
+        on child_relation.oid = constraint_row.conrelid
+      join pg_namespace child_schema
+        on child_schema.oid = child_relation.relnamespace
+      join pg_class parent_relation
+        on parent_relation.oid = constraint_row.confrelid
+      join pg_namespace parent_schema
+        on parent_schema.oid = parent_relation.relnamespace
+      join pg_trigger trigger_row
+        on trigger_row.tgconstraint = constraint_row.oid
+      join pg_class event_relation
+        on event_relation.oid = trigger_row.tgrelid
+      join pg_namespace event_schema
+        on event_schema.oid = event_relation.relnamespace
+      left join pg_class opposite_relation
+        on opposite_relation.oid = trigger_row.tgconstrrelid
+      left join pg_namespace opposite_schema
+        on opposite_schema.oid = opposite_relation.relnamespace
+      join pg_proc function_row
+        on function_row.oid = trigger_row.tgfoid
+      join pg_namespace function_schema
+        on function_schema.oid = function_row.pronamespace
+      join pg_language function_language
+        on function_language.oid = function_row.prolang
+    ),
+    expected(
+      constraint_schema,
+      constraint_name,
+      constraint_type,
+      constraint_validated,
+      match_type,
+      update_action,
+      delete_action,
+      constraint_deferrable,
+      constraint_initially_deferred,
+      child_schema,
+      child_relation,
+      parent_schema,
+      parent_relation,
+      trigger_side,
+      event_schema,
+      event_relation,
+      opposite_schema,
+      opposite_relation,
+      trigger_type,
+      trigger_timing,
+      trigger_action,
+      trigger_level,
+      function_schema,
+      function_name,
+      function_identity_arguments,
+      function_result,
+      function_language,
+      is_internal,
+      enabled_state,
+      trigger_deferrable,
+      trigger_initially_deferred,
+      referenced_index_matches
+    ) as (
+      values
+        (
+          'public', 'user_security_settings_user_id_fkey', 'f', true,
+          's', 'a', 'c', false, false,
+          'public', 'user_security_settings', 'auth', 'users',
+          'child', 'public', 'user_security_settings', 'auth', 'users',
+          5, 'AFTER', 'INSERT', 'ROW',
+          'pg_catalog', 'RI_FKey_check_ins', '', 'trigger', 'internal',
+          true, 'O', false, false, true
+        ),
+        (
+          'public', 'user_security_settings_user_id_fkey', 'f', true,
+          's', 'a', 'c', false, false,
+          'public', 'user_security_settings', 'auth', 'users',
+          'child', 'public', 'user_security_settings', 'auth', 'users',
+          17, 'AFTER', 'UPDATE', 'ROW',
+          'pg_catalog', 'RI_FKey_check_upd', '', 'trigger', 'internal',
+          true, 'O', false, false, true
+        ),
+        (
+          'public', 'user_security_settings_user_id_fkey', 'f', true,
+          's', 'a', 'c', false, false,
+          'public', 'user_security_settings', 'auth', 'users',
+          'parent', 'auth', 'users', 'public', 'user_security_settings',
+          9, 'AFTER', 'DELETE', 'ROW',
+          'pg_catalog', 'RI_FKey_cascade_del', '', 'trigger', 'internal',
+          true, 'O', false, false, true
+        ),
+        (
+          'public', 'user_security_settings_user_id_fkey', 'f', true,
+          's', 'a', 'c', false, false,
+          'public', 'user_security_settings', 'auth', 'users',
+          'parent', 'auth', 'users', 'public', 'user_security_settings',
+          17, 'AFTER', 'UPDATE', 'ROW',
+          'pg_catalog', 'RI_FKey_noaction_upd', '', 'trigger', 'internal',
+          true, 'O', false, false, true
+        )
+    )
+    select 1
+    from (
+      (select * from actual except all select * from expected)
+      union all
+      (select * from expected except all select * from actual)
+    ) drift
   ) then
     raise exception 'unexpected Fund PIN settings trigger catalog';
   end if;
@@ -863,12 +1084,6 @@ begin
   )
   or exists (
     select 1
-    from pg_trigger trigger_row
-    where trigger_row.tgrelid = 'public.user_security_settings'::regclass
-      and not trigger_row.tgisinternal
-  )
-  or exists (
-    select 1
     from pg_policy policy_row
     where policy_row.polrelid = 'public.user_security_settings'::regclass
   ) then
@@ -988,6 +1203,236 @@ begin
     (select * from expected except select * from actual)
   ) then
     raise exception 'Fund PIN settings constraint postflight failed';
+  end if;
+
+  if exists (
+    select 1
+    from pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.user_security_settings'::regclass
+      and not trigger_row.tgisinternal
+  )
+  or exists (
+    with relevant_fk as (
+      select
+        constraint_row.oid,
+        constraint_row.connamespace,
+        constraint_row.conname,
+        constraint_row.contype,
+        constraint_row.convalidated,
+        constraint_row.confmatchtype,
+        constraint_row.confupdtype,
+        constraint_row.confdeltype,
+        constraint_row.condeferrable,
+        constraint_row.condeferred,
+        constraint_row.conrelid,
+        constraint_row.confrelid,
+        constraint_row.conindid
+      from pg_constraint constraint_row
+      where constraint_row.contype = 'f'
+        and (
+          constraint_row.conrelid =
+            'public.user_security_settings'::regclass
+          or constraint_row.confrelid =
+            'public.user_security_settings'::regclass
+        )
+    ),
+    actual(
+      constraint_schema,
+      constraint_name,
+      constraint_type,
+      constraint_validated,
+      match_type,
+      update_action,
+      delete_action,
+      constraint_deferrable,
+      constraint_initially_deferred,
+      child_schema,
+      child_relation,
+      parent_schema,
+      parent_relation,
+      trigger_side,
+      event_schema,
+      event_relation,
+      opposite_schema,
+      opposite_relation,
+      trigger_type,
+      trigger_timing,
+      trigger_action,
+      trigger_level,
+      function_schema,
+      function_name,
+      function_identity_arguments,
+      function_result,
+      function_language,
+      is_internal,
+      enabled_state,
+      trigger_deferrable,
+      trigger_initially_deferred,
+      referenced_index_matches
+    ) as (
+      select
+        constraint_schema.nspname::text,
+        constraint_row.conname::text,
+        constraint_row.contype::text,
+        constraint_row.convalidated,
+        constraint_row.confmatchtype::text,
+        constraint_row.confupdtype::text,
+        constraint_row.confdeltype::text,
+        constraint_row.condeferrable,
+        constraint_row.condeferred,
+        child_schema.nspname::text,
+        child_relation.relname::text,
+        parent_schema.nspname::text,
+        parent_relation.relname::text,
+        case
+          when trigger_row.tgrelid = constraint_row.conrelid
+            then 'child'
+          when trigger_row.tgrelid = constraint_row.confrelid
+            then 'parent'
+          else 'other'
+        end,
+        event_schema.nspname::text,
+        event_relation.relname::text,
+        opposite_schema.nspname::text,
+        opposite_relation.relname::text,
+        trigger_row.tgtype::integer,
+        case
+          when (trigger_row.tgtype::integer & 64) <> 0
+            then 'INSTEAD OF'
+          when (trigger_row.tgtype::integer & 2) <> 0
+            then 'BEFORE'
+          else 'AFTER'
+        end,
+        case
+          when (trigger_row.tgtype::integer & 4) <> 0 then 'INSERT'
+          when (trigger_row.tgtype::integer & 8) <> 0 then 'DELETE'
+          when (trigger_row.tgtype::integer & 16) <> 0 then 'UPDATE'
+          when (trigger_row.tgtype::integer & 32) <> 0 then 'TRUNCATE'
+          else 'UNKNOWN'
+        end,
+        case
+          when (trigger_row.tgtype::integer & 1) <> 0
+            then 'ROW'
+          else 'STATEMENT'
+        end,
+        function_schema.nspname::text,
+        function_row.proname::text,
+        pg_get_function_identity_arguments(function_row.oid),
+        pg_get_function_result(function_row.oid),
+        function_language.lanname::text,
+        trigger_row.tgisinternal,
+        trigger_row.tgenabled::text,
+        trigger_row.tgdeferrable,
+        trigger_row.tginitdeferred,
+        trigger_row.tgconstrindid = constraint_row.conindid
+      from relevant_fk constraint_row
+      join pg_namespace constraint_schema
+        on constraint_schema.oid = constraint_row.connamespace
+      join pg_class child_relation
+        on child_relation.oid = constraint_row.conrelid
+      join pg_namespace child_schema
+        on child_schema.oid = child_relation.relnamespace
+      join pg_class parent_relation
+        on parent_relation.oid = constraint_row.confrelid
+      join pg_namespace parent_schema
+        on parent_schema.oid = parent_relation.relnamespace
+      join pg_trigger trigger_row
+        on trigger_row.tgconstraint = constraint_row.oid
+      join pg_class event_relation
+        on event_relation.oid = trigger_row.tgrelid
+      join pg_namespace event_schema
+        on event_schema.oid = event_relation.relnamespace
+      left join pg_class opposite_relation
+        on opposite_relation.oid = trigger_row.tgconstrrelid
+      left join pg_namespace opposite_schema
+        on opposite_schema.oid = opposite_relation.relnamespace
+      join pg_proc function_row
+        on function_row.oid = trigger_row.tgfoid
+      join pg_namespace function_schema
+        on function_schema.oid = function_row.pronamespace
+      join pg_language function_language
+        on function_language.oid = function_row.prolang
+    ),
+    expected(
+      constraint_schema,
+      constraint_name,
+      constraint_type,
+      constraint_validated,
+      match_type,
+      update_action,
+      delete_action,
+      constraint_deferrable,
+      constraint_initially_deferred,
+      child_schema,
+      child_relation,
+      parent_schema,
+      parent_relation,
+      trigger_side,
+      event_schema,
+      event_relation,
+      opposite_schema,
+      opposite_relation,
+      trigger_type,
+      trigger_timing,
+      trigger_action,
+      trigger_level,
+      function_schema,
+      function_name,
+      function_identity_arguments,
+      function_result,
+      function_language,
+      is_internal,
+      enabled_state,
+      trigger_deferrable,
+      trigger_initially_deferred,
+      referenced_index_matches
+    ) as (
+      values
+        (
+          'public', 'user_security_settings_user_id_fkey', 'f', true,
+          's', 'a', 'c', false, false,
+          'public', 'user_security_settings', 'auth', 'users',
+          'child', 'public', 'user_security_settings', 'auth', 'users',
+          5, 'AFTER', 'INSERT', 'ROW',
+          'pg_catalog', 'RI_FKey_check_ins', '', 'trigger', 'internal',
+          true, 'O', false, false, true
+        ),
+        (
+          'public', 'user_security_settings_user_id_fkey', 'f', true,
+          's', 'a', 'c', false, false,
+          'public', 'user_security_settings', 'auth', 'users',
+          'child', 'public', 'user_security_settings', 'auth', 'users',
+          17, 'AFTER', 'UPDATE', 'ROW',
+          'pg_catalog', 'RI_FKey_check_upd', '', 'trigger', 'internal',
+          true, 'O', false, false, true
+        ),
+        (
+          'public', 'user_security_settings_user_id_fkey', 'f', true,
+          's', 'a', 'c', false, false,
+          'public', 'user_security_settings', 'auth', 'users',
+          'parent', 'auth', 'users', 'public', 'user_security_settings',
+          9, 'AFTER', 'DELETE', 'ROW',
+          'pg_catalog', 'RI_FKey_cascade_del', '', 'trigger', 'internal',
+          true, 'O', false, false, true
+        ),
+        (
+          'public', 'user_security_settings_user_id_fkey', 'f', true,
+          's', 'a', 'c', false, false,
+          'public', 'user_security_settings', 'auth', 'users',
+          'parent', 'auth', 'users', 'public', 'user_security_settings',
+          17, 'AFTER', 'UPDATE', 'ROW',
+          'pg_catalog', 'RI_FKey_noaction_upd', '', 'trigger', 'internal',
+          true, 'O', false, false, true
+        )
+    )
+    select 1
+    from (
+      (select * from actual except all select * from expected)
+      union all
+      (select * from expected except all select * from actual)
+    ) drift
+  ) then
+    raise exception 'Fund PIN settings trigger postflight failed';
   end if;
 
   if exists (

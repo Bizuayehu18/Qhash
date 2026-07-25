@@ -35,6 +35,28 @@ const FUND_PIN_FUNCTIONS = [
   "change_fund_password_tx(uuid,text,text)",
   "reset_user_fund_password_tx(uuid,uuid,text)",
 ];
+const FUND_PIN_RI_TRIGGERS = [
+  {
+    side: "parent",
+    action: "DELETE",
+    functionName: "RI_FKey_cascade_del",
+  },
+  {
+    side: "parent",
+    action: "UPDATE",
+    functionName: "RI_FKey_noaction_upd",
+  },
+  {
+    side: "child",
+    action: "INSERT",
+    functionName: "RI_FKey_check_ins",
+  },
+  {
+    side: "child",
+    action: "UPDATE",
+    functionName: "RI_FKey_check_upd",
+  },
+];
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -118,6 +140,58 @@ async function applyMigration(client, sql = migration) {
     await client.query("rollback");
     throw error;
   }
+}
+
+function disableFundPinRiTriggerSql({ side, functionName }) {
+  return `
+    do $disable_fund_pin_ri_trigger$
+    declare
+      v_relation_schema text;
+      v_relation_name text;
+      v_trigger_name text;
+    begin
+      select
+        event_schema.nspname,
+        event_relation.relname,
+        trigger_row.tgname
+      into strict
+        v_relation_schema,
+        v_relation_name,
+        v_trigger_name
+      from pg_constraint constraint_row
+      join pg_trigger trigger_row
+        on trigger_row.tgconstraint = constraint_row.oid
+      join pg_class event_relation
+        on event_relation.oid = trigger_row.tgrelid
+      join pg_namespace event_schema
+        on event_schema.oid = event_relation.relnamespace
+      join pg_proc function_row
+        on function_row.oid = trigger_row.tgfoid
+      join pg_namespace function_schema
+        on function_schema.oid = function_row.pronamespace
+      where constraint_row.conrelid =
+          'public.user_security_settings'::regclass
+        and constraint_row.conname =
+          'user_security_settings_user_id_fkey'
+        and case
+          when trigger_row.tgrelid = constraint_row.conrelid
+            then 'child'
+          when trigger_row.tgrelid = constraint_row.confrelid
+            then 'parent'
+          else 'other'
+        end = '${side}'
+        and function_schema.nspname = 'pg_catalog'
+        and function_row.proname = '${functionName}';
+
+      execute format(
+        'alter table %I.%I disable trigger %I',
+        v_relation_schema,
+        v_relation_name,
+        v_trigger_name
+      );
+    end
+    $disable_fund_pin_ri_trigger$;
+  `;
 }
 
 async function resetPublicSchema(client) {
@@ -346,6 +420,73 @@ async function catalogAndDataFingerprint(client) {
         where tgrelid = 'public.user_security_settings'::regclass
           and not tgisinternal
       ),
+      'internal_fk_triggers', (
+        select coalesce(jsonb_agg(
+          jsonb_build_array(
+            constraint_schema.nspname,
+            constraint_row.conname,
+            child_schema.nspname,
+            child_relation.relname,
+            parent_schema.nspname,
+            parent_relation.relname,
+            event_schema.nspname,
+            event_relation.relname,
+            opposite_schema.nspname,
+            opposite_relation.relname,
+            trigger_row.tgname,
+            trigger_row.tgtype,
+            trigger_row.tgisinternal,
+            trigger_row.tgenabled,
+            trigger_row.tgdeferrable,
+            trigger_row.tginitdeferred,
+            function_schema.nspname,
+            function_row.proname,
+            pg_get_function_identity_arguments(function_row.oid),
+            pg_get_function_result(function_row.oid),
+            function_language.lanname,
+            trigger_row.tgconstrindid = constraint_row.conindid
+          )
+          order by
+            event_schema.nspname collate "C",
+            event_relation.relname collate "C",
+            function_row.proname collate "C",
+            trigger_row.tgname collate "C"
+        ), '[]'::jsonb)
+        from pg_constraint constraint_row
+        join pg_namespace constraint_schema
+          on constraint_schema.oid = constraint_row.connamespace
+        join pg_class child_relation
+          on child_relation.oid = constraint_row.conrelid
+        join pg_namespace child_schema
+          on child_schema.oid = child_relation.relnamespace
+        join pg_class parent_relation
+          on parent_relation.oid = constraint_row.confrelid
+        join pg_namespace parent_schema
+          on parent_schema.oid = parent_relation.relnamespace
+        join pg_trigger trigger_row
+          on trigger_row.tgconstraint = constraint_row.oid
+        join pg_class event_relation
+          on event_relation.oid = trigger_row.tgrelid
+        join pg_namespace event_schema
+          on event_schema.oid = event_relation.relnamespace
+        left join pg_class opposite_relation
+          on opposite_relation.oid = trigger_row.tgconstrrelid
+        left join pg_namespace opposite_schema
+          on opposite_schema.oid = opposite_relation.relnamespace
+        join pg_proc function_row
+          on function_row.oid = trigger_row.tgfoid
+        join pg_namespace function_schema
+          on function_schema.oid = function_row.pronamespace
+        join pg_language function_language
+          on function_language.oid = function_row.prolang
+        where constraint_row.contype = 'f'
+          and (
+            constraint_row.conrelid =
+              'public.user_security_settings'::regclass
+            or constraint_row.confrelid =
+              'public.user_security_settings'::regclass
+          )
+      ),
       'indexes', (
         select jsonb_agg(
           jsonb_build_array(
@@ -388,6 +529,176 @@ async function catalogAndDataFingerprint(client) {
       )
     ) as fingerprint
   `)).rows[0].fingerprint;
+}
+
+async function fundPinRiTriggerSemantics(client) {
+  return (await client.query(`
+    select
+      constraint_schema.nspname as constraint_schema,
+      constraint_row.conname as constraint_name,
+      constraint_row.convalidated as constraint_validated,
+      constraint_row.confmatchtype::text as match_type,
+      constraint_row.confupdtype::text as update_action,
+      constraint_row.confdeltype::text as delete_action,
+      constraint_row.condeferrable as constraint_deferrable,
+      constraint_row.condeferred as constraint_initially_deferred,
+      child_schema.nspname as child_schema,
+      child_relation.relname as child_relation,
+      parent_schema.nspname as parent_schema,
+      parent_relation.relname as parent_relation,
+      case
+        when trigger_row.tgrelid = constraint_row.conrelid
+          then 'child'
+        when trigger_row.tgrelid = constraint_row.confrelid
+          then 'parent'
+        else 'other'
+      end as trigger_side,
+      event_schema.nspname as event_schema,
+      event_relation.relname as event_relation,
+      opposite_schema.nspname as opposite_schema,
+      opposite_relation.relname as opposite_relation,
+      trigger_row.tgtype::integer as trigger_type,
+      case
+        when (trigger_row.tgtype::integer & 64) <> 0 then 'INSTEAD OF'
+        when (trigger_row.tgtype::integer & 2) <> 0 then 'BEFORE'
+        else 'AFTER'
+      end as trigger_timing,
+      case
+        when (trigger_row.tgtype::integer & 4) <> 0 then 'INSERT'
+        when (trigger_row.tgtype::integer & 8) <> 0 then 'DELETE'
+        when (trigger_row.tgtype::integer & 16) <> 0 then 'UPDATE'
+        when (trigger_row.tgtype::integer & 32) <> 0 then 'TRUNCATE'
+        else 'UNKNOWN'
+      end as trigger_action,
+      case
+        when (trigger_row.tgtype::integer & 1) <> 0 then 'ROW'
+        else 'STATEMENT'
+      end as trigger_level,
+      function_schema.nspname as function_schema,
+      function_row.proname as function_name,
+      pg_get_function_identity_arguments(function_row.oid)
+        as function_identity_arguments,
+      pg_get_function_result(function_row.oid) as function_result,
+      function_language.lanname as function_language,
+      trigger_row.tgisinternal as is_internal,
+      trigger_row.tgenabled::text as enabled_state,
+      trigger_row.tgdeferrable as trigger_deferrable,
+      trigger_row.tginitdeferred as trigger_initially_deferred,
+      trigger_row.tgconstrindid = constraint_row.conindid
+        as referenced_index_matches
+    from pg_constraint constraint_row
+    join pg_namespace constraint_schema
+      on constraint_schema.oid = constraint_row.connamespace
+    join pg_class child_relation
+      on child_relation.oid = constraint_row.conrelid
+    join pg_namespace child_schema
+      on child_schema.oid = child_relation.relnamespace
+    join pg_class parent_relation
+      on parent_relation.oid = constraint_row.confrelid
+    join pg_namespace parent_schema
+      on parent_schema.oid = parent_relation.relnamespace
+    join pg_trigger trigger_row
+      on trigger_row.tgconstraint = constraint_row.oid
+    join pg_class event_relation
+      on event_relation.oid = trigger_row.tgrelid
+    join pg_namespace event_schema
+      on event_schema.oid = event_relation.relnamespace
+    left join pg_class opposite_relation
+      on opposite_relation.oid = trigger_row.tgconstrrelid
+    left join pg_namespace opposite_schema
+      on opposite_schema.oid = opposite_relation.relnamespace
+    join pg_proc function_row
+      on function_row.oid = trigger_row.tgfoid
+    join pg_namespace function_schema
+      on function_schema.oid = function_row.pronamespace
+    join pg_language function_language
+      on function_language.oid = function_row.prolang
+    where constraint_row.contype = 'f'
+      and (
+        constraint_row.conrelid =
+          'public.user_security_settings'::regclass
+        or constraint_row.confrelid =
+          'public.user_security_settings'::regclass
+      )
+    order by 13, 20, 23
+  `)).rows;
+}
+
+function assertExactFundPinRiTriggerSemantics(rows) {
+  assert.equal(rows.length, 4);
+  for (const row of rows) {
+    assert.equal(row.constraint_schema, "public");
+    assert.equal(
+      row.constraint_name,
+      "user_security_settings_user_id_fkey",
+    );
+    assert.equal(row.constraint_validated, true);
+    assert.equal(row.match_type, "s");
+    assert.equal(row.update_action, "a");
+    assert.equal(row.delete_action, "c");
+    assert.equal(row.constraint_deferrable, false);
+    assert.equal(row.constraint_initially_deferred, false);
+    assert.equal(row.child_schema, "public");
+    assert.equal(row.child_relation, "user_security_settings");
+    assert.equal(row.parent_schema, "auth");
+    assert.equal(row.parent_relation, "users");
+    assert.equal(row.trigger_timing, "AFTER");
+    assert.equal(row.trigger_level, "ROW");
+    assert.equal(row.function_schema, "pg_catalog");
+    assert.equal(row.function_identity_arguments, "");
+    assert.equal(row.function_result, "trigger");
+    assert.equal(row.function_language, "internal");
+    assert.equal(row.is_internal, true);
+    assert.equal(row.enabled_state, "O");
+    assert.equal(row.trigger_deferrable, false);
+    assert.equal(row.trigger_initially_deferred, false);
+    assert.equal(row.referenced_index_matches, true);
+  }
+
+  assert.deepEqual(
+    rows.map((row) => ({
+      side: row.trigger_side,
+      action: row.trigger_action,
+      type: row.trigger_type,
+      event: `${row.event_schema}.${row.event_relation}`,
+      opposite: `${row.opposite_schema}.${row.opposite_relation}`,
+      functionName: row.function_name,
+    })),
+    [
+      {
+        side: "child",
+        action: "INSERT",
+        type: 5,
+        event: "public.user_security_settings",
+        opposite: "auth.users",
+        functionName: "RI_FKey_check_ins",
+      },
+      {
+        side: "child",
+        action: "UPDATE",
+        type: 17,
+        event: "public.user_security_settings",
+        opposite: "auth.users",
+        functionName: "RI_FKey_check_upd",
+      },
+      {
+        side: "parent",
+        action: "DELETE",
+        type: 9,
+        event: "auth.users",
+        opposite: "public.user_security_settings",
+        functionName: "RI_FKey_cascade_del",
+      },
+      {
+        side: "parent",
+        action: "UPDATE",
+        type: 17,
+        event: "auth.users",
+        opposite: "public.user_security_settings",
+        functionName: "RI_FKey_noaction_upd",
+      },
+    ],
+  );
 }
 
 async function functionSecurityRows(client) {
@@ -461,6 +772,14 @@ test("migration commits the complete Fund PIN catalog and service-only boundary"
     "pg_constraint",
     "pg_index",
     "pg_trigger",
+    "tgconstraint",
+    "tgconstrrelid",
+    "tgconstrindid",
+    "tgtype",
+    "tgenabled",
+    "tgisinternal",
+    "tgdeferrable",
+    "tginitdeferred",
     "pg_policy",
     "pg_proc",
     "pg_language",
@@ -506,6 +825,31 @@ test("migration commits the complete Fund PIN catalog and service-only boundary"
   assert.match(migration, /\^\[0-9\]\{4\}\$/);
   assert.match(migration, /extensions\.crypt\s*\(/i);
   assert.match(migration, /extensions\.gen_salt\s*\(/i);
+  for (const riFunction of FUND_PIN_RI_TRIGGERS.map(
+    ({ functionName }) => functionName,
+  )) {
+    assert.equal(
+      (migration.match(new RegExp(escapeRegExp(riFunction), "g")) ?? [])
+        .length,
+      2,
+      `${riFunction} must be pinned once in preflight and once in postflight`,
+    );
+  }
+  assert.equal(
+    (migration.match(/except\s+all/gi) ?? []).length,
+    4,
+    "both trigger gates must use symmetric multiset comparison",
+  );
+  assert.doesNotMatch(
+    migration,
+    /pg_get_triggerdef|trigger_row\.tgname|RI_ConstraintTrigger/i,
+    "the migration trigger fingerprint must not depend on generated names",
+  );
+  assert.doesNotMatch(
+    migration,
+    /alter\s+table[\s\S]*?enable\s+trigger/i,
+    "the migration must reject trigger drift rather than repairing it",
+  );
   assert.match(
     migration,
     /revoke\s+all\s+on\s+function[\s\S]+?from\s+public\s*,\s*anon\s*,\s*authenticated/i,
@@ -661,6 +1005,61 @@ test("native PostgreSQL enforces exact preflight, service-only ACLs, and Fund PI
         for each row execute function public.fund_pin_drift_trigger()
       `,
     },
+    ...FUND_PIN_RI_TRIGGERS.map((trigger) => ({
+      name:
+        `${trigger.side} ${trigger.action} internal FK trigger disabled`,
+      sql: disableFundPinRiTriggerSql(trigger),
+    })),
+    {
+      name: "all four internal FK triggers disabled",
+      sql: FUND_PIN_RI_TRIGGERS
+        .map((trigger) => disableFundPinRiTriggerSql(trigger))
+        .join("\n"),
+    },
+    {
+      name: "missing internal FK trigger relationship",
+      sql: `
+        alter table public.user_security_settings
+          drop constraint user_security_settings_user_id_fkey
+      `,
+    },
+    {
+      name: "duplicate internal FK trigger relationship",
+      sql: `
+        alter table public.user_security_settings
+          add constraint user_security_settings_user_id_fkey_duplicate
+          foreign key (user_id) references auth.users(id) on delete cascade
+      `,
+    },
+    {
+      name: "internal FK parent relationship",
+      sql: `
+        create table auth.fund_pin_drift_users (
+          id uuid primary key
+        );
+        insert into auth.fund_pin_drift_users (id)
+          select id from auth.users;
+        alter table public.user_security_settings
+          drop constraint user_security_settings_user_id_fkey;
+        alter table public.user_security_settings
+          add constraint user_security_settings_user_id_fkey
+          foreign key (user_id)
+          references auth.fund_pin_drift_users(id)
+          on delete cascade
+      `,
+    },
+    {
+      name: "internal FK RI action function",
+      sql: `
+        alter table public.user_security_settings
+          drop constraint user_security_settings_user_id_fkey;
+        alter table public.user_security_settings
+          add constraint user_security_settings_user_id_fkey
+          foreign key (user_id)
+          references auth.users(id)
+          on delete restrict
+      `,
+    },
     {
       name: "constraint",
       sql: `
@@ -713,6 +1112,9 @@ test("native PostgreSQL enforces exact preflight, service-only ACLs, and Fund PI
 
   await t.test("exact legitimate catalog applies without changing existing rows", async () => {
     await createLivePreMigrationCatalog(client);
+    assertExactFundPinRiTriggerSemantics(
+      await fundPinRiTriggerSemantics(client),
+    );
     const beforeRows = (await client.query(`
       select to_jsonb(s) as row
       from public.user_security_settings s
@@ -726,6 +1128,9 @@ test("native PostgreSQL enforces exact preflight, service-only ACLs, and Fund PI
     `)).rows[0].prosrc;
 
     await applyMigration(client);
+    assertExactFundPinRiTriggerSemantics(
+      await fundPinRiTriggerSemantics(client),
+    );
 
     assert.deepEqual(
       (await client.query(`
