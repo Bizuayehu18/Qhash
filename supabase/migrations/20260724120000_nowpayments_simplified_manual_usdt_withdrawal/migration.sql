@@ -4,6 +4,16 @@
 do $preflight$
 declare
   v_trigger_definition text;
+  v_functions_count bigint;
+  v_functions_fingerprint text;
+  v_relations_count bigint;
+  v_relations_fingerprint text;
+  v_constraints_count bigint;
+  v_constraints_fingerprint text;
+  v_triggers_count bigint;
+  v_triggers_fingerprint text;
+  v_indexes_count bigint;
+  v_indexes_fingerprint text;
 begin
   if to_regprocedure(
       'public.complete_nowpayments_usdt_withdrawal_manual(uuid,uuid,text,text)'
@@ -29,6 +39,406 @@ begin
     ) is null
   then
     raise exception 'unexpected deployed NOWPayments USDT withdrawal function fingerprint';
+  end if;
+
+  -- Pin the complete inherited withdrawal catalog before the first mutation.
+  -- Source hashes are paired with exact identity, ownership, language, return,
+  -- execution, planner, configuration, and exploded ACL metadata.
+  with target_functions(name) as (
+    values
+      ('is_canonical_uuid_v4'),
+      ('assert_safe_nowpayments_usdt_withdrawal_destination'),
+      ('reject_nowpayments_usdt_ledger_mutation'),
+      ('reject_nowpayments_usdt_withdrawal_audit_mutation'),
+      ('set_nowpayments_usdt_updated_at'),
+      ('enforce_nowpayments_usdt_withdrawal_immutability'),
+      ('request_nowpayments_usdt_withdrawal'),
+      ('claim_nowpayments_usdt_withdrawal_review'),
+      ('lock_nowpayments_usdt_withdrawal_send'),
+      ('record_nowpayments_usdt_withdrawal_broadcast'),
+      ('complete_nowpayments_usdt_withdrawal'),
+      ('reject_nowpayments_usdt_withdrawal'),
+      ('take_over_nowpayments_usdt_withdrawal')
+  ),
+  function_rows as (
+    select jsonb_build_array(
+      function_schema.nspname,
+      function_row.proname,
+      pg_get_function_identity_arguments(function_row.oid),
+      pg_get_userbyid(function_row.proowner),
+      function_row.prokind,
+      function_language.lanname,
+      pg_get_function_result(function_row.oid),
+      md5(function_row.prosrc),
+      function_row.prosecdef,
+      function_row.provolatile,
+      function_row.proisstrict,
+      function_row.proparallel,
+      function_row.proconfig,
+      coalesce((
+        select jsonb_agg(
+          jsonb_build_array(
+            case when function_acl.grantee = 0
+              then 'PUBLIC'
+              else grantee_role.rolname
+            end,
+            grantor_role.rolname,
+            function_acl.privilege_type,
+            function_acl.is_grantable
+          )
+          order by
+            case when function_acl.grantee = 0
+              then 'PUBLIC'
+              else grantee_role.rolname
+            end,
+            grantor_role.rolname,
+            function_acl.privilege_type,
+            function_acl.is_grantable
+        )
+        from aclexplode(function_row.proacl) function_acl
+        left join pg_roles grantee_role
+          on grantee_role.oid = function_acl.grantee
+        left join pg_roles grantor_role
+          on grantor_role.oid = function_acl.grantor
+      ), '[]'::jsonb)
+    ) as fingerprint_row
+    from pg_proc function_row
+    join pg_namespace function_schema
+      on function_schema.oid = function_row.pronamespace
+    join pg_language function_language
+      on function_language.oid = function_row.prolang
+    join target_functions
+      on target_functions.name = function_row.proname
+    where function_schema.nspname = 'public'
+  )
+  select
+    count(*),
+    md5(coalesce(
+      jsonb_agg(fingerprint_row order by fingerprint_row::text),
+      '[]'::jsonb
+    )::text)
+  into v_functions_count, v_functions_fingerprint
+  from function_rows;
+
+  if v_functions_count <> 13
+    or v_functions_fingerprint <> '2614ab8e341718580bb6cbde37f2c47f'
+  then
+    raise exception 'unexpected inherited NOWPayments USDT withdrawal function catalog';
+  end if;
+
+  -- Pin exact table ownership, RLS/force-RLS state, policy definitions, and
+  -- every explicit table grant (grantee, grantor, privilege, grant option).
+  with target_tables(name) as (
+    values
+      ('nowpayments_usdt_config'),
+      ('nowpayments_usdt_wallets'),
+      ('nowpayments_usdt_withdrawals'),
+      ('nowpayments_usdt_ledger_entries'),
+      ('nowpayments_usdt_withdrawal_events'),
+      ('nowpayments_usdt_withdrawal_broadcasts'),
+      ('nowpayments_usdt_withdrawal_verifications')
+  ),
+  relation_rows as (
+    select jsonb_build_array(
+      relation_schema.nspname,
+      relation_row.relname,
+      pg_get_userbyid(relation_row.relowner),
+      relation_row.relkind,
+      relation_row.relrowsecurity,
+      relation_row.relforcerowsecurity,
+      coalesce((
+        select jsonb_agg(
+          jsonb_build_array(
+            case when relation_acl.grantee = 0
+              then 'PUBLIC'
+              else grantee_role.rolname
+            end,
+            grantor_role.rolname,
+            relation_acl.privilege_type,
+            relation_acl.is_grantable
+          )
+          order by
+            case when relation_acl.grantee = 0
+              then 'PUBLIC'
+              else grantee_role.rolname
+            end,
+            grantor_role.rolname,
+            relation_acl.privilege_type,
+            relation_acl.is_grantable
+        )
+        from aclexplode(relation_row.relacl) relation_acl
+        left join pg_roles grantee_role
+          on grantee_role.oid = relation_acl.grantee
+        left join pg_roles grantor_role
+          on grantor_role.oid = relation_acl.grantor
+        where relation_acl.grantee <> relation_row.relowner
+      ), '[]'::jsonb),
+      (
+        select jsonb_agg(
+          jsonb_build_array(
+            owner_acl.privilege_type,
+            owner_acl.is_grantable,
+            owner_grantor.rolname
+          )
+          order by
+            owner_acl.privilege_type,
+            owner_acl.is_grantable,
+            owner_grantor.rolname
+        )
+        from aclexplode(relation_row.relacl) owner_acl
+        left join pg_roles owner_grantor
+          on owner_grantor.oid = owner_acl.grantor
+        where owner_acl.grantee = relation_row.relowner
+      ) is not distinct from (
+        select jsonb_agg(
+          jsonb_build_array(
+            default_owner_acl.privilege_type,
+            default_owner_acl.is_grantable,
+            default_owner_grantor.rolname
+          )
+          order by
+            default_owner_acl.privilege_type,
+            default_owner_acl.is_grantable,
+            default_owner_grantor.rolname
+        )
+        from aclexplode(
+          acldefault('r', relation_row.relowner)
+        ) default_owner_acl
+        left join pg_roles default_owner_grantor
+          on default_owner_grantor.oid = default_owner_acl.grantor
+        where default_owner_acl.grantee = relation_row.relowner
+      ),
+      coalesce((
+        select jsonb_agg(
+          jsonb_build_array(
+            policy_row.polname,
+            policy_row.polpermissive,
+            policy_row.polcmd,
+            coalesce((
+              select jsonb_agg(policy_role.rolname order by policy_role.rolname)
+              from unnest(policy_row.polroles) policy_role_oid(oid)
+              join pg_roles policy_role on policy_role.oid = policy_role_oid.oid
+            ), '[]'::jsonb),
+            coalesce(
+              regexp_replace(
+                lower(pg_get_expr(policy_row.polqual, policy_row.polrelid)),
+                '\s+', '', 'g'
+              ),
+              ''
+            ),
+            coalesce(
+              regexp_replace(
+                lower(pg_get_expr(policy_row.polwithcheck, policy_row.polrelid)),
+                '\s+', '', 'g'
+              ),
+              ''
+            )
+          )
+          order by policy_row.polname
+        )
+        from pg_policy policy_row
+        where policy_row.polrelid = relation_row.oid
+      ), '[]'::jsonb)
+    ) as fingerprint_row
+    from pg_class relation_row
+    join pg_namespace relation_schema
+      on relation_schema.oid = relation_row.relnamespace
+    join target_tables on target_tables.name = relation_row.relname
+    where relation_schema.nspname = 'public'
+      and relation_row.relkind = 'r'
+  )
+  select
+    count(*),
+    md5(coalesce(
+      jsonb_agg(fingerprint_row order by fingerprint_row::text),
+      '[]'::jsonb
+    )::text)
+  into v_relations_count, v_relations_fingerprint
+  from relation_rows;
+
+  if v_relations_count <> 7
+    or v_relations_fingerprint <> '22c5e560efad92fb2c12a66823026d25'
+  then
+    raise exception 'unexpected NOWPayments USDT withdrawal relation, RLS, policy, or grant catalog';
+  end if;
+
+  -- Pin every relevant constraint, including validation, deferrability and
+  -- foreign-key update/delete/match actions.
+  with target_tables(name) as (
+    values
+      ('nowpayments_usdt_config'),
+      ('nowpayments_usdt_wallets'),
+      ('nowpayments_usdt_withdrawals'),
+      ('nowpayments_usdt_ledger_entries'),
+      ('nowpayments_usdt_withdrawal_events'),
+      ('nowpayments_usdt_withdrawal_broadcasts'),
+      ('nowpayments_usdt_withdrawal_verifications')
+  ),
+  constraint_rows as (
+    select jsonb_build_array(
+      relation_schema.nspname,
+      relation_row.relname,
+      constraint_row.conname,
+      constraint_row.contype,
+      regexp_replace(
+        lower(pg_get_constraintdef(constraint_row.oid, true)),
+        '\s+', '', 'g'
+      ),
+      constraint_row.convalidated,
+      constraint_row.condeferrable,
+      constraint_row.condeferred,
+      constraint_row.confupdtype,
+      constraint_row.confdeltype,
+      constraint_row.confmatchtype
+    ) as fingerprint_row
+    from pg_constraint constraint_row
+    join pg_class relation_row on relation_row.oid = constraint_row.conrelid
+    join pg_namespace relation_schema
+      on relation_schema.oid = relation_row.relnamespace
+    join target_tables on target_tables.name = relation_row.relname
+    where relation_schema.nspname = 'public'
+  )
+  select
+    count(*),
+    md5(coalesce(
+      jsonb_agg(fingerprint_row order by fingerprint_row::text),
+      '[]'::jsonb
+    )::text)
+  into v_constraints_count, v_constraints_fingerprint
+  from constraint_rows;
+
+  if v_constraints_count <> 80
+    or v_constraints_fingerprint <> 'd98b867d27cdfee4d4fafc187f4dc0d8'
+  then
+    raise exception 'unexpected NOWPayments USDT withdrawal constraint catalog';
+  end if;
+
+  -- Pin trigger table, function, timing/event/level bits, enablement,
+  -- conditions, and normalized definitions.
+  with target_tables(name) as (
+    values
+      ('nowpayments_usdt_config'),
+      ('nowpayments_usdt_wallets'),
+      ('nowpayments_usdt_withdrawals'),
+      ('nowpayments_usdt_ledger_entries'),
+      ('nowpayments_usdt_withdrawal_events'),
+      ('nowpayments_usdt_withdrawal_broadcasts'),
+      ('nowpayments_usdt_withdrawal_verifications')
+  ),
+  trigger_rows as (
+    select jsonb_build_array(
+      relation_schema.nspname,
+      relation_row.relname,
+      trigger_row.tgname,
+      trigger_row.tgenabled,
+      trigger_row.tgisinternal,
+      trigger_row.tgtype,
+      function_schema.nspname,
+      function_row.proname,
+      pg_get_function_identity_arguments(function_row.oid),
+      regexp_replace(
+        lower(pg_get_triggerdef(trigger_row.oid, true)),
+        '\s+', '', 'g'
+      ),
+      coalesce(
+        regexp_replace(
+          lower(pg_get_expr(trigger_row.tgqual, trigger_row.tgrelid)),
+          '\s+', '', 'g'
+        ),
+        ''
+      )
+    ) as fingerprint_row
+    from pg_trigger trigger_row
+    join pg_class relation_row on relation_row.oid = trigger_row.tgrelid
+    join pg_namespace relation_schema
+      on relation_schema.oid = relation_row.relnamespace
+    join target_tables on target_tables.name = relation_row.relname
+    join pg_proc function_row on function_row.oid = trigger_row.tgfoid
+    join pg_namespace function_schema
+      on function_schema.oid = function_row.pronamespace
+    where relation_schema.nspname = 'public'
+      and not trigger_row.tgisinternal
+  )
+  select
+    count(*),
+    md5(coalesce(
+      jsonb_agg(fingerprint_row order by fingerprint_row::text),
+      '[]'::jsonb
+    )::text)
+  into v_triggers_count, v_triggers_fingerprint
+  from trigger_rows;
+
+  if v_triggers_count <> 8
+    or v_triggers_fingerprint <> '362e49ab55eca8d5ea5de90f23e9becd'
+  then
+    raise exception 'unexpected NOWPayments USDT withdrawal trigger catalog';
+  end if;
+
+  -- Pin exact index identity, keys, included columns, uniqueness,
+  -- validity/readiness/liveness, predicates, and definitions.
+  with target_tables(name) as (
+    values
+      ('nowpayments_usdt_config'),
+      ('nowpayments_usdt_wallets'),
+      ('nowpayments_usdt_withdrawals'),
+      ('nowpayments_usdt_ledger_entries'),
+      ('nowpayments_usdt_withdrawal_events'),
+      ('nowpayments_usdt_withdrawal_broadcasts'),
+      ('nowpayments_usdt_withdrawal_verifications')
+  ),
+  index_rows as (
+    select jsonb_build_array(
+      relation_schema.nspname,
+      relation_row.relname,
+      index_row.relname,
+      index_catalog.indisunique,
+      index_catalog.indisvalid,
+      index_catalog.indisready,
+      index_catalog.indislive,
+      index_catalog.indimmediate,
+      index_catalog.indkey::text,
+      regexp_replace(
+        lower(pg_get_indexdef(index_catalog.indexrelid)),
+        '\s+', '', 'g'
+      ),
+      coalesce(
+        regexp_replace(
+          lower(pg_get_expr(index_catalog.indpred, index_catalog.indrelid)),
+          '\s+', '', 'g'
+        ),
+        ''
+      )
+    ) as fingerprint_row
+    from pg_index index_catalog
+    join pg_class relation_row on relation_row.oid = index_catalog.indrelid
+    join pg_namespace relation_schema
+      on relation_schema.oid = relation_row.relnamespace
+    join target_tables on target_tables.name = relation_row.relname
+    join pg_class index_row on index_row.oid = index_catalog.indexrelid
+    where relation_schema.nspname = 'public'
+  )
+  select
+    count(*),
+    md5(coalesce(
+      jsonb_agg(fingerprint_row order by fingerprint_row::text),
+      '[]'::jsonb
+    )::text)
+  into v_indexes_count, v_indexes_fingerprint
+  from index_rows;
+
+  if v_indexes_count <> 23
+    or v_indexes_fingerprint <> '40fac6ea9bf8edbb208af149081db7f2'
+    or exists (
+      select 1
+      from pg_class sequence_row
+      join pg_namespace sequence_schema
+        on sequence_schema.oid = sequence_row.relnamespace
+      where sequence_schema.nspname = 'public'
+        and sequence_row.relkind = 'S'
+        and sequence_row.relname like 'nowpayments_usdt_withdrawal%'
+    )
+  then
+    raise exception 'unexpected NOWPayments USDT withdrawal index or sequence catalog';
   end if;
 
   if not exists (
@@ -628,18 +1038,18 @@ grant execute on function public.reject_nowpayments_usdt_withdrawal_manual(uuid,
 
 -- Retire the runtime's former multi-step action surface. Definitions remain for
 -- historical audit compatibility, but only the simplified functions are callable.
-revoke execute on function public.claim_nowpayments_usdt_withdrawal_review(uuid,uuid,text)
-  from service_role;
-revoke execute on function public.lock_nowpayments_usdt_withdrawal_send(uuid,uuid,text,boolean,boolean)
-  from service_role;
-revoke execute on function public.record_nowpayments_usdt_withdrawal_broadcast(uuid,uuid,text,text,text)
-  from service_role;
-revoke execute on function public.complete_nowpayments_usdt_withdrawal(uuid,uuid,text,text,integer,text,boolean,boolean,text,text,bigint,integer,integer,timestamptz)
-  from service_role;
-revoke execute on function public.reject_nowpayments_usdt_withdrawal(uuid,uuid,text,text)
-  from service_role;
-revoke execute on function public.take_over_nowpayments_usdt_withdrawal(uuid,uuid,text,text)
-  from service_role;
+revoke all on function public.claim_nowpayments_usdt_withdrawal_review(uuid,uuid,text)
+  from public, anon, authenticated, service_role;
+revoke all on function public.lock_nowpayments_usdt_withdrawal_send(uuid,uuid,text,boolean,boolean)
+  from public, anon, authenticated, service_role;
+revoke all on function public.record_nowpayments_usdt_withdrawal_broadcast(uuid,uuid,text,text,text)
+  from public, anon, authenticated, service_role;
+revoke all on function public.complete_nowpayments_usdt_withdrawal(uuid,uuid,text,text,integer,text,boolean,boolean,text,text,bigint,integer,integer,timestamptz)
+  from public, anon, authenticated, service_role;
+revoke all on function public.reject_nowpayments_usdt_withdrawal(uuid,uuid,text,text)
+  from public, anon, authenticated, service_role;
+revoke all on function public.take_over_nowpayments_usdt_withdrawal(uuid,uuid,text,text)
+  from public, anon, authenticated, service_role;
 
 comment on function public.complete_nowpayments_usdt_withdrawal_manual(uuid,uuid,text,text) is
   'Atomically settles one pending manual USDT-BEP20 withdrawal after an administrator confirms the exact net amount was sent; optional hash is private audit evidence.';
@@ -647,7 +1057,371 @@ comment on function public.reject_nowpayments_usdt_withdrawal_manual(uuid,uuid,t
   'Atomically rejects one pending manual USDT-BEP20 withdrawal and releases its full reserved gross amount.';
 
 do $postflight$
+declare
+  v_functions_count bigint;
+  v_functions_fingerprint text;
+  v_relations_count bigint;
+  v_relations_fingerprint text;
+  v_constraints_count bigint;
+  v_constraints_fingerprint text;
+  v_triggers_count bigint;
+  v_triggers_fingerprint text;
+  v_indexes_count bigint;
+  v_indexes_fingerprint text;
 begin
+  with target_functions(name) as (
+    values
+      ('is_canonical_uuid_v4'),
+      ('assert_safe_nowpayments_usdt_withdrawal_destination'),
+      ('reject_nowpayments_usdt_ledger_mutation'),
+      ('reject_nowpayments_usdt_withdrawal_audit_mutation'),
+      ('set_nowpayments_usdt_updated_at'),
+      ('enforce_nowpayments_usdt_withdrawal_immutability'),
+      ('request_nowpayments_usdt_withdrawal'),
+      ('claim_nowpayments_usdt_withdrawal_review'),
+      ('lock_nowpayments_usdt_withdrawal_send'),
+      ('record_nowpayments_usdt_withdrawal_broadcast'),
+      ('complete_nowpayments_usdt_withdrawal'),
+      ('reject_nowpayments_usdt_withdrawal'),
+      ('take_over_nowpayments_usdt_withdrawal'),
+      ('complete_nowpayments_usdt_withdrawal_manual'),
+      ('reject_nowpayments_usdt_withdrawal_manual')
+  ),
+  target_tables(name) as (
+    values
+      ('nowpayments_usdt_config'),
+      ('nowpayments_usdt_wallets'),
+      ('nowpayments_usdt_withdrawals'),
+      ('nowpayments_usdt_ledger_entries'),
+      ('nowpayments_usdt_withdrawal_events'),
+      ('nowpayments_usdt_withdrawal_broadcasts'),
+      ('nowpayments_usdt_withdrawal_verifications')
+  ),
+  function_rows as (
+    select jsonb_build_array(
+      function_schema.nspname,
+      function_row.proname,
+      pg_get_function_identity_arguments(function_row.oid),
+      pg_get_userbyid(function_row.proowner),
+      function_row.prokind,
+      function_language.lanname,
+      pg_get_function_result(function_row.oid),
+      md5(function_row.prosrc),
+      function_row.prosecdef,
+      function_row.provolatile,
+      function_row.proisstrict,
+      function_row.proparallel,
+      function_row.proconfig,
+      coalesce((
+        select jsonb_agg(
+          jsonb_build_array(
+            case when function_acl.grantee = 0
+              then 'PUBLIC'
+              else grantee_role.rolname
+            end,
+            grantor_role.rolname,
+            function_acl.privilege_type,
+            function_acl.is_grantable
+          )
+          order by
+            case when function_acl.grantee = 0
+              then 'PUBLIC'
+              else grantee_role.rolname
+            end,
+            grantor_role.rolname,
+            function_acl.privilege_type,
+            function_acl.is_grantable
+        )
+        from aclexplode(function_row.proacl) function_acl
+        left join pg_roles grantee_role
+          on grantee_role.oid = function_acl.grantee
+        left join pg_roles grantor_role
+          on grantor_role.oid = function_acl.grantor
+      ), '[]'::jsonb)
+    ) as fingerprint_row
+    from pg_proc function_row
+    join pg_namespace function_schema
+      on function_schema.oid = function_row.pronamespace
+    join pg_language function_language
+      on function_language.oid = function_row.prolang
+    join target_functions on target_functions.name = function_row.proname
+    where function_schema.nspname = 'public'
+  ),
+  relation_rows as (
+    select jsonb_build_array(
+      relation_schema.nspname,
+      relation_row.relname,
+      pg_get_userbyid(relation_row.relowner),
+      relation_row.relkind,
+      relation_row.relrowsecurity,
+      relation_row.relforcerowsecurity,
+      coalesce((
+        select jsonb_agg(
+          jsonb_build_array(
+            case when relation_acl.grantee = 0
+              then 'PUBLIC'
+              else grantee_role.rolname
+            end,
+            grantor_role.rolname,
+            relation_acl.privilege_type,
+            relation_acl.is_grantable
+          )
+          order by
+            case when relation_acl.grantee = 0
+              then 'PUBLIC'
+              else grantee_role.rolname
+            end,
+            grantor_role.rolname,
+            relation_acl.privilege_type,
+            relation_acl.is_grantable
+        )
+        from aclexplode(relation_row.relacl) relation_acl
+        left join pg_roles grantee_role
+          on grantee_role.oid = relation_acl.grantee
+        left join pg_roles grantor_role
+          on grantor_role.oid = relation_acl.grantor
+        where relation_acl.grantee <> relation_row.relowner
+      ), '[]'::jsonb),
+      (
+        select jsonb_agg(
+          jsonb_build_array(
+            owner_acl.privilege_type,
+            owner_acl.is_grantable,
+            owner_grantor.rolname
+          )
+          order by
+            owner_acl.privilege_type,
+            owner_acl.is_grantable,
+            owner_grantor.rolname
+        )
+        from aclexplode(relation_row.relacl) owner_acl
+        left join pg_roles owner_grantor
+          on owner_grantor.oid = owner_acl.grantor
+        where owner_acl.grantee = relation_row.relowner
+      ) is not distinct from (
+        select jsonb_agg(
+          jsonb_build_array(
+            default_owner_acl.privilege_type,
+            default_owner_acl.is_grantable,
+            default_owner_grantor.rolname
+          )
+          order by
+            default_owner_acl.privilege_type,
+            default_owner_acl.is_grantable,
+            default_owner_grantor.rolname
+        )
+        from aclexplode(
+          acldefault('r', relation_row.relowner)
+        ) default_owner_acl
+        left join pg_roles default_owner_grantor
+          on default_owner_grantor.oid = default_owner_acl.grantor
+        where default_owner_acl.grantee = relation_row.relowner
+      ),
+      coalesce((
+        select jsonb_agg(
+          jsonb_build_array(
+            policy_row.polname,
+            policy_row.polpermissive,
+            policy_row.polcmd,
+            coalesce((
+              select jsonb_agg(policy_role.rolname order by policy_role.rolname)
+              from unnest(policy_row.polroles) policy_role_oid(oid)
+              join pg_roles policy_role on policy_role.oid = policy_role_oid.oid
+            ), '[]'::jsonb),
+            coalesce(
+              regexp_replace(
+                lower(pg_get_expr(policy_row.polqual, policy_row.polrelid)),
+                '\s+', '', 'g'
+              ),
+              ''
+            ),
+            coalesce(
+              regexp_replace(
+                lower(pg_get_expr(policy_row.polwithcheck, policy_row.polrelid)),
+                '\s+', '', 'g'
+              ),
+              ''
+            )
+          )
+          order by policy_row.polname
+        )
+        from pg_policy policy_row
+        where policy_row.polrelid = relation_row.oid
+      ), '[]'::jsonb)
+    ) as fingerprint_row
+    from pg_class relation_row
+    join pg_namespace relation_schema
+      on relation_schema.oid = relation_row.relnamespace
+    join target_tables on target_tables.name = relation_row.relname
+    where relation_schema.nspname = 'public'
+      and relation_row.relkind = 'r'
+  ),
+  constraint_rows as (
+    select jsonb_build_array(
+      relation_schema.nspname,
+      relation_row.relname,
+      constraint_row.conname,
+      constraint_row.contype,
+      regexp_replace(
+        lower(pg_get_constraintdef(constraint_row.oid, true)),
+        '\s+', '', 'g'
+      ),
+      constraint_row.convalidated,
+      constraint_row.condeferrable,
+      constraint_row.condeferred,
+      constraint_row.confupdtype,
+      constraint_row.confdeltype,
+      constraint_row.confmatchtype
+    ) as fingerprint_row
+    from pg_constraint constraint_row
+    join pg_class relation_row on relation_row.oid = constraint_row.conrelid
+    join pg_namespace relation_schema
+      on relation_schema.oid = relation_row.relnamespace
+    join target_tables on target_tables.name = relation_row.relname
+    where relation_schema.nspname = 'public'
+  ),
+  trigger_rows as (
+    select jsonb_build_array(
+      relation_schema.nspname,
+      relation_row.relname,
+      trigger_row.tgname,
+      trigger_row.tgenabled,
+      trigger_row.tgisinternal,
+      trigger_row.tgtype,
+      function_schema.nspname,
+      function_row.proname,
+      pg_get_function_identity_arguments(function_row.oid),
+      regexp_replace(
+        lower(pg_get_triggerdef(trigger_row.oid, true)),
+        '\s+', '', 'g'
+      ),
+      coalesce(
+        regexp_replace(
+          lower(pg_get_expr(trigger_row.tgqual, trigger_row.tgrelid)),
+          '\s+', '', 'g'
+        ),
+        ''
+      )
+    ) as fingerprint_row
+    from pg_trigger trigger_row
+    join pg_class relation_row on relation_row.oid = trigger_row.tgrelid
+    join pg_namespace relation_schema
+      on relation_schema.oid = relation_row.relnamespace
+    join target_tables on target_tables.name = relation_row.relname
+    join pg_proc function_row on function_row.oid = trigger_row.tgfoid
+    join pg_namespace function_schema
+      on function_schema.oid = function_row.pronamespace
+    where relation_schema.nspname = 'public'
+      and not trigger_row.tgisinternal
+  ),
+  index_rows as (
+    select jsonb_build_array(
+      relation_schema.nspname,
+      relation_row.relname,
+      index_row.relname,
+      index_catalog.indisunique,
+      index_catalog.indisvalid,
+      index_catalog.indisready,
+      index_catalog.indislive,
+      index_catalog.indimmediate,
+      index_catalog.indkey::text,
+      regexp_replace(
+        lower(pg_get_indexdef(index_catalog.indexrelid)),
+        '\s+', '', 'g'
+      ),
+      coalesce(
+        regexp_replace(
+          lower(pg_get_expr(index_catalog.indpred, index_catalog.indrelid)),
+          '\s+', '', 'g'
+        ),
+        ''
+      )
+    ) as fingerprint_row
+    from pg_index index_catalog
+    join pg_class relation_row on relation_row.oid = index_catalog.indrelid
+    join pg_namespace relation_schema
+      on relation_schema.oid = relation_row.relnamespace
+    join target_tables on target_tables.name = relation_row.relname
+    join pg_class index_row on index_row.oid = index_catalog.indexrelid
+    where relation_schema.nspname = 'public'
+  )
+  select
+    (select count(*) from function_rows),
+    (select md5(coalesce(
+      jsonb_agg(fingerprint_row order by fingerprint_row::text),
+      '[]'::jsonb
+    )::text) from function_rows),
+    (select count(*) from relation_rows),
+    (select md5(coalesce(
+      jsonb_agg(fingerprint_row order by fingerprint_row::text),
+      '[]'::jsonb
+    )::text) from relation_rows),
+    (select count(*) from constraint_rows),
+    (select md5(coalesce(
+      jsonb_agg(fingerprint_row order by fingerprint_row::text),
+      '[]'::jsonb
+    )::text) from constraint_rows),
+    (select count(*) from trigger_rows),
+    (select md5(coalesce(
+      jsonb_agg(fingerprint_row order by fingerprint_row::text),
+      '[]'::jsonb
+    )::text) from trigger_rows),
+    (select count(*) from index_rows),
+    (select md5(coalesce(
+      jsonb_agg(fingerprint_row order by fingerprint_row::text),
+      '[]'::jsonb
+    )::text) from index_rows)
+  into
+    v_functions_count,
+    v_functions_fingerprint,
+    v_relations_count,
+    v_relations_fingerprint,
+    v_constraints_count,
+    v_constraints_fingerprint,
+    v_triggers_count,
+    v_triggers_fingerprint,
+    v_indexes_count,
+    v_indexes_fingerprint;
+
+  if v_functions_count <> 15
+    or v_functions_fingerprint <> 'cce9429bdab6c64497e439a521783b7f'
+  then
+    raise exception 'unexpected simplified NOWPayments USDT withdrawal function catalog';
+  end if;
+
+  if v_relations_count <> 7
+    or v_relations_fingerprint <> '22c5e560efad92fb2c12a66823026d25'
+  then
+    raise exception 'unexpected simplified NOWPayments USDT withdrawal relation catalog';
+  end if;
+
+  if v_constraints_count <> 80
+    or v_constraints_fingerprint <> '309369a00a06b779d5a39f607bcf4841'
+  then
+    raise exception 'unexpected simplified NOWPayments USDT withdrawal constraint catalog';
+  end if;
+
+  if v_triggers_count <> 8
+    or v_triggers_fingerprint <> '362e49ab55eca8d5ea5de90f23e9becd'
+  then
+    raise exception 'unexpected simplified NOWPayments USDT withdrawal trigger catalog';
+  end if;
+
+  if v_indexes_count <> 23
+    or v_indexes_fingerprint <> '40fac6ea9bf8edbb208af149081db7f2'
+    or exists (
+      select 1
+      from pg_class sequence_row
+      join pg_namespace sequence_schema
+        on sequence_schema.oid = sequence_row.relnamespace
+      where sequence_schema.nspname = 'public'
+        and sequence_row.relkind = 'S'
+        and sequence_row.relname like 'nowpayments_usdt_withdrawal%'
+    )
+  then
+    raise exception 'unexpected simplified NOWPayments USDT withdrawal index or sequence catalog';
+  end if;
+
   if not exists (
       select 1
       from pg_proc p
