@@ -30,6 +30,13 @@ const maximumPrecisionMigration = await readFile(
   ),
   "utf8",
 );
+const simplifiedWithdrawalMigration = await readFile(
+  new URL(
+    "supabase/migrations/20260724120000_nowpayments_simplified_manual_usdt_withdrawal/migration.sql",
+    root,
+  ),
+  "utf8",
+);
 const databaseTypes = await readFile(new URL("src/lib/database.types.ts", root), "utf8");
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -171,6 +178,11 @@ async function installWithdrawalDatabase(db) {
   await applyMigration(db, maximumPrecisionMigration);
 }
 
+async function installSimplifiedWithdrawalDatabase(db) {
+  await installWithdrawalDatabase(db);
+  await applyMigration(db, simplifiedWithdrawalMigration);
+}
+
 async function installWithdrawalDatabaseBeforeMaximumPrecisionRepair(db) {
   await createFoundation(db);
   for (const migration of prerequisiteMigrations) await applyMigration(db, migration);
@@ -281,6 +293,13 @@ async function createDatabase(t) {
   return db;
 }
 
+async function createSimplifiedDatabase(t) {
+  const db = new PGlite();
+  t.after(() => db.close());
+  await installSimplifiedWithdrawalDatabase(db);
+  return db;
+}
+
 async function assertPreflightDriftFails(driftSql, expectedError) {
   const db = new PGlite();
   try {
@@ -370,6 +389,33 @@ async function complete(db, {
      ) as result`,
     [withdrawalId, adminId, id, hash, token, success, uniqueTransfer,
       destination, net, confirmations, verifiedAt],
+  )).rows[0].result;
+}
+
+async function completeManual(db, {
+  withdrawalId = REQUEST_1,
+  adminId = ADMIN_1_ID,
+  id = actionId(20),
+  hash = null,
+} = {}) {
+  return (await db.query(
+    `select public.complete_nowpayments_usdt_withdrawal_manual(
+       $1::uuid,$2::uuid,$3,$4
+     ) as result`,
+    [withdrawalId, adminId, id, hash],
+  )).rows[0].result;
+}
+
+async function rejectManual(db, {
+  withdrawalId = REQUEST_1,
+  adminId = ADMIN_1_ID,
+  id = actionId(21),
+} = {}) {
+  return (await db.query(
+    `select public.reject_nowpayments_usdt_withdrawal_manual(
+       $1::uuid,$2::uuid,$3
+     ) as result`,
+    [withdrawalId, adminId, id],
   )).rows[0].result;
 }
 
@@ -1203,6 +1249,375 @@ test("migration and withdrawal lifecycle leave ETB, CBE, TeleBirr, plan purchase
   assert.deepEqual(after, before);
 });
 
+test("simplified migration exposes only atomic service-role completion and rejection", async (t) => {
+  const db = await createSimplifiedDatabase(t);
+  const rows = (await db.query(`
+    select
+      p.proname,
+      p.prosecdef as security_definer,
+      array_to_string(p.proconfig, ',') as function_config,
+      has_function_privilege('service_role', p.oid, 'EXECUTE') as service_exec,
+      has_function_privilege('anon', p.oid, 'EXECUTE') as anon_exec,
+      has_function_privilege('authenticated', p.oid, 'EXECUTE') as authenticated_exec
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+    where n.nspname='public'
+      and p.proname in (
+        'complete_nowpayments_usdt_withdrawal_manual',
+        'reject_nowpayments_usdt_withdrawal_manual'
+      )
+    order by p.proname
+  `)).rows;
+  assert.deepEqual(rows, [
+    {
+      proname: "complete_nowpayments_usdt_withdrawal_manual",
+      security_definer: true,
+      function_config: "search_path=pg_catalog, public",
+      service_exec: true,
+      anon_exec: false,
+      authenticated_exec: false,
+    },
+    {
+      proname: "reject_nowpayments_usdt_withdrawal_manual",
+      security_definer: true,
+      function_config: "search_path=pg_catalog, public",
+      service_exec: true,
+      anon_exec: false,
+      authenticated_exec: false,
+    },
+  ]);
+
+  const exactAclRows = (await db.query(`
+    select
+      p.proname,
+      coalesce((
+        select jsonb_agg(
+          jsonb_build_array(
+            case when acl.grantee = 0 then 'PUBLIC' else grantee.rolname end,
+            grantor.rolname,
+            acl.privilege_type,
+            acl.is_grantable
+          )
+          order by
+            case when acl.grantee = 0 then 'PUBLIC' else grantee.rolname end,
+            grantor.rolname,
+            acl.privilege_type,
+            acl.is_grantable
+        )
+        from pg_catalog.aclexplode(p.proacl) acl
+        left join pg_catalog.pg_roles grantee on grantee.oid = acl.grantee
+        left join pg_catalog.pg_roles grantor on grantor.oid = acl.grantor
+      ), '[]'::jsonb) as acl
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+    where n.nspname='public'
+      and p.proname in (
+        'is_canonical_uuid_v4',
+        'assert_safe_nowpayments_usdt_withdrawal_destination',
+        'reject_nowpayments_usdt_ledger_mutation',
+        'reject_nowpayments_usdt_withdrawal_audit_mutation',
+        'set_nowpayments_usdt_updated_at',
+        'enforce_nowpayments_usdt_withdrawal_immutability',
+        'request_nowpayments_usdt_withdrawal',
+        'claim_nowpayments_usdt_withdrawal_review',
+        'lock_nowpayments_usdt_withdrawal_send',
+        'record_nowpayments_usdt_withdrawal_broadcast',
+        'complete_nowpayments_usdt_withdrawal',
+        'reject_nowpayments_usdt_withdrawal',
+        'take_over_nowpayments_usdt_withdrawal',
+        'complete_nowpayments_usdt_withdrawal_manual',
+        'reject_nowpayments_usdt_withdrawal_manual'
+      )
+    order by p.proname
+  `)).rows;
+  assert.equal(exactAclRows.length, 15);
+  for (const row of exactAclRows) {
+    const serviceCallable = new Set([
+      "request_nowpayments_usdt_withdrawal",
+      "complete_nowpayments_usdt_withdrawal_manual",
+      "reject_nowpayments_usdt_withdrawal_manual",
+    ]).has(row.proname);
+    assert.deepEqual(row.acl, [
+      ["postgres", "postgres", "EXECUTE", false],
+      ...(serviceCallable
+        ? [["service_role", "postgres", "EXECUTE", false]]
+        : []),
+    ], row.proname);
+  }
+
+  const formerSurface = (await db.query(`
+    select
+      has_function_privilege(
+        'service_role',
+        'public.claim_nowpayments_usdt_withdrawal_review(uuid,uuid,text)',
+        'EXECUTE'
+      ) as claim,
+      has_function_privilege(
+        'service_role',
+        'public.lock_nowpayments_usdt_withdrawal_send(uuid,uuid,text,boolean,boolean)',
+        'EXECUTE'
+      ) as send_lock,
+      has_function_privilege(
+        'service_role',
+        'public.record_nowpayments_usdt_withdrawal_broadcast(uuid,uuid,text,text,text)',
+        'EXECUTE'
+      ) as broadcast,
+      has_function_privilege(
+        'service_role',
+        'public.complete_nowpayments_usdt_withdrawal(uuid,uuid,text,text,integer,text,boolean,boolean,text,text,bigint,integer,integer,timestamptz)',
+        'EXECUTE'
+      ) as complete,
+      has_function_privilege(
+        'service_role',
+        'public.reject_nowpayments_usdt_withdrawal(uuid,uuid,text,text)',
+        'EXECUTE'
+      ) as reject,
+      has_function_privilege(
+        'service_role',
+        'public.take_over_nowpayments_usdt_withdrawal(uuid,uuid,text,text)',
+        'EXECUTE'
+      ) as takeover
+  `)).rows[0];
+  assert.deepEqual(formerSurface, {
+    claim: false,
+    send_lock: false,
+    broadcast: false,
+    complete: false,
+    reject: false,
+    takeover: false,
+  });
+  assert.doesNotMatch(
+    simplifiedWithdrawalMigration,
+    /net\.http|http_request|fetch\(|private_key|seed_phrase|payout/i,
+  );
+  assert.doesNotMatch(
+    simplifiedWithdrawalMigration,
+    /120|confirmations|transfer_log_index|receipt_success/,
+  );
+});
+
+test("simplified completion settles exact gross reservation with no required transaction hash", async (t) => {
+  const db = await createSimplifiedDatabase(t);
+  await seedWallet(db);
+  await setWithdrawals(db, true);
+  const requested = await requestWithdrawal(db, { amount: "2" });
+  assert.equal(requested.gross_amount_usdt, "2.000000");
+  assert.equal(requested.fee_amount_usdt, "0.100000");
+  assert.equal(requested.net_amount_usdt, "1.900000");
+  await setWithdrawals(db, false);
+
+  const first = await completeManual(db);
+  assert.deepEqual(first, {
+    withdrawal_id: REQUEST_1,
+    status: "completed",
+    gross_amount_usdt: "2.000000",
+    fee_amount_usdt: "0.100000",
+    net_amount_usdt: "1.900000",
+    available_balance_usdt: "18.000000000000000000",
+    reserved_balance_usdt: "0.000000000000000000",
+  });
+  assert.deepEqual(await completeManual(db), first);
+
+  const state = (await db.query(`
+    select
+      w.status,
+      w.current_broadcast_id,
+      w.broadcasted_at,
+      wallet.available_balance_usdt::text as available,
+      wallet.reserved_balance_usdt::text as reserved,
+      (select count(*)::integer from public.nowpayments_usdt_withdrawal_broadcasts
+        where withdrawal_id=w.id) as broadcasts,
+      (select count(*)::integer from public.nowpayments_usdt_withdrawal_verifications
+        where withdrawal_id=w.id) as verifications,
+      (select count(*)::integer from public.nowpayments_usdt_withdrawal_events
+        where withdrawal_id=w.id) as events,
+      (select count(*)::integer from public.nowpayments_usdt_ledger_entries
+        where withdrawal_id=w.id) as ledger
+    from public.nowpayments_usdt_withdrawals w
+    join public.nowpayments_usdt_wallets wallet on wallet.user_id=w.user_id
+    where w.id=$1::uuid
+  `, [REQUEST_1])).rows[0];
+  assert.deepEqual(state, {
+    status: "completed",
+    current_broadcast_id: null,
+    broadcasted_at: null,
+    available: "18.000000000000000000",
+    reserved: "0.000000000000000000",
+    broadcasts: 0,
+    verifications: 0,
+    events: 2,
+    ledger: 2,
+  });
+  const settlement = (await db.query(`
+    select available_delta_usdt::text as available_delta,
+      reserved_delta_usdt::text as reserved_delta,
+      metadata
+    from public.nowpayments_usdt_ledger_entries
+    where withdrawal_id=$1::uuid and entry_type='withdrawal_settlement'
+  `, [REQUEST_1])).rows[0];
+  assert.deepEqual(settlement, {
+    available_delta: "0.000000000000000000",
+    reserved_delta: "-2.000000000000000000",
+    metadata: {
+      gross_amount_usdt: "2.000000",
+      fee_amount_usdt: "0.100000",
+      net_amount_usdt: "1.900000",
+    },
+  });
+  await assert.rejects(
+    completeManual(db, { hash: HASH_1 }),
+    /nowpayments_usdt_action_id_conflict/,
+  );
+  assert.equal((await withdrawalFingerprint(db)).events, 2);
+});
+
+test("simplified completion stores an optional valid public hash as private audit evidence", async (t) => {
+  const db = await createSimplifiedDatabase(t);
+  await seedWallet(db);
+  await setWithdrawals(db, true);
+  await requestWithdrawal(db, { amount: "2" });
+  const completed = await completeManual(db, { hash: HASH_1.toUpperCase() });
+  assert.equal(completed.transaction_hash, HASH_1);
+  assert.deepEqual(await completeManual(db, { hash: HASH_1 }), completed);
+  const evidence = (await db.query(`
+    select b.transaction_hash, b.destination_address,
+      b.net_amount_usdt::text as net_amount,
+      w.status,
+      w.current_broadcast_id = b.id as linked
+    from public.nowpayments_usdt_withdrawals w
+    join public.nowpayments_usdt_withdrawal_broadcasts b
+      on b.withdrawal_id=w.id
+    where w.id=$1::uuid
+  `, [REQUEST_1])).rows[0];
+  assert.deepEqual(evidence, {
+    transaction_hash: HASH_1,
+    destination_address: DESTINATION,
+    net_amount: "1.900000",
+    status: "completed",
+    linked: true,
+  });
+  assert.equal((await db.query(
+    "select count(*)::integer as count from public.nowpayments_usdt_withdrawal_verifications",
+  )).rows[0].count, 0);
+});
+
+test("invalid optional completion hashes fail without any financial mutation", async (t) => {
+  const db = await createSimplifiedDatabase(t);
+  await seedWallet(db);
+  await setWithdrawals(db, true);
+  await requestWithdrawal(db, { amount: "2" });
+  const before = await withdrawalFingerprint(db);
+  for (const hash of ["0x1234", `0x${"g".repeat(64)}`, `${"1".repeat(64)}`]) {
+    await assert.rejects(
+      completeManual(db, { id: actionId(30), hash }),
+      /invalid_nowpayments_usdt_manual_completion/,
+    );
+    assert.deepEqual(await withdrawalFingerprint(db), before);
+  }
+});
+
+test("simplified rejection refunds the complete gross amount and retains no fee", async (t) => {
+  const db = await createSimplifiedDatabase(t);
+  await seedWallet(db);
+  await setWithdrawals(db, true);
+  await requestWithdrawal(db, { amount: "2" });
+  await setWithdrawals(db, false);
+  const rejected = await rejectManual(db);
+  assert.deepEqual(rejected, {
+    withdrawal_id: REQUEST_1,
+    status: "rejected",
+    available_balance_usdt: "20.000000000000000000",
+    reserved_balance_usdt: "0.000000000000000000",
+  });
+  assert.deepEqual(await rejectManual(db), rejected);
+  const state = (await db.query(`
+    select w.status,
+      wallet.available_balance_usdt::text as available,
+      wallet.reserved_balance_usdt::text as reserved,
+      count(l.id)::integer as ledger
+    from public.nowpayments_usdt_withdrawals w
+    join public.nowpayments_usdt_wallets wallet on wallet.user_id=w.user_id
+    left join public.nowpayments_usdt_ledger_entries l on l.withdrawal_id=w.id
+    where w.id=$1::uuid
+    group by w.status,wallet.available_balance_usdt,wallet.reserved_balance_usdt
+  `, [REQUEST_1])).rows[0];
+  assert.deepEqual(state, {
+    status: "rejected",
+    available: "20.000000000000000000",
+    reserved: "0.000000000000000000",
+    ledger: 2,
+  });
+  const release = (await db.query(`
+    select available_delta_usdt::text as available_delta,
+      reserved_delta_usdt::text as reserved_delta,
+      metadata
+    from public.nowpayments_usdt_ledger_entries
+    where withdrawal_id=$1::uuid and entry_type='withdrawal_release'
+  `, [REQUEST_1])).rows[0];
+  assert.deepEqual(release, {
+    available_delta: "2.000000000000000000",
+    reserved_delta: "-2.000000000000000000",
+    metadata: {
+      gross_amount_usdt: "2.000000",
+      fee_retained_usdt: "0",
+    },
+  });
+});
+
+test("simplified migration accepts an existing review queue but refuses an old send boundary", async (t) => {
+  const reviewDb = new PGlite();
+  t.after(() => reviewDb.close());
+  await installWithdrawalDatabase(reviewDb);
+  await seedWallet(reviewDb);
+  await setWithdrawals(reviewDb, true);
+  await requestWithdrawal(reviewDb, { amount: "2" });
+  await claim(reviewDb);
+  await setWithdrawals(reviewDb, false);
+  await applyMigration(reviewDb, simplifiedWithdrawalMigration);
+  assert.equal((await completeManual(reviewDb)).status, "completed");
+
+  const sendDb = new PGlite();
+  t.after(() => sendDb.close());
+  await installWithdrawalDatabase(sendDb);
+  await seedWallet(sendDb);
+  await setWithdrawals(sendDb, true);
+  await requestWithdrawal(sendDb, { amount: "2" });
+  await claim(sendDb);
+  await sendLock(sendDb);
+  await setWithdrawals(sendDb, false);
+  const before = await withdrawalFingerprint(sendDb);
+  await assert.rejects(
+    applyMigration(sendDb, simplifiedWithdrawalMigration),
+    /unexpected legacy NOWPayments USDT withdrawal send-boundary state/,
+  );
+  assert.deepEqual(await withdrawalFingerprint(sendDb), before);
+  assert.equal(
+    (await sendDb.query(`
+      select to_regprocedure(
+        'public.complete_nowpayments_usdt_withdrawal_manual(uuid,uuid,text,text)'
+      ) is not null as exists
+    `)).rows[0].exists,
+    false,
+  );
+
+  const enabledDb = new PGlite();
+  t.after(() => enabledDb.close());
+  await installWithdrawalDatabase(enabledDb);
+  await setWithdrawals(enabledDb, true);
+  await assert.rejects(
+    applyMigration(enabledDb, simplifiedWithdrawalMigration),
+    /unexpected NOWPayments USDT withdrawal configuration/,
+  );
+  assert.equal(
+    (await enabledDb.query(`
+      select to_regprocedure(
+        'public.complete_nowpayments_usdt_withdrawal_manual(uuid,uuid,text,text)'
+      ) is not null as exists
+    `)).rows[0].exists,
+    false,
+  );
+});
+
 function disposablePostgresUrl(t) {
   const raw = process.env.TEST_DATABASE_URL;
   if (!raw) {
@@ -1298,8 +1713,219 @@ async function withdrawalFingerprint(client, withdrawalId = REQUEST_1) {
   `, [withdrawalId])).rows[0];
 }
 
+async function simplifiedPreflightFingerprint(client) {
+  return (await client.query(`
+    with target_functions(name) as (
+      values
+        ('is_canonical_uuid_v4'),
+        ('assert_safe_nowpayments_usdt_withdrawal_destination'),
+        ('reject_nowpayments_usdt_ledger_mutation'),
+        ('reject_nowpayments_usdt_withdrawal_audit_mutation'),
+        ('set_nowpayments_usdt_updated_at'),
+        ('enforce_nowpayments_usdt_withdrawal_immutability'),
+        ('request_nowpayments_usdt_withdrawal'),
+        ('claim_nowpayments_usdt_withdrawal_review'),
+        ('lock_nowpayments_usdt_withdrawal_send'),
+        ('record_nowpayments_usdt_withdrawal_broadcast'),
+        ('complete_nowpayments_usdt_withdrawal'),
+        ('reject_nowpayments_usdt_withdrawal'),
+        ('take_over_nowpayments_usdt_withdrawal')
+    ),
+    target_tables(name) as (
+      values
+        ('nowpayments_usdt_config'),
+        ('nowpayments_usdt_wallets'),
+        ('nowpayments_usdt_withdrawals'),
+        ('nowpayments_usdt_ledger_entries'),
+        ('nowpayments_usdt_withdrawal_events'),
+        ('nowpayments_usdt_withdrawal_broadcasts'),
+        ('nowpayments_usdt_withdrawal_verifications')
+    )
+    select jsonb_build_object(
+      'functions', (
+        select jsonb_agg(
+          jsonb_build_array(
+            function_schema.nspname,
+            function_row.proname,
+            pg_get_function_identity_arguments(function_row.oid),
+            pg_get_userbyid(function_row.proowner),
+            function_row.prokind,
+            function_language.lanname,
+            pg_get_function_result(function_row.oid),
+            md5(function_row.prosrc),
+            function_row.prosecdef,
+            function_row.provolatile,
+            function_row.proisstrict,
+            function_row.proparallel,
+            function_row.proconfig,
+            function_row.proacl::text
+          )
+          order by function_row.proname, pg_get_function_identity_arguments(function_row.oid)
+        )
+        from pg_proc function_row
+        join pg_namespace function_schema
+          on function_schema.oid = function_row.pronamespace
+        join pg_language function_language
+          on function_language.oid = function_row.prolang
+        join target_functions on target_functions.name = function_row.proname
+        where function_schema.nspname = 'public'
+      ),
+      'replacement_functions', (
+        select coalesce(jsonb_agg(
+          function_row.oid::regprocedure::text
+          order by function_row.oid::regprocedure::text
+        ), '[]'::jsonb)
+        from pg_proc function_row
+        join pg_namespace function_schema
+          on function_schema.oid = function_row.pronamespace
+        where function_schema.nspname = 'public'
+          and function_row.proname in (
+            'complete_nowpayments_usdt_withdrawal_manual',
+            'reject_nowpayments_usdt_withdrawal_manual'
+          )
+      ),
+      'relations', (
+        select jsonb_agg(
+          jsonb_build_array(
+            relation_schema.nspname,
+            relation_row.relname,
+            pg_get_userbyid(relation_row.relowner),
+            relation_row.relkind,
+            relation_row.relrowsecurity,
+            relation_row.relforcerowsecurity,
+            relation_row.relacl::text
+          )
+          order by relation_row.relname
+        )
+        from pg_class relation_row
+        join pg_namespace relation_schema
+          on relation_schema.oid = relation_row.relnamespace
+        join target_tables on target_tables.name = relation_row.relname
+        where relation_schema.nspname = 'public'
+          and relation_row.relkind = 'r'
+      ),
+      'policies', (
+        select coalesce(jsonb_agg(
+          jsonb_build_array(
+            relation_row.relname,
+            policy_row.polname,
+            policy_row.polpermissive,
+            policy_row.polcmd,
+            policy_row.polroles,
+            pg_get_expr(policy_row.polqual, policy_row.polrelid),
+            pg_get_expr(policy_row.polwithcheck, policy_row.polrelid)
+          )
+          order by relation_row.relname, policy_row.polname
+        ), '[]'::jsonb)
+        from pg_policy policy_row
+        join pg_class relation_row on relation_row.oid = policy_row.polrelid
+        join pg_namespace relation_schema
+          on relation_schema.oid = relation_row.relnamespace
+        join target_tables on target_tables.name = relation_row.relname
+        where relation_schema.nspname = 'public'
+      ),
+      'constraints', (
+        select jsonb_agg(
+          jsonb_build_array(
+            relation_row.relname,
+            constraint_row.conname,
+            constraint_row.contype,
+            pg_get_constraintdef(constraint_row.oid, true),
+            constraint_row.convalidated,
+            constraint_row.condeferrable,
+            constraint_row.condeferred,
+            constraint_row.confupdtype,
+            constraint_row.confdeltype,
+            constraint_row.confmatchtype
+          )
+          order by relation_row.relname, constraint_row.conname
+        )
+        from pg_constraint constraint_row
+        join pg_class relation_row on relation_row.oid = constraint_row.conrelid
+        join pg_namespace relation_schema
+          on relation_schema.oid = relation_row.relnamespace
+        join target_tables on target_tables.name = relation_row.relname
+        where relation_schema.nspname = 'public'
+      ),
+      'triggers', (
+        select jsonb_agg(
+          jsonb_build_array(
+            relation_row.relname,
+            trigger_row.tgname,
+            trigger_row.tgenabled,
+            trigger_row.tgtype,
+            trigger_row.tgfoid::regprocedure::text,
+            pg_get_triggerdef(trigger_row.oid, true),
+            pg_get_expr(trigger_row.tgqual, trigger_row.tgrelid)
+          )
+          order by relation_row.relname, trigger_row.tgname
+        )
+        from pg_trigger trigger_row
+        join pg_class relation_row on relation_row.oid = trigger_row.tgrelid
+        join pg_namespace relation_schema
+          on relation_schema.oid = relation_row.relnamespace
+        join target_tables on target_tables.name = relation_row.relname
+        where relation_schema.nspname = 'public'
+          and not trigger_row.tgisinternal
+      ),
+      'indexes', (
+        select jsonb_agg(
+          jsonb_build_array(
+            relation_row.relname,
+            index_row.relname,
+            index_catalog.indisunique,
+            index_catalog.indisvalid,
+            index_catalog.indisready,
+            index_catalog.indislive,
+            index_catalog.indimmediate,
+            index_catalog.indkey::text,
+            pg_get_indexdef(index_catalog.indexrelid),
+            pg_get_expr(index_catalog.indpred, index_catalog.indrelid)
+          )
+          order by relation_row.relname, index_row.relname
+        )
+        from pg_index index_catalog
+        join pg_class relation_row on relation_row.oid = index_catalog.indrelid
+        join pg_namespace relation_schema
+          on relation_schema.oid = relation_row.relnamespace
+        join target_tables on target_tables.name = relation_row.relname
+        join pg_class index_row on index_row.oid = index_catalog.indexrelid
+        where relation_schema.nspname = 'public'
+      ),
+      'config', (
+        select jsonb_agg(to_jsonb(config_row) order by config_row.id)
+        from public.nowpayments_usdt_config config_row
+      ),
+      'wallets', (
+        select jsonb_agg(to_jsonb(wallet_row) order by wallet_row.user_id)
+        from public.nowpayments_usdt_wallets wallet_row
+      ),
+      'withdrawals', (
+        select coalesce(jsonb_agg(to_jsonb(withdrawal_row) order by withdrawal_row.id), '[]'::jsonb)
+        from public.nowpayments_usdt_withdrawals withdrawal_row
+      ),
+      'events', (
+        select coalesce(jsonb_agg(to_jsonb(event_row) order by event_row.id), '[]'::jsonb)
+        from public.nowpayments_usdt_withdrawal_events event_row
+      ),
+      'broadcasts', (
+        select coalesce(jsonb_agg(to_jsonb(broadcast_row) order by broadcast_row.id), '[]'::jsonb)
+        from public.nowpayments_usdt_withdrawal_broadcasts broadcast_row
+      ),
+      'verifications', (
+        select coalesce(jsonb_agg(to_jsonb(verification_row) order by verification_row.id), '[]'::jsonb)
+        from public.nowpayments_usdt_withdrawal_verifications verification_row
+      ),
+      'ledger', (
+        select coalesce(jsonb_agg(to_jsonb(ledger_row) order by ledger_row.id), '[]'::jsonb)
+        from public.nowpayments_usdt_ledger_entries ledger_row
+      )
+    ) as fingerprint
+  `)).rows[0].fingerprint;
+}
+
 test("native PostgreSQL serializes requests, admin actions, and balance races on profile rows", {
-  timeout: 120_000,
+  timeout: 360_000,
 }, async (t) => {
   const connectionString = disposablePostgresUrl(t);
   if (!connectionString) return;
@@ -1320,6 +1946,14 @@ test("native PostgreSQL serializes requests, admin actions, and balance races on
     await Promise.allSettled([first.query("rollback"), second.query("rollback")]);
     await observer.query("drop schema if exists public cascade; create schema public");
     await installWithdrawalDatabase(nativeDb(observer));
+    await seedWallet(nativeDb(observer));
+    await setWithdrawals(nativeDb(observer), true);
+  }
+
+  async function resetNativeSimplified() {
+    await Promise.allSettled([first.query("rollback"), second.query("rollback")]);
+    await observer.query("drop schema if exists public cascade; create schema public");
+    await installSimplifiedWithdrawalDatabase(nativeDb(observer));
     await seedWallet(nativeDb(observer));
     await setWithdrawals(nativeDb(observer), true);
   }
@@ -1469,6 +2103,337 @@ test("native PostgreSQL serializes requests, admin actions, and balance races on
         /trunc\(v_wallet\.available_balance_usdt, 6\)/,
       );
     });
+  });
+
+  await t.test("simplified migration rejects complete catalog drift before any replacement or row mutation", async (st) => {
+    const fixtures = [
+      {
+        name: "authenticated EXECUTE on a retired function",
+        drift: `
+          grant execute on function
+            public.complete_nowpayments_usdt_withdrawal(
+              uuid,uuid,text,text,integer,text,boolean,boolean,text,text,
+              bigint,integer,integer,timestamptz
+            )
+          to authenticated
+        `,
+        error: /function catalog/,
+      },
+      {
+        name: "PUBLIC EXECUTE on a retired function",
+        drift: `
+          grant execute on function
+            public.reject_nowpayments_usdt_withdrawal(uuid,uuid,text,text)
+          to public
+        `,
+        error: /function catalog/,
+      },
+      {
+        name: "service_role EXECUTE WITH GRANT OPTION",
+        drift: `
+          grant execute on function
+            public.lock_nowpayments_usdt_withdrawal_send(
+              uuid,uuid,text,boolean,boolean
+            )
+          to service_role with grant option
+        `,
+        error: /function catalog/,
+      },
+      {
+        name: "unexpected function grantee and grantor",
+        drift: `
+          do $role$
+          begin
+            if to_regrole('unexpected_catalog_grantor') is null then
+              create role unexpected_catalog_grantor;
+            end if;
+          end
+          $role$;
+          grant execute on function
+            public.record_nowpayments_usdt_withdrawal_broadcast(
+              uuid,uuid,text,text,text
+            )
+          to unexpected_catalog_grantor with grant option;
+          grant usage on schema public to unexpected_catalog_grantor;
+          set role unexpected_catalog_grantor;
+          grant execute on function
+            public.record_nowpayments_usdt_withdrawal_broadcast(
+              uuid,uuid,text,text,text
+            )
+          to anon;
+          reset role
+        `,
+        error: /function catalog/,
+      },
+      {
+        name: "unexpected inherited function owner",
+        drift: `
+          do $role$
+          begin
+            if to_regrole('unexpected_catalog_owner') is null then
+              create role unexpected_catalog_owner;
+            end if;
+          end
+          $role$;
+          alter function
+            public.complete_nowpayments_usdt_withdrawal(
+              uuid,uuid,text,text,integer,text,boolean,boolean,text,text,
+              bigint,integer,integer,timestamptz
+            )
+          owner to unexpected_catalog_owner
+        `,
+        error: /function catalog/,
+      },
+      {
+        name: "inherited function source drift",
+        drift: `
+          create or replace function public.claim_nowpayments_usdt_withdrawal_review(
+            p_withdrawal_id uuid,
+            p_admin_id uuid,
+            p_action_id text
+          )
+          returns jsonb
+          language plpgsql
+          security definer
+          set search_path = pg_catalog, public
+          as $function$
+          begin
+            return jsonb_build_object('status', 'catalog_drift');
+          end;
+          $function$
+        `,
+        error: /function catalog/,
+      },
+      {
+        name: "inherited function security drift",
+        drift: `
+          alter function
+            public.claim_nowpayments_usdt_withdrawal_review(uuid,uuid,text)
+          security invoker
+        `,
+        error: /function catalog/,
+      },
+      {
+        name: "inherited function return drift",
+        drift: `
+          alter function
+            public.claim_nowpayments_usdt_withdrawal_review(uuid,uuid,text)
+          rename to claim_nowpayments_usdt_withdrawal_review_catalog_drift;
+          create function public.claim_nowpayments_usdt_withdrawal_review(
+            p_withdrawal_id uuid,
+            p_admin_id uuid,
+            p_action_id text
+          )
+          returns text
+          language plpgsql
+          security definer
+          set search_path = pg_catalog, public
+          as $function$
+          begin
+            return 'catalog_drift';
+          end;
+          $function$;
+          revoke all on function
+            public.claim_nowpayments_usdt_withdrawal_review(uuid,uuid,text)
+          from public, anon, authenticated, service_role;
+          grant execute on function
+            public.claim_nowpayments_usdt_withdrawal_review(uuid,uuid,text)
+          to service_role
+        `,
+        error: /function catalog/,
+      },
+      {
+        name: "destination validator source drift",
+        drift: `
+          create or replace function public.assert_safe_nowpayments_usdt_withdrawal_destination(
+            p_value text
+          )
+          returns text
+          language plpgsql
+          security definer
+          set search_path = pg_catalog, public
+          as $function$
+          begin
+            return lower(btrim(p_value));
+          end;
+          $function$
+        `,
+        error: /function catalog/,
+      },
+      {
+        name: "destination validator owner drift",
+        drift: `
+          do $role$
+          begin
+            if to_regrole('unexpected_validator_owner') is null then
+              create role unexpected_validator_owner;
+            end if;
+          end
+          $role$;
+          alter function
+            public.assert_safe_nowpayments_usdt_withdrawal_destination(text)
+          owner to unexpected_validator_owner
+        `,
+        error: /function catalog/,
+      },
+      {
+        name: "destination validator security drift",
+        drift: `
+          alter function
+            public.assert_safe_nowpayments_usdt_withdrawal_destination(text)
+          security invoker
+        `,
+        error: /function catalog/,
+      },
+      {
+        name: "destination validator ACL drift",
+        drift: `
+          grant execute on function
+            public.assert_safe_nowpayments_usdt_withdrawal_destination(text)
+          to authenticated
+        `,
+        error: /function catalog/,
+      },
+      {
+        name: "disabled withdrawal immutability trigger",
+        drift: `
+          alter table public.nowpayments_usdt_withdrawals
+          disable trigger enforce_nowpayments_usdt_withdrawal_immutability
+        `,
+        error: /trigger catalog/,
+      },
+      {
+        name: "wrong withdrawal immutability trigger timing",
+        drift: `
+          drop trigger enforce_nowpayments_usdt_withdrawal_immutability
+            on public.nowpayments_usdt_withdrawals;
+          create trigger enforce_nowpayments_usdt_withdrawal_immutability
+          after update on public.nowpayments_usdt_withdrawals
+          for each row execute function
+            public.enforce_nowpayments_usdt_withdrawal_immutability()
+        `,
+        error: /trigger catalog/,
+      },
+      {
+        name: "wrong withdrawal immutability trigger function",
+        drift: `
+          drop trigger enforce_nowpayments_usdt_withdrawal_immutability
+            on public.nowpayments_usdt_withdrawals;
+          create trigger enforce_nowpayments_usdt_withdrawal_immutability
+          before update on public.nowpayments_usdt_withdrawals
+          for each row execute function
+            public.set_nowpayments_usdt_updated_at()
+        `,
+        error: /trigger catalog/,
+      },
+      {
+        name: "altered withdrawal constraint",
+        drift: `
+          alter table public.nowpayments_usdt_withdrawals
+            drop constraint nowpayments_usdt_withdrawals_minimum_check,
+            add constraint nowpayments_usdt_withdrawals_minimum_check
+              check (
+                gross_amount_usdt >= 2
+                and destination_address is not null
+              )
+        `,
+        error: /constraint catalog/,
+      },
+      {
+        name: "unvalidated withdrawal constraint",
+        drift: `
+          alter table public.nowpayments_usdt_withdrawals
+            drop constraint nowpayments_usdt_withdrawals_destination_check,
+            add constraint nowpayments_usdt_withdrawals_destination_check
+              check (destination_address ~ '^0x[0-9a-f]{40}$') not valid
+        `,
+        error: /constraint catalog/,
+      },
+      {
+        name: "withdrawal RLS disabled",
+        drift: `
+          alter table public.nowpayments_usdt_withdrawals
+          disable row level security
+        `,
+        error: /relation, RLS, policy, or grant catalog/,
+      },
+      {
+        name: "unexpected withdrawal policy",
+        drift: `
+          create policy unexpected_catalog_policy
+          on public.nowpayments_usdt_withdrawals
+          for select to service_role
+          using (true)
+        `,
+        error: /relation, RLS, policy, or grant catalog/,
+      },
+      {
+        name: "unexpected table grant",
+        drift: `
+          grant insert on table public.nowpayments_usdt_withdrawals
+          to authenticated
+        `,
+        error: /relation, RLS, policy, or grant catalog/,
+      },
+      {
+        name: "invalid relevant index",
+        drift: `
+          update pg_catalog.pg_index
+          set indisvalid = false
+          where indexrelid =
+            'public.idx_nowpayments_usdt_withdrawals_status'::regclass
+        `,
+        error: /index or sequence catalog/,
+      },
+      {
+        name: "unready relevant index",
+        drift: `
+          update pg_catalog.pg_index
+          set indisready = false
+          where indexrelid =
+            'public.idx_nowpayments_usdt_withdrawals_status'::regclass
+        `,
+        error: /index or sequence catalog/,
+      },
+      {
+        name: "altered relevant index definition",
+        drift: `
+          drop index public.idx_nowpayments_usdt_withdrawals_status;
+          create index idx_nowpayments_usdt_withdrawals_status
+          on public.nowpayments_usdt_withdrawals(created_at, status)
+        `,
+        error: /index or sequence catalog/,
+      },
+      {
+        name: "altered relevant index predicate",
+        drift: `
+          drop index public.nowpayments_usdt_withdrawals_one_open_per_user;
+          create unique index nowpayments_usdt_withdrawals_one_open_per_user
+          on public.nowpayments_usdt_withdrawals(user_id)
+          where status in ('reserved', 'reviewing')
+        `,
+        error: /index or sequence catalog/,
+      },
+    ];
+
+    for (const fixture of fixtures) {
+      await st.test(fixture.name, async () => {
+        await resetNative();
+        await requestWithdrawal(nativeDb(observer));
+        await claim(nativeDb(observer));
+        await setWithdrawals(nativeDb(observer), false);
+        await observer.query(fixture.drift);
+        const before = await simplifiedPreflightFingerprint(observer);
+        assert.deepEqual(before.replacement_functions, []);
+        await assert.rejects(
+          applyMigration(nativeDb(observer), simplifiedWithdrawalMigration),
+          fixture.error,
+        );
+        const after = await simplifiedPreflightFingerprint(observer);
+        assert.deepEqual(after, before);
+        assert.deepEqual(after.replacement_functions, []);
+      });
+    }
   });
 
   await t.test("native PostgreSQL preserves the exact large maximum under concurrent requests", async () => {
@@ -2059,6 +3024,121 @@ test("native PostgreSQL serializes requests, admin actions, and balance races on
       broadcast(nativeDb(observer), { withdrawalId: REQUEST_2, id: actionId(524), hash: HASH_1 }),
       /duplicate key|hash_key/,
     );
+  });
+
+  await t.test("simplified completion wins a real completion-versus-rejection race exactly once", async () => {
+    await resetNativeSimplified();
+    await requestWithdrawal(nativeDb(observer), { amount: "2" });
+    await setWithdrawals(nativeDb(observer), false);
+
+    await first.query("begin");
+    await first.query("set local statement_timeout='8s'");
+    const completed = await completeManual(nativeDb(first), { id: actionId(700) });
+    const losingRejection = rejectManual(nativeDb(second), { id: actionId(701) });
+    await waitForLock(observer, pids[2], pids[1]);
+    await first.query("commit");
+    await assert.rejects(losingRejection, /withdrawal_cannot_be_rejected/);
+    assert.equal(completed.status, "completed");
+
+    const fingerprint = await withdrawalFingerprint(observer);
+    assert.equal(fingerprint.withdrawal.status, "completed");
+    assert.equal(fingerprint.available, "18.000000000000000000");
+    assert.equal(fingerprint.reserved, "0.000000000000000000");
+    assert.equal(fingerprint.broadcasts, 0);
+    assert.equal(fingerprint.verifications, 0);
+    assert.equal(fingerprint.events, 2);
+    assert.equal(fingerprint.ledger, 2);
+    assert.deepEqual((await observer.query(`
+      select entry_type, count(*)::integer as count
+      from public.nowpayments_usdt_ledger_entries
+      where withdrawal_id=$1::uuid
+      group by entry_type order by entry_type
+    `, [REQUEST_1])).rows, [
+      { entry_type: "withdrawal_reserve", count: 1 },
+      { entry_type: "withdrawal_settlement", count: 1 },
+    ]);
+  });
+
+  await t.test("simplified rejection wins the reverse race and refunds gross exactly once", async () => {
+    await resetNativeSimplified();
+    await requestWithdrawal(nativeDb(observer), { amount: "2" });
+    await setWithdrawals(nativeDb(observer), false);
+
+    await first.query("begin");
+    await first.query("set local statement_timeout='8s'");
+    const rejected = await rejectManual(nativeDb(first), { id: actionId(710) });
+    const losingCompletion = completeManual(nativeDb(second), { id: actionId(711) });
+    await waitForLock(observer, pids[2], pids[1]);
+    await first.query("commit");
+    await assert.rejects(losingCompletion, /invalid_nowpayments_usdt_withdrawal_owner_or_state/);
+    assert.equal(rejected.status, "rejected");
+
+    const fingerprint = await withdrawalFingerprint(observer);
+    assert.equal(fingerprint.withdrawal.status, "rejected");
+    assert.equal(fingerprint.available, "20.000000000000000000");
+    assert.equal(fingerprint.reserved, "0.000000000000000000");
+    assert.equal(fingerprint.broadcasts, 0);
+    assert.equal(fingerprint.verifications, 0);
+    assert.equal(fingerprint.events, 2);
+    assert.equal(fingerprint.ledger, 2);
+    assert.deepEqual((await observer.query(`
+      select entry_type, count(*)::integer as count
+      from public.nowpayments_usdt_ledger_entries
+      where withdrawal_id=$1::uuid
+      group by entry_type order by entry_type
+    `, [REQUEST_1])).rows, [
+      { entry_type: "withdrawal_release", count: 1 },
+      { entry_type: "withdrawal_reserve", count: 1 },
+    ]);
+  });
+
+  await t.test("simplified duplicate complete and reject actions are single-flight database results", async () => {
+    await resetNativeSimplified();
+    await requestWithdrawal(nativeDb(observer), { amount: "2" });
+    await first.query("begin");
+    const firstCompletion = await completeManual(nativeDb(first), {
+      id: actionId(720),
+      hash: HASH_1,
+    });
+    const duplicateCompletion = completeManual(nativeDb(second), {
+      id: actionId(720),
+      hash: HASH_1,
+    });
+    await waitForLock(observer, pids[2], pids[1]);
+    await first.query("commit");
+    assert.deepEqual(await duplicateCompletion, firstCompletion);
+    assert.deepEqual((await observer.query(`
+      select
+        (select count(*)::integer from public.nowpayments_usdt_withdrawal_events
+          where withdrawal_id=$1::uuid and action_type='complete') as complete_events,
+        (select count(*)::integer from public.nowpayments_usdt_withdrawal_broadcasts
+          where withdrawal_id=$1::uuid) as broadcasts,
+        (select count(*)::integer from public.nowpayments_usdt_ledger_entries
+          where withdrawal_id=$1::uuid and entry_type='withdrawal_settlement') as settlements
+    `, [REQUEST_1])).rows[0], {
+      complete_events: 1,
+      broadcasts: 1,
+      settlements: 1,
+    });
+
+    await resetNativeSimplified();
+    await requestWithdrawal(nativeDb(observer), { amount: "2" });
+    await first.query("begin");
+    const firstRejection = await rejectManual(nativeDb(first), { id: actionId(730) });
+    const duplicateRejection = rejectManual(nativeDb(second), { id: actionId(730) });
+    await waitForLock(observer, pids[2], pids[1]);
+    await first.query("commit");
+    assert.deepEqual(await duplicateRejection, firstRejection);
+    assert.deepEqual((await observer.query(`
+      select
+        (select count(*)::integer from public.nowpayments_usdt_withdrawal_events
+          where withdrawal_id=$1::uuid and action_type='reject') as reject_events,
+        (select count(*)::integer from public.nowpayments_usdt_ledger_entries
+          where withdrawal_id=$1::uuid and entry_type='withdrawal_release') as releases
+    `, [REQUEST_1])).rows[0], {
+      reject_events: 1,
+      releases: 1,
+    });
   });
 
   await t.test("immutable event, evidence, terminal, and ledger rows reject mutation", async () => {

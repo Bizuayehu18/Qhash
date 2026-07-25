@@ -1068,6 +1068,38 @@ export interface Database {
         }
         Returns: Json
       }
+      verify_fund_password_tx: {
+        Args: {
+          p_user_id: string
+          p_fund_password: string
+        }
+        Returns: {
+          success?: boolean
+          code?: string
+          message?: string
+          locked_until?: string | null
+          failed_attempts?: number
+          remaining_attempts?: number
+          [key: string]: Json | undefined
+        }
+      }
+      complete_nowpayments_usdt_withdrawal_manual: {
+        Args: {
+          p_withdrawal_id: string
+          p_admin_id: string
+          p_action_id: string
+          p_transaction_hash: string | null
+        }
+        Returns: Json
+      }
+      reject_nowpayments_usdt_withdrawal_manual: {
+        Args: {
+          p_withdrawal_id: string
+          p_admin_id: string
+          p_action_id: string
+        }
+        Returns: Json
+      }
       claim_nowpayments_usdt_withdrawal_review: {
         Args: { p_withdrawal_id: string; p_admin_id: string; p_action_id: string }
         Returns: Json

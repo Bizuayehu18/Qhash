@@ -69,6 +69,7 @@ async function withRuntime(options, operation) {
   const environmentReads = [];
   const requests = [];
   const rpcBodies = [];
+  const fundPasswordCalls = [];
   const state = options.rpcState ?? new Map();
   globalThis.Netlify = {
     env: {
@@ -132,6 +133,21 @@ async function withRuntime(options, operation) {
         transaction_hash: HASH,
       }]);
     }
+    if (url.includes("/rest/v1/rpc/verify_fund_password_tx")) {
+      const rawBody = typeof init.body === "string" ? init.body : "{}";
+      const body = JSON.parse(rawBody);
+      fundPasswordCalls.push(body);
+      if (options.fundPasswordRpcError) {
+        return Response.json(
+          { code: "P0001", message: options.fundPasswordRpcError, details: null, hint: null },
+          { status: 400 },
+        );
+      }
+      return Response.json(options.fundPasswordResult ?? {
+        success: true,
+        code: "fund_password_verified",
+      });
+    }
     if (url.includes("/rest/v1/rpc/request_nowpayments_usdt_withdrawal")) {
       const rawBody = typeof init.body === "string" ? init.body : "{}";
       const body = JSON.parse(rawBody);
@@ -159,7 +175,13 @@ async function withRuntime(options, operation) {
     throw new Error(`Unexpected mocked request: ${url}`);
   };
   try {
-    return await operation({ environmentReads, requests, rpcBodies, rpcState: state });
+    return await operation({
+      environmentReads,
+      requests,
+      rpcBodies,
+      fundPasswordCalls,
+      rpcState: state,
+    });
   } finally {
     globalThis.fetch = originalFetch;
     globalThis.Netlify = originalNetlify;
@@ -189,6 +211,7 @@ function validRequestBody(overrides = {}) {
   return {
     gross_amount_usdt: "3",
     destination_address: ADDRESS,
+    fund_password: "1234",
     idempotency_key: ACTION_ID,
     ...overrides,
   };
@@ -280,21 +303,19 @@ test("overview is user-scoped, exact-string, readable while disabled, and saniti
     assert.equal(body.available_balance_usdt, "9.123456789000000000");
     assert.equal(body.reserved_balance_usdt, "0.000000000000000000");
     assert.deepEqual(Object.keys(body.history[0]).sort(), [
-      "completed_at",
       "destination",
       "fee_amount_usdt",
       "gross_amount_usdt",
       "net_amount_usdt",
-      "rejected_at",
-      "rejection_message",
       "requested_at",
       "status",
-      "transaction_hash",
-      "updated_at",
     ]);
-    assert.equal(body.history[0].transaction_hash, HASH);
+    assert.equal(body.history[0].status, "pending");
     const serialized = JSON.stringify(body);
-    assert.doesNotMatch(serialized, /admin|sensitive|service-role|withdrawal_id|idempotency/i);
+    assert.doesNotMatch(
+      serialized,
+      /admin|sensitive|service-role|withdrawal_id|idempotency|transaction_hash|broadcast/i,
+    );
     assert.doesNotMatch(serialized, new RegExp(OTHER_USER_ID));
     const scopedUrls = requests
       .map((request) => request.url)
@@ -302,13 +323,10 @@ test("overview is user-scoped, exact-string, readable while disabled, and saniti
     assert.equal(scopedUrls.length, 2);
     assert.ok(scopedUrls.every((url) => url.includes(`user_id=eq.${USER_ID}`)));
     assert.ok(scopedUrls.every((url) => !url.includes(OTHER_USER_ID)));
-    const broadcastUrl = requests
-      .map((request) => request.url)
-      .find((url) => url.includes("nowpayments_usdt_withdrawal_broadcasts"));
-    assert.ok(broadcastUrl);
-    assert.match(broadcastUrl, new RegExp(`id=in\\.%28${BROADCAST_ID}%29`));
-    assert.match(broadcastUrl, new RegExp(`withdrawal_id=in\\.%28${WITHDRAWAL_ID}%29`));
-    assert.doesNotMatch(broadcastUrl, new RegExp(OTHER_USER_ID));
+    assert.equal(
+      requests.some((request) => request.url.includes("withdrawal_broadcasts")),
+      false,
+    );
   });
 });
 
@@ -323,74 +341,18 @@ test("overview rejects ownership drift and never exposes another user", async ()
   );
 });
 
-test("overview fails closed for missing, cross-user, cross-withdrawal, duplicate, or malformed broadcasts", async () => {
-  const foreignHash = `0x${"b".repeat(64)}`;
-  const cases = [
-    {
-      name: "missing",
-      broadcasts: [],
-    },
-    {
-      name: "cross-user broadcast id",
-      broadcasts: [{
-        id: BROADCAST_ID,
-        withdrawal_id: OTHER_WITHDRAWAL_ID,
-        transaction_hash: foreignHash,
-      }],
-    },
-    {
-      name: "same-user other withdrawal",
-      withdrawals: [
-        validOverviewWithdrawal(),
-        validOverviewWithdrawal({
-          id: OTHER_WITHDRAWAL_ID,
-          current_broadcast_id: null,
-          destination_address: OTHER_ADDRESS,
-        }),
-      ],
-      broadcasts: [{
-        id: BROADCAST_ID,
-        withdrawal_id: OTHER_WITHDRAWAL_ID,
-        transaction_hash: foreignHash,
-      }],
-    },
-    {
-      name: "duplicate relationship",
-      broadcasts: [
-        {
-          id: BROADCAST_ID,
-          withdrawal_id: WITHDRAWAL_ID,
-          transaction_hash: HASH,
-        },
-        {
-          id: BROADCAST_ID,
-          withdrawal_id: WITHDRAWAL_ID,
-          transaction_hash: foreignHash,
-        },
-      ],
-    },
-    {
-      name: "database drift",
-      broadcasts: [{
-        id: BROADCAST_ID,
-        withdrawal_id: "not-a-uuid",
-        transaction_hash: foreignHash,
-      }],
-    },
-  ];
-
-  for (const fixture of cases) {
+test("overview maps every internal nonterminal state to Pending and never reads evidence", async () => {
+  for (const status of ["reserved", "reviewing", "send_locked", "broadcasted"]) {
     await withRuntime(
-      { withdrawals: [validOverviewWithdrawal()], ...fixture },
-      async () => {
+      { withdrawals: [validOverviewWithdrawal({ status })] },
+      async ({ requests }) => {
         const response = await overviewHandler(overviewRequest(), PUBLISHED_PRODUCTION_CONTEXT);
-        assert.equal(response.status, 503, fixture.name);
-        const serialized = await response.text();
-        assert.doesNotMatch(serialized, new RegExp(OTHER_USER_ID), fixture.name);
-        assert.doesNotMatch(serialized, new RegExp(OTHER_WITHDRAWAL_ID), fixture.name);
-        assert.doesNotMatch(serialized, new RegExp(OTHER_ADDRESS), fixture.name);
-        assert.doesNotMatch(serialized, new RegExp(foreignHash), fixture.name);
-        assert.doesNotMatch(serialized, /withdrawal_id|broadcast_id/i, fixture.name);
+        assert.equal(response.status, 200);
+        assert.equal((await response.json()).history[0].status, "pending");
+        assert.equal(
+          requests.some(({ url }) => url.includes("broadcasts") || url.includes("verifications")),
+          false,
+        );
       },
     );
   }
@@ -508,13 +470,10 @@ test("fixed-point helpers enforce six decimals, minimum, exact rounding, and Max
   assert.equal(formatUsdtMicros(rounded.netMicros), "1.900009");
 });
 
-test("friendly status labels never describe send-locked or broadcasted as completed", () => {
-  assert.equal(nowpaymentsWithdrawalStatusLabel("reserved"), "Submitted");
-  assert.equal(nowpaymentsWithdrawalStatusLabel("reviewing"), "Under review");
-  assert.equal(nowpaymentsWithdrawalStatusLabel("send_locked"), "Approved for sending");
-  assert.equal(nowpaymentsWithdrawalStatusLabel("broadcasted"), "Sent — confirming");
+test("user-visible status labels are exactly Pending, Completed, and Rejected", () => {
+  assert.equal(nowpaymentsWithdrawalStatusLabel("pending"), "Pending");
   assert.equal(nowpaymentsWithdrawalStatusLabel("completed"), "Completed");
-  assert.equal(nowpaymentsWithdrawalStatusLabel("rejected"), "Rejected — funds returned");
+  assert.equal(nowpaymentsWithdrawalStatusLabel("rejected"), "Rejected");
 });
 
 test("POST schema rejects wrong media types, oversized bodies, unknown fields, bad UUIDs, decimals, and addresses before RPC", async () => {
@@ -526,6 +485,9 @@ test("POST schema rejects wrong media types, oversized bodies, unknown fields, b
     withdrawalRequest(validRequestBody({ gross_amount_usdt: "2.0000001" })),
     withdrawalRequest(validRequestBody({ gross_amount_usdt: "2e0" })),
     withdrawalRequest(validRequestBody({ destination_address: "0x1234" })),
+    withdrawalRequest(validRequestBody({ fund_password: "123" })),
+    withdrawalRequest(validRequestBody({ fund_password: "12a4" })),
+    withdrawalRequest(validRequestBody({ fund_password: " 1234" })),
     withdrawalRequest("{not-json"),
   ];
   for (const request of invalidRequests) {
@@ -537,14 +499,18 @@ test("POST schema rejects wrong media types, oversized bodies, unknown fields, b
   }
 });
 
-test("POST derives the authenticated user and calls the deployed financial RPC exactly once", async () => {
-  await withRuntime({ withdrawalsEnabled: true }, async ({ rpcBodies }) => {
+test("POST verifies the existing Fund PIN then calls the financial RPC exactly once", async () => {
+  await withRuntime({ withdrawalsEnabled: true }, async ({ rpcBodies, fundPasswordCalls }) => {
     const response = await requestHandler(
       withdrawalRequest(validRequestBody()),
       PUBLISHED_PRODUCTION_CONTEXT,
     );
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.deepEqual(fundPasswordCalls, [{
+      p_user_id: USER_ID,
+      p_fund_password: "1234",
+    }]);
     assert.equal(rpcBodies.length, 1);
     assert.deepEqual(rpcBodies[0], {
       p_user_id: USER_ID,
@@ -590,16 +556,37 @@ test("database-authoritative disabled, minimum, balance, and prohibited-destinat
     ["qhash_controlled_withdrawal_destination", 400, "invalid_destination"],
   ];
   for (const [rpcError, status, publicError] of cases) {
-    await withRuntime({ rpcError }, async ({ rpcBodies }) => {
+    await withRuntime({ rpcError }, async ({ rpcBodies, fundPasswordCalls }) => {
       const response = await requestHandler(
         withdrawalRequest(validRequestBody({ gross_amount_usdt: rpcError.includes("invalid_") ? "1.999999" : "3" })),
         PUBLISHED_PRODUCTION_CONTEXT,
       );
       assert.equal(response.status, status);
+      assert.equal(fundPasswordCalls.length, 1);
       assert.equal(rpcBodies.length, 1);
       const body = await response.json();
       assert.equal(body.error, publicError);
       assert.doesNotMatch(JSON.stringify(body), new RegExp(rpcError));
+    });
+  }
+});
+
+test("existing Fund PIN failures preserve retry protection and never reserve funds", async () => {
+  const cases = [
+    [{ success: false, code: "fund_password_not_set" }, 409, "fund_password_not_set"],
+    [{ success: false, code: "incorrect_fund_password", remaining_attempts: 2 }, 403, "incorrect_fund_password"],
+    [{ success: false, code: "fund_password_locked", locked_until: "2030-01-01T00:05:00Z" }, 423, "fund_password_locked"],
+  ];
+  for (const [fundPasswordResult, status, publicError] of cases) {
+    await withRuntime({ fundPasswordResult }, async ({ rpcBodies, fundPasswordCalls }) => {
+      const response = await requestHandler(
+        withdrawalRequest(validRequestBody()),
+        PUBLISHED_PRODUCTION_CONTEXT,
+      );
+      assert.equal(response.status, status);
+      assert.equal((await response.json()).error, publicError);
+      assert.equal(fundPasswordCalls.length, 1);
+      assert.equal(rpcBodies.length, 0);
     });
   }
 });
@@ -621,9 +608,12 @@ test("single-flight prevents double submission and attempt keys persist only for
 
   const keys = [ACTION_ID, BROADCAST_ID];
   const manager = createWithdrawalAttemptKeyManager(() => keys.shift());
-  assert.equal(manager.keyFor("3", ADDRESS), ACTION_ID);
-  assert.equal(manager.keyFor("3", ADDRESS.toUpperCase().replace("0X", "0x")), ACTION_ID);
-  assert.equal(manager.keyFor("4", ADDRESS), BROADCAST_ID);
+  assert.equal(manager.keyFor("3", ADDRESS, "1234"), ACTION_ID);
+  assert.equal(
+    manager.keyFor("3", ADDRESS.toUpperCase().replace("0X", "0x"), "1234"),
+    ACTION_ID,
+  );
+  assert.equal(manager.keyFor("3", ADDRESS, "4321"), BROADCAST_ID);
 });
 
 test("browser helpers call only QHash endpoints and reject disabled requests without leaking response details", async () => {
@@ -679,6 +669,10 @@ test("source boundaries contain no provider, signing, payout, client database, o
   assert.doesNotMatch(serverSource, /console\.(log|info|warn|error)|authorization.*console|request\.headers.*console/i);
   assert.match(requestSource, /\.rpc\("request_nowpayments_usdt_withdrawal"/);
   assert.equal((requestSource.match(/\.rpc\("request_nowpayments_usdt_withdrawal"/g) ?? []).length, 1);
+  assert.match(requestSource, /\.rpc\(\s*"verify_fund_password_tx"/);
+  assert.equal((requestSource.match(/verify_fund_password_tx/g) ?? []).length, 1);
+  assert.match(uiSource, /Four-digit Fund PIN/);
+  assert.doesNotMatch(clientSource, /transaction_hash|current_broadcast_id|confirmations|manual review/i);
   assert.match(uiSource, /BigInt|formatUsdtMicros/);
   assert.doesNotMatch(uiSource, /Number\(|parseFloat|parseInt/);
   assert.match(uiSource, /createLatestWithdrawalOverviewRequestGuard/);
