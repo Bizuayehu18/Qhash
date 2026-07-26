@@ -2,6 +2,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { getAdminClient } from "./supabase-admin.js";
 import { verifyFundPasswordForUser } from "./security.js";
 import { throwSafe } from "../errors.js";
+import {
+  CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE,
+  parseWithdrawalCooldownDetail,
+} from "../withdrawal-policy.js";
 
 type WithdrawalMethod = "cbe" | "telebirr";
 type WithdrawalStatus = "pending" | "approved" | "rejected";
@@ -52,6 +56,7 @@ type SubmitWithdrawalFailureCode =
   | "withdrawal_failed"
   | "withdrawals_paused"
   | "withdrawal_cooldown_active"
+  | "withdrawal_already_open"
   | "amount_below_minimum"
   | "account_frozen_or_unavailable"
   | "wallet_not_found"
@@ -64,6 +69,7 @@ type SubmitWithdrawalFailureResult = {
   success: false;
   code: SubmitWithdrawalFailureCode;
   message: string;
+  next_allowed_at?: string;
 };
 
 type SubmitWithdrawalResult = RequestWithdrawalRpcResult | SubmitWithdrawalFailureResult;
@@ -236,10 +242,20 @@ function mapWithdrawalRpcError(error: DbError | null): SubmitWithdrawalFailureRe
   }
 
   if (message.includes("withdrawal_cooldown_active")) {
+    const nextAllowedAt = parseWithdrawalCooldownDetail(error?.details);
     return {
       success: false,
       code: "withdrawal_cooldown_active",
-      message: "You can submit another withdrawal 24 hours after your last request.",
+      message: `${CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE}.`,
+      ...(nextAllowedAt ? { next_allowed_at: nextAllowedAt } : {}),
+    };
+  }
+
+  if (message.includes("withdrawal_already_open")) {
+    return {
+      success: false,
+      code: "withdrawal_already_open",
+      message: "A withdrawal is already in progress.",
     };
   }
 

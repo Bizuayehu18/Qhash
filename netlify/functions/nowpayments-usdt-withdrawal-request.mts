@@ -1,6 +1,10 @@
 import type { Config, Context } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../../src/lib/database.types.ts";
+import {
+  CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE,
+  parseWithdrawalCooldownDetail,
+} from "../../src/lib/withdrawal-policy.ts";
 import { isPublishedProductionDeployContext } from "./lib/nowpayments-deploy-context.mts";
 
 const MAX_BODY_BYTES = 4_096;
@@ -33,8 +37,9 @@ function requestError(
   error: string,
   message: string,
   status: number,
+  details?: { next_allowed_at: string },
 ): Response {
-  return json({ error, message }, status);
+  return json({ error, message, ...details }, status);
 }
 
 function parseContentLength(req: Request): number | null {
@@ -117,7 +122,7 @@ function fundPasswordError(code: unknown): Response {
   );
 }
 
-function safeRpcError(error: { message?: string } | null): Response {
+function safeRpcError(error: { message?: string; details?: string } | null): Response {
   const code = error?.message ?? "";
   if (code.includes("nowpayments_usdt_action_id_conflict")) {
     return requestError(
@@ -126,10 +131,22 @@ function safeRpcError(error: { message?: string } | null): Response {
       409,
     );
   }
-  if (code.includes("open_nowpayments_usdt_withdrawal_exists")) {
+  if (code.includes("withdrawal_cooldown_active")) {
+    const nextAllowedAt = parseWithdrawalCooldownDetail(error?.details);
+    return requestError(
+      "withdrawal_cooldown_active",
+      `${CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE}.`,
+      409,
+      nextAllowedAt ? { next_allowed_at: nextAllowedAt } : undefined,
+    );
+  }
+  if (
+    code.includes("withdrawal_already_open")
+    || code.includes("open_nowpayments_usdt_withdrawal_exists")
+  ) {
     return requestError(
       "withdrawal_already_open",
-      "You already have a USDT withdrawal in progress.",
+      "A withdrawal is already in progress.",
       409,
     );
   }

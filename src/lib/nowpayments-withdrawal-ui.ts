@@ -1,3 +1,5 @@
+import { normalizeWithdrawalNextAllowedAt } from "./withdrawal-policy.js";
+
 export const NOWPAYMENTS_WITHDRAWAL_STATUSES = [
   "pending",
   "completed",
@@ -47,6 +49,7 @@ export class NowpaymentsWithdrawalUiError extends Error {
   readonly kind:
     | "authentication"
     | "disabled"
+    | "cooldown"
     | "conflict"
     | "insufficient_balance"
     | "invalid_destination"
@@ -55,11 +58,18 @@ export class NowpaymentsWithdrawalUiError extends Error {
     | "fund_password_locked"
     | "validation"
     | "unavailable";
+  readonly nextAllowedAt: string | null;
 
-  constructor(kind: NowpaymentsWithdrawalUiError["kind"]) {
+  constructor(
+    kind: NowpaymentsWithdrawalUiError["kind"],
+    nextAllowedAt: string | null = null,
+  ) {
     super(kind);
     this.name = "NowpaymentsWithdrawalUiError";
     this.kind = kind;
+    this.nextAllowedAt = kind === "cooldown"
+      ? normalizeWithdrawalNextAllowedAt(nextAllowedAt)
+      : null;
   }
 }
 
@@ -171,6 +181,12 @@ function throwForResponse(response: Response, value: unknown): never {
   const error = isObject(value) && typeof value.error === "string" ? value.error : "";
   if (error === "crypto_withdrawals_disabled" || error === "crypto_runtime_unavailable") {
     throw new NowpaymentsWithdrawalUiError("disabled");
+  }
+  if (error === "withdrawal_cooldown_active") {
+    const nextAllowedAt = isObject(value)
+      ? normalizeWithdrawalNextAllowedAt(value.next_allowed_at)
+      : null;
+    throw new NowpaymentsWithdrawalUiError("cooldown", nextAllowedAt);
   }
   if (error === "insufficient_balance") {
     throw new NowpaymentsWithdrawalUiError("insufficient_balance");

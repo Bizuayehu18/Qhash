@@ -19,6 +19,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { getSafeErrorMessage } from "@/lib/errors.js";
 import { formatDateTime } from "@/lib/format.js";
+import {
+  CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE,
+  formatWithdrawalCooldownMessage,
+} from "@/lib/withdrawal-policy.js";
 import { withTimeout } from "@/lib/async.js";
 import {
   getSecurityStatusFn,
@@ -52,7 +56,6 @@ const SECURITY_STATUS_TIMEOUT_MS = 10_000;
 const AUTO_RETRY_DELAY_MS = 1_500;
 const MAX_AUTO_RETRIES = 2;
 const HISTORY_PREVIEW_LIMIT = 6;
-const DAILY_WITHDRAWAL_LIMIT_MESSAGE = "You can only submit one withdrawal request per day. Please try again tomorrow.";
 
 const METHOD_LABELS: Record<WithdrawalMethod, string> = {
   cbe: "CBE",
@@ -106,11 +109,6 @@ function collectErrorText(error: unknown): string {
   collect(error);
 
   return values.join(" ").toLowerCase();
-}
-
-function isDailyWithdrawalLimitError(error: unknown): boolean {
-  const text = collectErrorText(error);
-  return text.includes(DAILY_WITHDRAWAL_LIMIT_MESSAGE.toLowerCase()) || text.includes("daily withdrawal limit reached");
 }
 
 function getWithdrawalSpecificErrorMessage(error: unknown): string | null {
@@ -420,6 +418,12 @@ function WithdrawPage() {
       });
 
       if (result?.success !== true) {
+        if (result?.code === "withdrawal_cooldown_active") {
+          toast.error(
+            formatWithdrawalCooldownMessage(result.next_allowed_at),
+          );
+          return;
+        }
         toast.error(
           typeof result?.message === "string" && result.message.trim().length > 0
             ? result.message
@@ -434,10 +438,6 @@ function WithdrawPage() {
       void loadSecurityStatus();
       void fetchWallet(user.id, { force: true });
     } catch (err) {
-      if (isDailyWithdrawalLimitError(err)) {
-        return toast.error(DAILY_WITHDRAWAL_LIMIT_MESSAGE);
-      }
-
       const specificMessage = getWithdrawalSpecificErrorMessage(err);
       toast.error(specificMessage ?? getSafeErrorMessage(err, "WITHDRAWAL").message);
     } finally {
@@ -688,7 +688,8 @@ function NoticeLine() {
       <Info size={13} className="mt-0.5 shrink-0 text-[#00ff41]" />
       <p className="text-[10px] leading-relaxed text-gray-500">
         <span className="font-semibold text-[#00ff41]">24h processing</span>
-        <span> · Min {MIN_WITHDRAWAL_AMOUNT} ETB · {WITHDRAWAL_FEE_PERCENT}% fee · One request/day</span>
+        <span> · Min {MIN_WITHDRAWAL_AMOUNT} ETB · {WITHDRAWAL_FEE_PERCENT}% fee</span>
+        <span className="mt-1 block">{CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE}</span>
       </p>
     </div>
   );
