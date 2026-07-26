@@ -143,6 +143,13 @@ async function createFixture(db) {
     end
     $roles$;
 
+    create schema if not exists auth;
+    create or replace function auth.uid()
+    returns uuid
+    language sql
+    stable
+    as $auth_uid$ select null::uuid $auth_uid$;
+
     create type public.transaction_type as enum (
       'deposit',
       'withdrawal',
@@ -167,17 +174,31 @@ async function createFixture(db) {
       id uuid primary key,
       username text not null,
       phone text not null,
+      is_admin boolean not null default false,
+      referral_code text,
       is_frozen boolean not null default false
     );
     create table public.app_settings (
       key text primary key,
       value text not null,
-      description text,
-      updated_by uuid references public.profiles(id),
-      created_at timestamptz not null default now(),
       updated_at timestamptz not null default now()
     );
     alter table public.app_settings enable row level security;
+    create function public.is_admin()
+    returns boolean
+    language sql
+    stable
+    as $is_admin$ select false $is_admin$;
+    create policy app_settings_select
+      on public.app_settings for select
+      using (auth.uid() is not null);
+    create policy app_settings_insert_admin
+      on public.app_settings for insert
+      with check (is_admin());
+    create policy app_settings_update_admin
+      on public.app_settings for update
+      using (is_admin());
+    grant all on table public.app_settings to anon, authenticated, service_role;
     create table public.wallets (
       user_id uuid primary key references public.profiles(id),
       balance numeric(18, 2) not null default 0,
@@ -233,8 +254,8 @@ async function createFixture(db) {
 
     insert into public.profiles (id, username, phone)
     values ('${USER_ID}', 'ipn-user', '+251900000000');
-    insert into public.app_settings (key, value, description)
-    values ('deposits_paused', 'false', 'Pause all new deposit requests');
+    insert into public.app_settings (key, value)
+    values ('deposits_paused', 'false');
     insert into public.wallets (user_id, balance)
     values ('${USER_ID}', 1234.56);
     insert into public.transactions (
@@ -278,6 +299,19 @@ async function createMigratedDatabase(t) {
   return db;
 }
 
+async function alignGlobalPauseCatalogFixture(db) {
+  await db.exec(`
+    alter table public.nowpayments_usdt_config
+      add column withdrawals_enabled boolean not null default false;
+    alter table public.nowpayments_usdt_config
+      add constraint nowpayments_usdt_config_withdrawals_enabled_default_check
+      check (withdrawals_enabled in (true, false));
+    update public.nowpayments_usdt_config
+    set enabled = true
+    where id = 'USDT-BEP20';
+  `);
+}
+
 async function createGlobalPauseDatabase(t) {
   const db = new PGlite();
   t.after(() => db.close());
@@ -288,10 +322,11 @@ async function createGlobalPauseDatabase(t) {
     settlementMigration,
     grossCreditMigration,
     permanentAddressMigration,
-    globalDepositPauseMigration,
   ]) {
     await applyMigration(db, migration);
   }
+  await alignGlobalPauseCatalogFixture(db);
+  await applyMigration(db, globalDepositPauseMigration);
   return db;
 }
 
@@ -308,6 +343,7 @@ async function createPreGlobalPauseDatabase(t) {
   ]) {
     await applyMigration(db, migration);
   }
+  await alignGlobalPauseCatalogFixture(db);
   return db;
 }
 
@@ -1331,6 +1367,7 @@ async function resetNativeLifecycleFixture(client) {
 
 async function resetNativeGlobalPauseFixture(client) {
   await resetNativeLifecycleFixture(client);
+  await alignGlobalPauseCatalogFixture(nativeDb(client));
   await applyMigration(nativeDb(client), globalDepositPauseMigration);
 }
 
@@ -1431,6 +1468,295 @@ async function bounded(promise, timeoutMs, label) {
   }
 }
 
+async function installGlobalPauseMutationSentinel(client) {
+  await client.query(`
+    create function public.global_pause_migration_mutation_sentinel()
+    returns event_trigger
+    language plpgsql
+    as $sentinel$
+    begin
+      raise exception 'mutation_reached';
+    end
+    $sentinel$;
+
+    create event trigger global_pause_migration_mutation_sentinel
+    on ddl_command_start
+    when tag in (
+      'CREATE FUNCTION',
+      'ALTER FUNCTION',
+      'DROP FUNCTION',
+      'CREATE TABLE',
+      'ALTER TABLE',
+      'DROP TABLE',
+      'CREATE INDEX',
+      'ALTER INDEX',
+      'DROP INDEX',
+      'CREATE POLICY',
+      'ALTER POLICY',
+      'DROP POLICY',
+      'GRANT',
+      'REVOKE',
+      'COMMENT'
+    )
+    execute function public.global_pause_migration_mutation_sentinel();
+  `);
+}
+
+async function removeGlobalPauseMutationSentinel(client) {
+  await client.query(`
+    drop event trigger if exists global_pause_migration_mutation_sentinel;
+    drop function if exists public.global_pause_migration_mutation_sentinel();
+  `);
+}
+
+async function globalPausePreflightFingerprint(client) {
+  return (await client.query(`
+    select pg_catalog.jsonb_build_object(
+      'functions', (
+        select pg_catalog.jsonb_agg(
+          pg_catalog.jsonb_build_object(
+            'identity', procedure_row.oid::regprocedure::text,
+            'owner', pg_catalog.pg_get_userbyid(procedure_row.proowner),
+            'source', procedure_row.prosrc,
+            'security_definer', procedure_row.prosecdef,
+            'config', procedure_row.proconfig,
+            'acl', procedure_row.proacl::text
+          )
+          order by procedure_row.oid::regprocedure::text
+        )
+        from pg_catalog.pg_proc procedure_row
+        where procedure_row.oid in (
+          'public.get_current_nowpayments_usdt_deposit_session(uuid)'::regprocedure,
+          'public.claim_nowpayments_usdt_deposit_session(uuid)'::regprocedure,
+          'public.configure_nowpayments_usdt_deposit_session_amounts(uuid,uuid,uuid,text,text)'::regprocedure
+        )
+      ),
+      'relations', (
+        select pg_catalog.jsonb_agg(
+          pg_catalog.jsonb_build_object(
+            'identity', relation.oid::regclass::text,
+            'owner', pg_catalog.pg_get_userbyid(relation.relowner),
+            'rls', relation.relrowsecurity,
+            'force_rls', relation.relforcerowsecurity,
+            'acl', relation.relacl::text,
+            'columns', (
+              select pg_catalog.jsonb_agg(
+                pg_catalog.jsonb_build_array(
+                  attribute.attnum,
+                  attribute.attname,
+                  pg_catalog.format_type(attribute.atttypid, attribute.atttypmod),
+                  attribute.attnotnull,
+                  pg_catalog.pg_get_expr(default_row.adbin, default_row.adrelid),
+                  attribute.attacl::text
+                )
+                order by attribute.attnum
+              )
+              from pg_catalog.pg_attribute attribute
+              left join pg_catalog.pg_attrdef default_row
+                on default_row.adrelid = attribute.attrelid
+               and default_row.adnum = attribute.attnum
+              where attribute.attrelid = relation.oid
+                and attribute.attnum > 0
+                and not attribute.attisdropped
+            ),
+            'constraints', (
+              select pg_catalog.jsonb_agg(
+                pg_catalog.jsonb_build_array(
+                  constraint_row.conname,
+                  constraint_row.contype,
+                  pg_catalog.pg_get_constraintdef(constraint_row.oid, true),
+                  constraint_row.convalidated
+                )
+                order by constraint_row.conname
+              )
+              from pg_catalog.pg_constraint constraint_row
+              where constraint_row.conrelid = relation.oid
+            ),
+            'indexes', (
+              select pg_catalog.jsonb_agg(
+                pg_catalog.pg_get_indexdef(index_row.indexrelid)
+                order by index_row.indexrelid::regclass::text
+              )
+              from pg_catalog.pg_index index_row
+              where index_row.indrelid = relation.oid
+            ),
+            'policies', (
+              select pg_catalog.jsonb_agg(
+                pg_catalog.jsonb_build_array(
+                  policy_row.polname,
+                  policy_row.polpermissive,
+                  policy_row.polcmd,
+                  to_jsonb(policy_row.polroles),
+                  pg_catalog.pg_get_expr(policy_row.polqual, policy_row.polrelid),
+                  pg_catalog.pg_get_expr(policy_row.polwithcheck, policy_row.polrelid)
+                )
+                order by policy_row.polname
+              )
+              from pg_catalog.pg_policy policy_row
+              where policy_row.polrelid = relation.oid
+            )
+          )
+          order by relation.oid::regclass::text
+        )
+        from pg_catalog.pg_class relation
+        where relation.oid in (
+          'public.profiles'::regclass,
+          'public.app_settings'::regclass,
+          'public.nowpayments_usdt_config'::regclass
+        )
+      ),
+      'app_settings', (
+        select pg_catalog.jsonb_agg(to_jsonb(setting_row) order by setting_row.key)
+        from public.app_settings setting_row
+      ),
+      'configuration', (
+        select pg_catalog.jsonb_agg(to_jsonb(config_row) order by config_row.id)
+        from public.nowpayments_usdt_config config_row
+      ),
+      'sessions', (
+        select pg_catalog.jsonb_agg(to_jsonb(session_row) order by session_row.id)
+        from public.nowpayments_usdt_payments session_row
+      )
+    ) as fingerprint
+  `)).rows[0].fingerprint;
+}
+
+async function assertGlobalPausePreflightRejectsBeforeMutation(
+  client,
+  expectedError,
+) {
+  const before = await globalPausePreflightFingerprint(client);
+  await installGlobalPauseMutationSentinel(client);
+  let migrationError;
+  try {
+    await applyMigration(nativeDb(client), globalDepositPauseMigration);
+  } catch (error) {
+    migrationError = error;
+  } finally {
+    await removeGlobalPauseMutationSentinel(client);
+  }
+  assert.ok(migrationError, "catalog drift must reject the migration");
+  assert.match(String(migrationError.message), expectedError);
+  assert.doesNotMatch(String(migrationError.message), /mutation_reached/);
+  assert.deepEqual(await globalPausePreflightFingerprint(client), before);
+}
+
+async function assertHardenedAppSettingsBoundary(client) {
+  // The disposable schema is recreated during each native fixture and does
+  // not inherit Supabase's role USAGE grants. Add only schema traversal so
+  // the assertions below exercise the table boundary itself.
+  await client.query(
+    "grant usage on schema public to anon, authenticated, service_role",
+  );
+  const catalog = (await client.query(`
+    select
+      (
+        select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(
+          policy_row.polname,
+          policy_row.polpermissive,
+          policy_row.polcmd,
+          (
+            select pg_catalog.jsonb_agg(
+              case when role_oid = 0 then 'PUBLIC'
+                   else pg_catalog.pg_get_userbyid(role_oid) end
+              order by
+                case when role_oid = 0 then 'PUBLIC'
+                     else pg_catalog.pg_get_userbyid(role_oid) end
+            )
+            from pg_catalog.unnest(policy_row.polroles) role_oid
+          ),
+          pg_catalog.pg_get_expr(policy_row.polqual, policy_row.polrelid),
+          pg_catalog.pg_get_expr(policy_row.polwithcheck, policy_row.polrelid)
+        ) order by policy_row.polname), '[]'::jsonb)
+        from pg_catalog.pg_policy policy_row
+        where policy_row.polrelid = 'public.app_settings'::regclass
+      ) as policies,
+      (
+        select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(
+          case when acl_row.grantee = 0 then 'PUBLIC'
+               else pg_catalog.pg_get_userbyid(acl_row.grantee) end,
+          pg_catalog.pg_get_userbyid(acl_row.grantor),
+          acl_row.privilege_type,
+          acl_row.is_grantable
+        ) order by
+          case when acl_row.grantee = 0 then 'PUBLIC'
+               else pg_catalog.pg_get_userbyid(acl_row.grantee) end,
+          pg_catalog.pg_get_userbyid(acl_row.grantor),
+          acl_row.privilege_type,
+          acl_row.is_grantable
+        ), '[]'::jsonb)
+        from pg_catalog.pg_class relation
+        cross join lateral pg_catalog.aclexplode(relation.relacl) acl_row
+        where relation.oid = 'public.app_settings'::regclass
+      ) as acl,
+      (
+        select pg_catalog.bool_and(attribute.attacl is null)
+        from pg_catalog.pg_attribute attribute
+        where attribute.attrelid = 'public.app_settings'::regclass
+          and attribute.attnum > 0
+          and not attribute.attisdropped
+      ) as no_column_acl
+  `)).rows[0];
+  assert.deepEqual(catalog.policies, [[
+    "app_settings_service_role_select",
+    true,
+    "r",
+    ["service_role"],
+    "true",
+    null,
+  ]]);
+  assert.deepEqual(catalog.acl, [
+    ["postgres", "postgres", "DELETE", false],
+    ["postgres", "postgres", "INSERT", false],
+    ["postgres", "postgres", "MAINTAIN", false],
+    ["postgres", "postgres", "REFERENCES", false],
+    ["postgres", "postgres", "SELECT", false],
+    ["postgres", "postgres", "TRIGGER", false],
+    ["postgres", "postgres", "TRUNCATE", false],
+    ["postgres", "postgres", "UPDATE", false],
+    ["service_role", "postgres", "SELECT", false],
+  ]);
+  assert.equal(catalog.no_column_acl, true);
+
+  for (const role of ["anon", "authenticated"]) {
+    await client.query(`set role ${role}`);
+    try {
+      await assert.rejects(
+        client.query(
+          "select value from public.app_settings where key = 'deposits_paused'",
+        ),
+        /permission denied for table app_settings/,
+      );
+      await assert.rejects(
+        client.query(
+          "update public.app_settings set value = value where key = 'deposits_paused'",
+        ),
+        /permission denied for table app_settings/,
+      );
+    } finally {
+      await client.query("reset role");
+    }
+  }
+
+  await client.query("set role service_role");
+  try {
+    assert.deepEqual(
+      (await client.query(
+        "select key, value from public.app_settings where key = 'deposits_paused'",
+      )).rows,
+      [{ key: "deposits_paused", value: "false" }],
+    );
+    await assert.rejects(
+      client.query(
+        "update public.app_settings set value = value where key = 'deposits_paused'",
+      ),
+      /permission denied for table app_settings/,
+    );
+  } finally {
+    await client.query("reset role");
+  }
+}
+
 async function nativeLifecycleCounts(client) {
   return (await client.query(`
     select
@@ -1511,9 +1837,13 @@ test("global deposit-pause migration is runner-owned and preserves populated fin
     globalDepositPauseMigration,
     /create or replace function public\.claim_nowpayments_usdt_deposit_session/,
   );
+  assert.match(
+    globalDepositPauseMigration,
+    /create or replace function public\.configure_nowpayments_usdt_deposit_session_amounts/,
+  );
   assert.doesNotMatch(
     globalDepositPauseMigration,
-    /create or replace function public\.(?:configure|complete|mark|record|settle|reconcile)_nowpayments/i,
+    /create or replace function public\.(?:complete|mark|record|settle|reconcile)_nowpayments/i,
   );
 
   const db = await createPreGlobalPauseDatabase(t);
@@ -1633,6 +1963,100 @@ test("global deposit-pause database boundary fails closed and reuses the stored 
   );
 });
 
+test("overview snapshot is read-only and redacts every address when either deposit gate is closed", async (t) => {
+  const db = await createGlobalPauseDatabase(t);
+  await db.exec(`
+    update public.nowpayments_usdt_config
+    set enabled = true
+    where id = 'USDT-BEP20'
+  `);
+  const claim = (await db.query(
+    "select public.claim_nowpayments_usdt_deposit_session($1::uuid) as result",
+    [USER_ID],
+  )).rows[0].result;
+  await db.query(
+    `select public.configure_nowpayments_usdt_deposit_session_amounts(
+       $1::uuid, $2::uuid, $3::uuid, '1', '1'
+     )`,
+    [USER_ID, claim.id, claim.qhash_order_id],
+  );
+  const createdAt = new Date(Date.now() - 10_000).toISOString();
+  const validUntil = new Date(Date.now() + 120_000).toISOString();
+  await db.query(
+    `select public.complete_nowpayments_usdt_deposit_session(
+       $1::uuid, $2::uuid, '88901', $3, 'waiting',
+       $4::timestamptz, $5::timestamptz
+     )`,
+    [claim.id, claim.qhash_order_id, PAY_ADDRESS, createdAt, validUntil],
+  );
+
+  const rowFingerprint = async () => (await db.query(`
+    select pg_catalog.jsonb_build_object(
+      'sessions', (
+        select pg_catalog.jsonb_agg(to_jsonb(row_value) order by row_value.id)
+        from public.nowpayments_usdt_payments row_value
+      ),
+      'providers', (
+        select pg_catalog.jsonb_agg(to_jsonb(row_value) order by row_value.id)
+        from public.nowpayments_usdt_provider_payments row_value
+      ),
+      'wallets', (
+        select pg_catalog.jsonb_agg(to_jsonb(row_value) order by row_value.user_id)
+        from public.nowpayments_usdt_wallets row_value
+      ),
+      'ledger', (
+        select pg_catalog.jsonb_agg(to_jsonb(row_value) order by row_value.id)
+        from public.nowpayments_usdt_ledger_entries row_value
+      )
+    ) as fingerprint
+  `)).rows[0].fingerprint;
+  const snapshot = async () => (await db.query(
+    "select public.get_nowpayments_usdt_deposit_overview_snapshot($1::uuid) as result",
+    [USER_ID],
+  )).rows[0].result;
+
+  const beforeEnabled = await rowFingerprint();
+  const enabled = await snapshot();
+  assert.equal(enabled.feature_enabled, true);
+  assert.equal(enabled.sessions.length, 1);
+  assert.equal(enabled.sessions[0].pay_address, PAY_ADDRESS);
+  assert.deepEqual(await rowFingerprint(), beforeEnabled);
+
+  await db.exec(`
+    update public.app_settings
+    set value = 'true'
+    where key = 'deposits_paused'
+  `);
+  const beforePauseRead = await rowFingerprint();
+  const globallyPaused = await snapshot();
+  assert.equal(globallyPaused.feature_enabled, false);
+  assert.equal(globallyPaused.sessions.length, 1);
+  assert.ok(globallyPaused.sessions.every((row) => row.pay_address === null));
+  assert.deepEqual(await rowFingerprint(), beforePauseRead);
+
+  await db.exec(`
+    update public.app_settings
+    set value = 'false'
+    where key = 'deposits_paused';
+    update public.nowpayments_usdt_config
+    set enabled = false
+    where id = 'USDT-BEP20'
+  `);
+  const beforeRailRead = await rowFingerprint();
+  const railDisabled = await snapshot();
+  assert.equal(railDisabled.feature_enabled, false);
+  assert.equal(railDisabled.sessions.length, 1);
+  assert.ok(railDisabled.sessions.every((row) => row.pay_address === null));
+  assert.deepEqual(await rowFingerprint(), beforeRailRead);
+
+  const source = (await db.query(`
+    select prosrc
+    from pg_catalog.pg_proc
+    where oid = 'public.get_nowpayments_usdt_deposit_overview_snapshot(uuid)'::regprocedure
+  `)).rows[0].prosrc;
+  assert.doesNotMatch(source, /\b(insert|update|delete|merge|truncate)\b/i);
+});
+
 test("missing, malformed, duplicate, and rail-disabled availability fail before a claim", async (t) => {
   const cases = [
     {
@@ -1711,7 +2135,7 @@ test("global deposit-pause preflight rejects function, ACL, and primary-key drif
     [
       "app_settings primary key",
       "alter table public.app_settings drop constraint app_settings_pkey",
-      /unexpected app_settings primary-key catalog/,
+      /unexpected app_settings constraint catalog/,
     ],
   ];
 
@@ -1745,6 +2169,257 @@ test("global deposit-pause preflight rejects function, ACL, and primary-key drif
           (select count(*)::integer from public.nowpayments_usdt_payments) as session_count
       `)).rows[0];
       assert.deepEqual(after, before);
+    });
+  }
+});
+
+test("native global deposit-pause catalog drift fails before the first mutation", {
+  timeout: 180_000,
+}, async (t) => {
+  const connectionString = disposablePostgresUrl(t);
+  if (!connectionString) return;
+  const client = new Client({
+    connectionString,
+    application_name: "qhash-global-pause-preflight",
+  });
+  await client.connect();
+  t.after(async () => {
+    await removeGlobalPauseMutationSentinel(client).catch(() => {});
+    await client.query("rollback").catch(() => {});
+    await client.end();
+  });
+
+  await resetNativeLifecycleFixture(client);
+  await alignGlobalPauseCatalogFixture(nativeDb(client));
+  await installGlobalPauseMutationSentinel(client);
+  await assert.rejects(
+    client.query("create table public.global_pause_negative_control (id integer)"),
+    /mutation_reached/,
+  );
+  assert.equal(
+    (await client.query(
+      "select to_regclass('public.global_pause_negative_control') is null as absent",
+    )).rows[0].absent,
+    true,
+  );
+  await removeGlobalPauseMutationSentinel(client);
+
+  await resetNativeLifecycleFixture(client);
+  await alignGlobalPauseCatalogFixture(nativeDb(client));
+  await applyMigration(nativeDb(client), globalDepositPauseMigration);
+  assert.equal(
+    (await client.query(
+      `select to_regprocedure(
+         'public.get_nowpayments_usdt_deposit_overview_snapshot(uuid)'
+       ) is not null as present`,
+    )).rows[0].present,
+    true,
+  );
+  await assertHardenedAppSettingsBoundary(client);
+
+  const driftCases = [
+    {
+      name: "profiles is_frozen nullable",
+      mutate: "alter table public.profiles alter column is_frozen drop not null",
+      expected: /unexpected profiles is_frozen catalog/,
+    },
+    {
+      name: "profiles is_frozen wrong type",
+      mutate: `
+        alter table public.profiles alter column is_frozen drop default;
+        alter table public.profiles
+          alter column is_frozen type text using is_frozen::text;
+        alter table public.profiles alter column is_frozen set default 'false'
+      `,
+      expected: /unexpected profiles is_frozen catalog/,
+    },
+    {
+      name: "configuration enabled nullable",
+      mutate: `
+        alter table public.nowpayments_usdt_config
+          alter column enabled drop not null
+      `,
+      expected: /unexpected NOWPayments configuration column catalog/,
+    },
+    {
+      name: "configuration enabled wrong type",
+      mutate: `
+        alter table public.nowpayments_usdt_config alter column enabled drop default;
+        alter table public.nowpayments_usdt_config
+          alter column enabled type text using enabled::text;
+        alter table public.nowpayments_usdt_config
+          alter column enabled set default 'false'
+      `,
+      expected: /unexpected NOWPayments configuration column catalog/,
+    },
+    {
+      name: "missing configuration singleton",
+      mutate: "delete from public.nowpayments_usdt_config",
+      expected: /unexpected NOWPayments configuration singleton/,
+    },
+    {
+      name: "rail unexpectedly disabled",
+      mutate: `
+        update public.nowpayments_usdt_config
+        set enabled = false
+        where id = 'USDT-BEP20'
+      `,
+      expected: /unexpected NOWPayments configuration singleton/,
+    },
+    {
+      name: "duplicate configuration singleton",
+      mutate: `
+        alter table public.nowpayments_usdt_config
+          drop constraint nowpayments_usdt_config_pkey;
+        insert into public.nowpayments_usdt_config
+        select * from public.nowpayments_usdt_config
+      `,
+      expected: /unexpected NOWPayments configuration constraint catalog/,
+    },
+    {
+      name: "malformed configuration identity",
+      mutate: `
+        alter table public.nowpayments_usdt_config
+          drop constraint nowpayments_usdt_config_asset_check;
+        update public.nowpayments_usdt_config set asset = 'USDC'
+      `,
+      expected: /unexpected NOWPayments configuration constraint catalog/,
+    },
+    {
+      name: "configuration extra index",
+      mutate: `
+        create index nowpayments_usdt_config_enabled_drift_idx
+        on public.nowpayments_usdt_config(enabled)
+      `,
+      expected: /unexpected NOWPayments configuration index or policy catalog/,
+    },
+    {
+      name: "configuration RLS disabled",
+      mutate: "alter table public.nowpayments_usdt_config disable row level security",
+      expected: /unexpected NOWPayments configuration relation catalog/,
+    },
+    {
+      name: "configuration permissive update policy",
+      mutate: `
+        create policy nowpayments_usdt_config_update_drift
+        on public.nowpayments_usdt_config for update
+        to authenticated
+        using (true)
+        with check (true)
+      `,
+      expected: /unexpected NOWPayments configuration index or policy catalog/,
+    },
+    {
+      name: "configuration unexpected table grantee",
+      mutate: `
+        grant update on table public.nowpayments_usdt_config to authenticated
+      `,
+      expected: /unexpected NOWPayments configuration table ACL catalog/,
+    },
+    {
+      name: "configuration grant option",
+      mutate: `
+        grant select on table public.nowpayments_usdt_config
+        to service_role with grant option
+      `,
+      expected: /unexpected NOWPayments configuration table ACL catalog/,
+    },
+    {
+      name: "configuration column ACL",
+      mutate: `
+        grant select(enabled) on table public.nowpayments_usdt_config
+        to authenticated
+      `,
+      expected: /unexpected NOWPayments configuration column catalog/,
+    },
+    {
+      name: "app_settings RLS disabled",
+      mutate: "alter table public.app_settings disable row level security",
+      expected: /unexpected app_settings relation catalog/,
+    },
+    {
+      name: "app_settings extra permissive update policy",
+      mutate: `
+        create policy app_settings_update_drift
+        on public.app_settings for update
+        to authenticated
+        using (true)
+        with check (true)
+      `,
+      expected: /unexpected app_settings policy catalog/,
+    },
+    {
+      name: "app_settings missing live update policy",
+      mutate: `
+        drop policy app_settings_update_admin on public.app_settings
+      `,
+      expected: /unexpected app_settings policy catalog/,
+    },
+    {
+      name: "app_settings missing live authenticated privilege",
+      mutate: `
+        revoke update on table public.app_settings from authenticated
+      `,
+      expected: /unexpected app_settings table ACL catalog/,
+    },
+    {
+      name: "app_settings PUBLIC table access",
+      mutate: `
+        grant select on table public.app_settings to public
+      `,
+      expected: /unexpected app_settings table ACL catalog/,
+    },
+    {
+      name: "app_settings grant option",
+      mutate: `
+        grant select on table public.app_settings
+        to service_role with grant option
+      `,
+      expected: /unexpected app_settings table ACL catalog/,
+    },
+    {
+      name: "app_settings column ACL",
+      mutate: `
+        grant select(value) on table public.app_settings to service_role
+      `,
+      expected: /unexpected app_settings column catalog/,
+    },
+    {
+      name: "malformed deposits_paused value",
+      mutate: `
+        update public.app_settings
+        set value = 'FALSE'
+        where key = 'deposits_paused'
+      `,
+      expected: /unexpected deposits_paused configuration/,
+    },
+    {
+      name: "missing deposits_paused value",
+      mutate: `
+        delete from public.app_settings where key = 'deposits_paused'
+      `,
+      expected: /unexpected deposits_paused configuration/,
+    },
+    {
+      name: "duplicate deposits_paused value",
+      mutate: `
+        alter table public.app_settings drop constraint app_settings_pkey;
+        insert into public.app_settings (key, value)
+        values ('deposits_paused', 'false')
+      `,
+      expected: /unexpected app_settings constraint catalog/,
+    },
+  ];
+
+  for (const fixture of driftCases) {
+    await t.test(fixture.name, async () => {
+      await resetNativeLifecycleFixture(client);
+      await alignGlobalPauseCatalogFixture(nativeDb(client));
+      await client.query(fixture.mutate);
+      await assertGlobalPausePreflightRejectsBeforeMutation(
+        client,
+        fixture.expected,
+      );
     });
   }
 });
@@ -1863,6 +2538,169 @@ test("native PostgreSQL serializes the global pause against claim admission", {
         .rows[0].count,
       1,
     );
+  });
+});
+
+test("native PostgreSQL serializes rail disablement against claim admission", {
+  timeout: 30_000,
+}, async (t) => {
+  const connectionString = disposablePostgresUrl(t);
+  if (!connectionString) return;
+
+  const observer = new Client({
+    connectionString,
+    application_name: "qhash-rail-observer",
+  });
+  const railClient = new Client({
+    connectionString,
+    application_name: "qhash-rail-writer",
+  });
+  const claimClient = new Client({
+    connectionString,
+    application_name: "qhash-rail-claim",
+  });
+  await Promise.all([observer.connect(), railClient.connect(), claimClient.connect()]);
+  t.after(async () => {
+    await Promise.allSettled([
+      observer.query("rollback"),
+      railClient.query("rollback"),
+      claimClient.query("rollback"),
+    ]);
+    await Promise.allSettled([observer.end(), railClient.end(), claimClient.end()]);
+  });
+
+  const [observerPid, railPid, claimPid] = await Promise.all(
+    [observer, railClient, claimClient].map(async (client) => (
+      await client.query("select pg_backend_pid()::integer as pid")
+    ).rows[0].pid),
+  );
+  assert.equal(new Set([observerPid, railPid, claimPid]).size, 3);
+
+  await t.test("rail-disable-first prevents the blocked claim from being inserted", async () => {
+    await resetNativeGlobalPauseFixture(observer);
+    await observer.query(
+      "update public.nowpayments_usdt_config set enabled = true where id = 'USDT-BEP20'",
+    );
+
+    await railClient.query("begin");
+    await railClient.query("set local statement_timeout = '8s'; set local lock_timeout = '4s'");
+    await railClient.query(
+      "update public.nowpayments_usdt_config set enabled = false where id = 'USDT-BEP20'",
+    );
+
+    await claimClient.query("begin");
+    await claimClient.query("set local statement_timeout = '8s'; set local lock_timeout = '4s'");
+    const claimPromise = claimClient.query(
+      "select public.claim_nowpayments_usdt_deposit_session($1::uuid) as result",
+      [USER_ID],
+    );
+    const wait = await waitForBackendWait(observer, claimPid, "Lock", railPid);
+    assert.equal(wait.expected_blocker, true);
+    assert.match(wait.query, /claim_nowpayments_usdt_deposit_session/);
+    assert.deepEqual(await nativeLifecycleCounts(observer), {
+      sessions: 0,
+      providers: 0,
+      activated: 0,
+      provisioning: 0,
+      credits: 0,
+      available: "0",
+    });
+
+    await railClient.query("commit");
+    await assert.rejects(
+      bounded(claimPromise, 3_000, "rail-disable-first claim"),
+      /nowpayments_usdt_bep20_disabled/,
+    );
+    await claimClient.query("rollback");
+    assert.equal(
+      (await observer.query(
+        "select enabled from public.nowpayments_usdt_config where id = 'USDT-BEP20'",
+      )).rows[0].enabled,
+      false,
+    );
+    assert.deepEqual(await nativeLifecycleCounts(observer), {
+      sessions: 0,
+      providers: 0,
+      activated: 0,
+      provisioning: 0,
+      credits: 0,
+      available: "0",
+    });
+  });
+
+  await t.test("claim-first admits one provisioning and rail disable waits for it", async () => {
+    await resetNativeGlobalPauseFixture(observer);
+    await observer.query(
+      "update public.nowpayments_usdt_config set enabled = true where id = 'USDT-BEP20'",
+    );
+
+    await claimClient.query("begin");
+    await claimClient.query("set local statement_timeout = '8s'; set local lock_timeout = '4s'");
+    const claim = (await claimClient.query(
+      "select public.claim_nowpayments_usdt_deposit_session($1::uuid) as result",
+      [USER_ID],
+    )).rows[0].result;
+    assert.equal(claim.disposition, "claimed");
+
+    await railClient.query("begin");
+    await railClient.query("set local statement_timeout = '8s'; set local lock_timeout = '4s'");
+    const disablePromise = railClient.query(
+      "update public.nowpayments_usdt_config set enabled = false where id = 'USDT-BEP20'",
+    );
+    const wait = await waitForBackendWait(observer, railPid, "Lock", claimPid);
+    assert.equal(wait.expected_blocker, true);
+    assert.match(wait.query, /update public\.nowpayments_usdt_config/i);
+    assert.equal(
+      (await observer.query(
+        "select count(*)::integer as count from public.nowpayments_usdt_payments",
+      )).rows[0].count,
+      0,
+      "the uncommitted provisioning claim is not visible to other sessions",
+    );
+
+    await claimClient.query("commit");
+    await bounded(disablePromise, 3_000, "claim-first rail disable");
+    await railClient.query("commit");
+    assert.equal(
+      (await observer.query(
+        "select enabled from public.nowpayments_usdt_config where id = 'USDT-BEP20'",
+      )).rows[0].enabled,
+      false,
+    );
+
+    await observer.query(
+      `select public.configure_nowpayments_usdt_deposit_session_amounts(
+         $1::uuid, $2::uuid, $3::uuid, '1', '1'
+       )`,
+      [USER_ID, claim.id, claim.qhash_order_id],
+    );
+    const createdAt = new Date(Date.now() - 10_000).toISOString();
+    const validUntil = new Date(Date.now() + 120_000).toISOString();
+    const completed = (await observer.query(
+      `select public.complete_nowpayments_usdt_deposit_session(
+         $1::uuid, $2::uuid, '88404', $3, 'waiting',
+         $4::timestamptz, $5::timestamptz
+       ) as result`,
+      [claim.id, claim.qhash_order_id, PAY_ADDRESS, createdAt, validUntil],
+    )).rows[0].result;
+    assert.equal(completed.disposition, "completed");
+    assert.equal(completed.id, claim.id);
+
+    await assert.rejects(
+      observer.query(
+        "select public.claim_nowpayments_usdt_deposit_session($1::uuid)",
+        [USER_ID],
+      ),
+      /nowpayments_usdt_bep20_disabled/,
+    );
+    assert.deepEqual(await nativeLifecycleCounts(observer), {
+      sessions: 1,
+      providers: 0,
+      activated: 0,
+      provisioning: 0,
+      credits: 0,
+      available: "0",
+    });
   });
 });
 

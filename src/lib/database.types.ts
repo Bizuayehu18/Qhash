@@ -1040,6 +1040,10 @@ export interface Database {
         }
         Returns: Json
       }
+      get_nowpayments_usdt_deposit_overview_snapshot: {
+        Args: { p_user_id: string }
+        Returns: Json
+      }
       get_current_nowpayments_usdt_deposit_session: {
         Args: { p_user_id: string }
         Returns: Json

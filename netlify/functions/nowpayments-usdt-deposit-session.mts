@@ -57,6 +57,10 @@ function asObject(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 function asString(value: unknown, pattern?: RegExp): string {
   if (typeof value !== "string" || !value || (pattern && !pattern.test(value))) {
     throw new NowpaymentsDepositSessionError("database_invalid_response");
@@ -323,7 +327,13 @@ export default async (req: Request, context?: Context): Promise<Response> => {
     .eq("id", authData.user.id)
     .maybeSingle();
 
-  if (profileError || !profile || profile.is_frozen) {
+  const profileRow = profile as unknown;
+  if (
+    profileError
+    || !isRecord(profileRow)
+    || typeof profileRow.is_frozen !== "boolean"
+    || profileRow.is_frozen
+  ) {
     return json({ error: "account_unavailable", message: "Account is unavailable." }, 403);
   }
 
@@ -347,27 +357,36 @@ export default async (req: Request, context?: Context): Promise<Response> => {
 
   const globalRows = globalDepositSettings as unknown;
   const globalRow = Array.isArray(globalRows) && globalRows.length === 1
-    ? globalRows[0] as Record<string, unknown>
+    && isRecord(globalRows[0])
+    ? globalRows[0]
     : null;
+  const configValue = config as unknown;
+  const configRow = isRecord(configValue) ? configValue : null;
   if (
     globalDepositSettingsError
     || !globalRow
     || globalRow.key !== "deposits_paused"
     || (globalRow.value !== "true" && globalRow.value !== "false")
     || configError
-    || !config
-    || config.id !== "USDT-BEP20"
-    || config.asset !== "USDT"
-    || config.network !== "BEP20"
-    || config.provider_currency !== "usdtbsc"
-    || Number(config.deposit_minimum_usdt) !== 1
-    || Number(config.withdrawal_minimum_usdt) !== 2
-    || Number(config.withdrawal_fee_percent) !== 5
-    || typeof config.enabled !== "boolean"
+    || !configRow
+    || configRow.id !== "USDT-BEP20"
+    || configRow.asset !== "USDT"
+    || configRow.network !== "BEP20"
+    || configRow.provider_currency !== "usdtbsc"
+    || typeof configRow.deposit_minimum_usdt !== "number"
+    || !Number.isFinite(configRow.deposit_minimum_usdt)
+    || configRow.deposit_minimum_usdt !== 1
+    || typeof configRow.withdrawal_minimum_usdt !== "number"
+    || !Number.isFinite(configRow.withdrawal_minimum_usdt)
+    || configRow.withdrawal_minimum_usdt !== 2
+    || typeof configRow.withdrawal_fee_percent !== "number"
+    || !Number.isFinite(configRow.withdrawal_fee_percent)
+    || configRow.withdrawal_fee_percent !== 5
+    || typeof configRow.enabled !== "boolean"
   ) {
     return json({ error: "crypto_config_unavailable", message: "Crypto deposits are unavailable." }, 503);
   }
-  if (globalRow.value === "true" || !config.enabled) {
+  if (globalRow.value === "true" || !configRow.enabled) {
     return json({ error: "crypto_deposits_disabled", message: "Crypto deposits are disabled." }, 503);
   }
 

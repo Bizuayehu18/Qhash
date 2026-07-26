@@ -8,9 +8,11 @@ import overviewHandler, {
 } from "../netlify/functions/nowpayments-usdt-deposit-overview.mts";
 import {
   fetchNowpaymentsDepositOverview,
+  createNowpaymentsOverviewRequestGate,
   createSingleFlight,
   formatDepositCountdown,
   formatUsdtDecimal,
+  isNowpaymentsAuthGenerationCurrent,
   isDepositAddressSendable,
   parseNowpaymentsDepositOverview,
   requestNowpaymentsDepositSession,
@@ -68,8 +70,11 @@ const FORBIDDEN_TERMINAL_LOG_FRAGMENTS = [
 ];
 const {
   IDLE_COPY_FEEDBACK,
+  INITIAL_NOWPAYMENTS_DEPOSIT_UI_STATE,
   copyButtonAccessibleName,
   copyUsdtDepositAddress,
+  nowpaymentsDepositUiReducer,
+  nowpaymentsDepositUiVisibility,
 } = await tsImport("../src/components/deposit/NowpaymentsUsdtDeposit.tsx", import.meta.url);
 
 const [
@@ -134,6 +139,10 @@ async function invokeOverview({
   environmentThrowName = null,
   configEnabled = false,
   configOverrides = {},
+  configResponse = undefined,
+  snapshotResponse = undefined,
+  snapshotRpcErrorMessage = null,
+  snapshotFeatureEnabled = undefined,
   globalSettingRows = [{ key: "deposits_paused", value: "false" }],
   profile = { is_frozen: false },
   sessions = [],
@@ -170,7 +179,13 @@ async function invokeOverview({
   globalThis.fetch = async (input) => {
     const url = String(input);
     requests.push(url);
-    if (queryFailure && url.includes(queryFailure)) {
+    if (
+      queryFailure
+      && (
+        url.includes(queryFailure)
+        || url.includes("/rest/v1/rpc/get_nowpayments_usdt_deposit_overview_snapshot")
+      )
+    ) {
       return Response.json(
         { message: "sensitive database response detail" },
         { status: 500 },
@@ -193,9 +208,17 @@ async function invokeOverview({
         : Response.json({ message: "sensitive auth response detail" }, { status: 401 });
     }
     if (url.includes("/rest/v1/profiles")) return Response.json(profile);
-    if (url.includes("/rest/v1/app_settings")) return Response.json(globalSettingRows);
-    if (url.includes("/rest/v1/nowpayments_usdt_config")) {
-      return Response.json({
+    if (url.includes("/rest/v1/rpc/get_nowpayments_usdt_deposit_overview_snapshot")) {
+      if (snapshotRpcErrorMessage) {
+        return Response.json(
+          { message: snapshotRpcErrorMessage },
+          { status: 400 },
+        );
+      }
+      if (snapshotResponse !== undefined) return Response.json(snapshotResponse);
+      const configValue = configResponse !== undefined
+        ? configResponse
+        : {
         id: "USDT-BEP20",
         enabled: configEnabled,
         asset: "USDT",
@@ -205,13 +228,57 @@ async function invokeOverview({
         withdrawal_minimum_usdt: "2.000000",
         withdrawal_fee_percent: "5.000000",
         ...configOverrides,
+      };
+      const globalRow = Array.isArray(globalSettingRows)
+        && globalSettingRows.length === 1
+        && globalSettingRows[0]
+        && typeof globalSettingRows[0] === "object"
+        && !Array.isArray(globalSettingRows[0])
+        ? globalSettingRows[0]
+        : null;
+      const configRow = configValue
+        && typeof configValue === "object"
+        && !Array.isArray(configValue)
+        ? configValue
+        : null;
+      if (
+        !globalRow
+        || globalRow.key !== "deposits_paused"
+        || (globalRow.value !== "true" && globalRow.value !== "false")
+        || !configRow
+        || configRow.id !== "USDT-BEP20"
+        || configRow.asset !== "USDT"
+        || configRow.network !== "BEP20"
+        || configRow.provider_currency !== "usdtbsc"
+        || typeof configRow.deposit_minimum_usdt !== "string"
+        || !/^1(?:\.0+)?$/.test(configRow.deposit_minimum_usdt)
+        || typeof configRow.withdrawal_minimum_usdt !== "string"
+        || !/^2(?:\.0+)?$/.test(configRow.withdrawal_minimum_usdt)
+        || typeof configRow.withdrawal_fee_percent !== "string"
+        || !/^5(?:\.0+)?$/.test(configRow.withdrawal_fee_percent)
+        || typeof configRow.enabled !== "boolean"
+      ) {
+        return Response.json(
+          { message: "nowpayments_deposit_availability_unavailable" },
+          { status: 400 },
+        );
+      }
+      const featureEnabled = snapshotFeatureEnabled
+        ?? (globalRow.value === "false" && configRow.enabled === true);
+      return Response.json({
+        feature_enabled: featureEnabled,
+        minimum_deposit_usdt: configRow.deposit_minimum_usdt,
+        wallet,
+        sessions: featureEnabled
+          ? sessions
+          : sessions.map((session) =>
+              session && typeof session === "object" && !Array.isArray(session)
+                ? { ...session, pay_address: null }
+                : session
+            ),
+        provider_payments: providerPayments,
       });
     }
-    if (url.includes("/rest/v1/nowpayments_usdt_wallets")) return Response.json(wallet);
-    if (url.includes("/rest/v1/nowpayments_usdt_provider_payments")) {
-      return Response.json(providerPayments);
-    }
-    if (url.includes("/rest/v1/nowpayments_usdt_payments")) return Response.json(sessions);
     throw new Error(`Unexpected mocked request: ${url}`);
   };
 
@@ -273,6 +340,46 @@ function emptyOverviewBody(featureEnabled) {
   };
 }
 
+function activeOverviewBody({
+  address = ADDRESS,
+  availableBalance = "9",
+  history = [],
+} = {}) {
+  return {
+    feature_enabled: true,
+    asset: "USDT",
+    network: "BEP20",
+    minimum_deposit_usdt: "1",
+    wallet: {
+      available_balance_usdt: availableBalance,
+      reserved_balance_usdt: "0",
+    },
+    session_state: "pending_activation",
+    active_session: {
+      asset: "USDT",
+      network: "BEP20",
+      status: "waiting",
+      pay_address: address,
+      minimum_deposit_usdt: "1",
+      provider_minimum_usdt: "1",
+      created_at: "2030-01-01T00:00:00.000Z",
+      address_lifecycle: "pending_activation",
+      valid_until: "2030-01-08T00:00:00.000Z",
+    },
+    history,
+  };
+}
+
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 test("overview rejects every non-production context before secrets or network", async () => {
   const rejectedContexts = [
     ["unpublished production", { deploy: { context: "production", published: false } }],
@@ -326,6 +433,34 @@ test("missing and invalid authentication cannot read user data or contact NOWPay
   assert.ok(!frozen.requests.some((url) => url.includes("/rest/v1/app_settings")));
   assert.ok(!frozen.requests.some((url) => url.includes("/rest/v1/nowpayments_usdt_config")));
   assert.ok(frozen.environmentReads.every((name) => name !== "NOWPAYMENTS_API_KEY"));
+});
+
+test("missing or malformed profile freeze state fails closed before availability or session access", async () => {
+  const invalidProfiles = [
+    null,
+    {},
+    { is_frozen: null },
+    { is_frozen: "false" },
+    [],
+    "active",
+  ];
+  for (const profile of invalidProfiles) {
+    const result = await invokeOverview({ profile, configEnabled: true });
+    assert.equal(result.response.status, 403, JSON.stringify(profile));
+    assert.deepEqual(result.body, {
+      error: "account_unavailable",
+      message: "Account is unavailable.",
+    });
+    assert.equal(
+      result.requests.some((url) => url.includes("/rest/v1/app_settings")),
+      false,
+    );
+    assert.equal(
+      result.requests.some((url) => url.includes("/rest/v1/rpc/")),
+      false,
+    );
+    assert.ok(!result.environmentReads.includes("NOWPAYMENTS_API_KEY"));
+  }
 });
 
 test("disabled feature returns a safe empty own-user view and never contacts the provider", async () => {
@@ -419,6 +554,44 @@ test("a pending address is hidden completely while the global pause is active", 
   assert.ok(result.environmentReads.every((name) => name !== "NOWPAYMENTS_API_KEY"));
 });
 
+test("the authoritative snapshot wins over stale enabled state and returns a sanitized no-address view", async () => {
+  const shared = {
+    configEnabled: true,
+    sessions: [validSession()],
+    wallet: {
+      user_id: USER_ID,
+      asset: "USDT",
+      available_balance_usdt: "9",
+      reserved_balance_usdt: "0",
+    },
+  };
+  const paused = await invokeOverview({
+    ...shared,
+    snapshotFeatureEnabled: false,
+  });
+  const railDisabled = await invokeOverview({
+    ...shared,
+    snapshotFeatureEnabled: false,
+  });
+
+  for (const result of [paused, railDisabled]) {
+    assert.equal(result.response.status, 200);
+    assert.equal(result.body.feature_enabled, false);
+    assert.equal(result.body.session_state, "none");
+    assert.equal(result.body.active_session, null);
+    assert.deepEqual(result.body.history, []);
+    assert.equal(JSON.stringify(result.body).includes(ADDRESS), false);
+    assert.equal(
+      result.requests.filter((url) =>
+        url.includes("/rest/v1/rpc/get_nowpayments_usdt_deposit_overview_snapshot")
+      ).length,
+      1,
+    );
+    assert.ok(!result.environmentReads.includes("NOWPAYMENTS_API_KEY"));
+  }
+  assert.deepEqual(paused.body, railDisabled.body);
+});
+
 test("missing, duplicate, and malformed global deposit settings fail closed", async () => {
   const cases = [
     ["missing", []],
@@ -428,6 +601,9 @@ test("missing, duplicate, and malformed global deposit settings fail closed", as
     ]],
     ["wrong key", [{ key: "withdrawals_paused", value: "false" }]],
     ["malformed", [{ key: "deposits_paused", value: "FALSE" }]],
+    ["null row", [null]],
+    ["string row", ["false"]],
+    ["array row", [[]]],
   ];
 
   for (const [name, globalSettingRows] of cases) {
@@ -438,12 +614,113 @@ test("missing, duplicate, and malformed global deposit settings fail closed", as
     });
     assert.equal(result.response.status, 503, name);
     assert.deepEqual(result.body, {
-      error: "crypto_config_unavailable",
+      error: "deposit_overview_unavailable",
       message: "Crypto deposits are unavailable.",
     }, name);
     assert.equal(result.requests.some((url) => url.includes("nowpayments_usdt_payments")), false);
     assert.ok(result.environmentReads.every((entry) => entry !== "NOWPAYMENTS_API_KEY"));
   }
+});
+
+test("missing or malformed rail configuration fails inside the snapshot before disclosure", async () => {
+  const invalidConfigurations = [
+    null,
+    [],
+    "USDT-BEP20",
+    {},
+    {
+      id: "USDT-BEP20",
+      enabled: "true",
+      asset: "USDT",
+      network: "BEP20",
+      provider_currency: "usdtbsc",
+      deposit_minimum_usdt: "1",
+      withdrawal_minimum_usdt: "2",
+      withdrawal_fee_percent: "5",
+    },
+    {
+      id: "USDT-BEP20",
+      enabled: true,
+      asset: "USDT",
+      network: "BEP20",
+      provider_currency: "usdtbsc",
+      deposit_minimum_usdt: null,
+      withdrawal_minimum_usdt: "2",
+      withdrawal_fee_percent: "5",
+    },
+  ];
+  for (const configResponse of invalidConfigurations) {
+    const result = await invokeOverview({
+      configEnabled: true,
+      configResponse,
+      sessions: [validSession()],
+    });
+    assert.equal(result.response.status, 503, JSON.stringify(configResponse));
+    assert.deepEqual(result.body, {
+      error: "deposit_overview_unavailable",
+      message: "Crypto deposits are unavailable.",
+    });
+    assert.equal(
+      result.requests.filter((url) =>
+        url.includes("/rest/v1/rpc/get_nowpayments_usdt_deposit_overview_snapshot")
+      ).length,
+      1,
+    );
+    assert.equal(
+      result.requests.some((url) => url.includes("nowpayments_usdt_payments")),
+      false,
+    );
+    assert.ok(!result.environmentReads.includes("NOWPAYMENTS_API_KEY"));
+  }
+});
+
+test("authoritative snapshot config or response drift is a generic failure with no disclosure", async () => {
+  const configDrift = await invokeOverview({
+    configEnabled: true,
+    sessions: [validSession()],
+    snapshotRpcErrorMessage: "nowpayments_deposit_availability_unavailable",
+  });
+  assert.equal(configDrift.response.status, 503);
+  assert.deepEqual(configDrift.body, {
+    error: "deposit_overview_unavailable",
+    message: "Crypto deposits are unavailable.",
+  });
+
+  const malformed = await invokeOverview({
+    configEnabled: true,
+    sessions: [validSession()],
+    snapshotResponse: { feature_enabled: true, pay_address: ADDRESS },
+  });
+  assert.equal(malformed.response.status, 503);
+  assert.deepEqual(malformed.body, {
+    error: "deposit_overview_unavailable",
+    message: "Crypto deposits are unavailable.",
+  });
+  for (const result of [configDrift, malformed]) {
+    assert.equal(JSON.stringify(result.body).includes(ADDRESS), false);
+    assert.equal(
+      result.requests.some((url) => url.includes("nowpayments_usdt_wallets")),
+      false,
+    );
+  }
+});
+
+test("a disabled snapshot that contains any address fails closed instead of relying on client hiding", async () => {
+  const result = await invokeOverview({
+    snapshotResponse: {
+      feature_enabled: false,
+      minimum_deposit_usdt: "1",
+      wallet: null,
+      sessions: [validSession()],
+      provider_payments: [],
+    },
+  });
+  assert.equal(result.response.status, 503);
+  assert.deepEqual(result.body, {
+    error: "deposit_overview_unavailable",
+    message: "Crypto deposits are unavailable.",
+  });
+  assert.equal(JSON.stringify(result.body).includes(ADDRESS), false);
 });
 
 test("active session and exact wallet decimals are returned without internal identifiers", async () => {
@@ -468,7 +745,12 @@ test("active session and exact wallet decimals are returned without internal ide
     assert.ok(!wire.includes(forbidden));
   }
   const decodedUrls = result.requests.map((url) => decodeURIComponent(url));
-  assert.ok(decodedUrls.some((url) => url.includes(`user_id=eq.${USER_ID}`)));
+  assert.equal(
+    decodedUrls.filter((url) =>
+      url.includes("/rest/v1/rpc/get_nowpayments_usdt_deposit_overview_snapshot")
+    ).length,
+    1,
+  );
   assert.ok(decodedUrls.every((url) => !url.includes(OTHER_USER_ID)));
 });
 
@@ -494,6 +776,10 @@ test("finished gross actually_paid credit is displayed and provider outcome stay
     configEnabled: true,
     sessions: [validSession({ provider_valid_until: "2020-01-01T00:00:00.000Z" })],
   });
+  assert.equal(expired.response.status, 200, JSON.stringify({
+    body: expired.body,
+    terminalLog: readTerminalLog(expired),
+  }));
   assert.equal(expired.body.active_session, null);
   assert.equal(expired.body.session_state, "expired_unactivated");
   assert.equal(expired.body.history[0].status, "expired");
@@ -570,9 +856,11 @@ test("overview does not accept exact-deadline activation evidence", async () => 
     })],
     providerPayments: [validProviderPayment({ credited_amount_usdt: "3" })],
   });
-  assert.equal(result.response.status, 200);
-  assert.equal(result.body.active_session, null);
-  assert.notEqual(result.body.session_state, "permanently_activated");
+  assert.equal(result.response.status, 503);
+  assert.deepEqual(result.body, {
+    error: "deposit_overview_unavailable",
+    message: "Crypto deposits are unavailable.",
+  });
 });
 
 test("overview preserves every handled terminal response and emits one allowlisted correlated log", async (t) => {
@@ -637,9 +925,9 @@ test("overview preserves every handled terminal response and emits one allowlist
       name: "configuration validation rejection",
       options: { configOverrides: { asset: "BTC" } },
       status: 503,
-      body: { error: "crypto_config_unavailable", message: "Crypto deposits are unavailable." },
-      stage: "profile_config_query",
-      diagnosticCode: "crypto_config_unavailable",
+      body: { error: "deposit_overview_unavailable", message: "Crypto deposits are unavailable." },
+      stage: "overview_queries",
+      diagnosticCode: "deposit_overview_unavailable",
     },
     {
       name: "overview query rejection",
@@ -874,7 +1162,7 @@ test("client parser rejects disabled payloads that expose active or historical a
   assert.throws(() => parseNowpaymentsDepositOverview(historyAddress), /unavailable/);
 });
 
-test("client sanitization removes a previously usable address after a failed refresh", () => {
+test("client sanitization removes a previously usable address after confirmed disablement", () => {
   const staleEnabledOverview = parseNowpaymentsDepositOverview({
     feature_enabled: true,
     asset: "USDT",
@@ -916,6 +1204,7 @@ test("client sanitization removes a previously usable address after a failed ref
 
 test("address generation client sends no amount or user ID and validates the public response", async () => {
   const calls = [];
+  const controller = new AbortController();
   await requestNowpaymentsDepositSession("token", async (input, init) => {
     calls.push({ input: String(input), init });
     return Response.json({
@@ -928,10 +1217,11 @@ test("address generation client sends no amount or user ID and validates the pub
       address_lifecycle: "pending_activation",
       valid_until: "2030-01-08T00:00:00.000Z",
     });
-  });
+  }, controller.signal);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].init.method, "POST");
   assert.equal(calls[0].init.body, undefined);
+  assert.equal(calls[0].init.signal, controller.signal);
   assert.equal(JSON.stringify(calls[0]), JSON.stringify(calls[0]).replace(/user_id|amount/gi, ""));
 });
 
@@ -957,8 +1247,10 @@ test("duplicate generation clicks share one in-flight request and permit a later
 });
 
 test("overview client uses bearer authentication and accepts only sanitized own-user fields", async () => {
+  const controller = new AbortController();
   const result = await fetchNowpaymentsDepositOverview("token", async (_input, init) => {
     assert.equal(init.headers.authorization, "Bearer token");
+    assert.equal(init.signal, controller.signal);
     return Response.json({
       feature_enabled: false,
       asset: "USDT",
@@ -969,8 +1261,229 @@ test("overview client uses bearer authentication and accepts only sanitized own-
       active_session: null,
       history: [],
     });
-  });
+  }, controller.signal);
   assert.equal(result.feature_enabled, false);
+});
+
+test("overview client distinguishes a confirmed rail pause from generic runtime failure", async () => {
+  await assert.rejects(
+    fetchNowpaymentsDepositOverview("token", async () =>
+      Response.json(
+        { error: "crypto_deposits_disabled", message: "Crypto deposits are disabled." },
+        { status: 503 },
+      )
+    ),
+    (error) => error?.kind === "disabled",
+  );
+  await assert.rejects(
+    fetchNowpaymentsDepositOverview("token", async () =>
+      Response.json(
+        { error: "crypto_runtime_unavailable", message: "Crypto deposits are unavailable." },
+        { status: 503 },
+      )
+    ),
+    (error) => error?.kind === "unavailable",
+  );
+});
+
+test("overview request generations abort and ignore stale work while a later refresh can recover", async () => {
+  const gate = createNowpaymentsOverviewRequestGate();
+  const first = gate.begin();
+  assert.equal(first.signal.aborted, false);
+  assert.equal(gate.isCurrent(first.generation), true);
+
+  const second = gate.begin();
+  assert.equal(first.signal.aborted, true);
+  assert.equal(gate.isCurrent(first.generation), false);
+  assert.equal(gate.isCurrent(second.generation), true);
+
+  gate.invalidate();
+  assert.equal(second.signal.aborted, true);
+  assert.equal(gate.isCurrent(second.generation), false);
+
+  const recovered = gate.begin();
+  assert.equal(recovered.signal.aborted, false);
+  assert.equal(gate.isCurrent(recovered.generation), true);
+  first.abort();
+  assert.equal(recovered.signal.aborted, false);
+});
+
+test("state harness applies only the newest overview resolution and purges disclosure on pause or failure", async () => {
+  const gate = createNowpaymentsOverviewRequestGate();
+  const observedSignals = [];
+  let state = { ...INITIAL_NOWPAYMENTS_DEPOSIT_UI_STATE };
+  const dispatch = (action) => {
+    state = nowpaymentsDepositUiReducer(state, action);
+  };
+  const beginLoad = (responsePromise) => {
+    const ticket = gate.begin();
+    dispatch({ type: "overview_loading" });
+    const completion = (async () => {
+      try {
+        const overview = await fetchNowpaymentsDepositOverview(
+          "current-token",
+          async (_input, init) => {
+            observedSignals.push(init.signal);
+            return responsePromise;
+          },
+          ticket.signal,
+        );
+        if (gate.isCurrent(ticket.generation)) {
+          dispatch({ type: "overview_success", overview });
+        }
+      } catch {
+        if (gate.isCurrent(ticket.generation)) {
+          dispatch({ type: "overview_failure" });
+        }
+      }
+    })();
+    return { ticket, completion };
+  };
+  const completedHistory = {
+    asset: "USDT",
+    network: "BEP20",
+    status: "finished",
+    pay_address: ADDRESS,
+    credited_amount_usdt: "3",
+    created_at: "2029-12-01T00:00:00.000Z",
+    valid_until: null,
+    completed_at: "2029-12-02T00:00:00.000Z",
+  };
+
+  await beginLoad(Promise.resolve(Response.json(activeOverviewBody({
+    history: [completedHistory],
+  })))).completion;
+  dispatch({ type: "set_qr_data_url", qrDataUrl: "data:image/png;base64,safe" });
+  dispatch({
+    type: "set_copy_feedback",
+    copyFeedback: { copied: true, announcement: "copied" },
+  });
+  assert.deepEqual(nowpaymentsDepositUiVisibility(state), {
+    address: true,
+    qr: true,
+    qrData: true,
+    copy: true,
+    generate: false,
+    safety: true,
+    balances: true,
+    history: true,
+    retry: false,
+  });
+
+  const pausedBody = {
+    ...emptyOverviewBody(false),
+    wallet: { available_balance_usdt: "9", reserved_balance_usdt: "0" },
+    history: [{ ...completedHistory, pay_address: null }],
+  };
+  await beginLoad(Promise.resolve(Response.json(pausedBody))).completion;
+  const pausedVisibility = nowpaymentsDepositUiVisibility(state);
+  assert.equal(pausedVisibility.address, false);
+  assert.equal(pausedVisibility.qr, false);
+  assert.equal(pausedVisibility.qrData, false);
+  assert.equal(pausedVisibility.copy, false);
+  assert.equal(pausedVisibility.generate, false);
+  assert.equal(pausedVisibility.safety, false);
+  assert.equal(state.qrDataUrl, null);
+  assert.deepEqual(state.copyFeedback, IDLE_COPY_FEEDBACK);
+  assert.equal(JSON.stringify(state).includes(ADDRESS), false);
+
+  await beginLoad(Promise.resolve(Response.json(emptyOverviewBody(true)))).completion;
+  assert.equal(nowpaymentsDepositUiVisibility(state).generate, true);
+  await beginLoad(Promise.resolve(Response.json(pausedBody))).completion;
+  assert.equal(nowpaymentsDepositUiVisibility(state).generate, false);
+
+  await beginLoad(Promise.resolve(Response.json(activeOverviewBody({
+    history: [completedHistory],
+  })))).completion;
+  dispatch({ type: "set_qr_data_url", qrDataUrl: "data:image/png;base64,cached" });
+  await beginLoad(Promise.reject(new Error("network unavailable"))).completion;
+  assert.equal(state.overview, null);
+  assert.deepEqual(nowpaymentsDepositUiVisibility(state), {
+    address: false,
+    qr: false,
+    qrData: false,
+    copy: false,
+    generate: false,
+    safety: false,
+    balances: false,
+    history: false,
+    retry: true,
+  });
+
+  const staleAddress = "0x2222222222222222222222222222222222222222";
+  const stale = createDeferred();
+  const recovery = createDeferred();
+  const staleLoad = beginLoad(stale.promise);
+  const recoveryLoad = beginLoad(recovery.promise);
+  assert.equal(staleLoad.ticket.signal.aborted, true);
+  assert.equal(recoveryLoad.ticket.signal.aborted, false);
+
+  recovery.resolve(Response.json(activeOverviewBody({
+    address: ADDRESS,
+    availableBalance: "7",
+    history: [],
+  })));
+  await recoveryLoad.completion;
+  stale.resolve(Response.json(activeOverviewBody({
+    address: staleAddress,
+    availableBalance: "999",
+    history: [],
+  })));
+  await staleLoad.completion;
+
+  assert.equal(state.overview.active_session.pay_address, ADDRESS);
+  assert.equal(state.overview.wallet.available_balance_usdt, "7");
+  assert.equal(JSON.stringify(state).includes(staleAddress), false);
+  assert.equal(nowpaymentsDepositUiVisibility(state).retry, false);
+  assert.ok(observedSignals.length >= 8);
+});
+
+test("authentication generations deterministically reject old-token and same-user refresh results", () => {
+  const adminAToken = "admin-a-token";
+  const adminBToken = "admin-b-token";
+  assert.equal(
+    isNowpaymentsAuthGenerationCurrent(adminAToken, 4, adminAToken, 4),
+    true,
+  );
+  assert.equal(
+    isNowpaymentsAuthGenerationCurrent(adminBToken, 5, adminAToken, 4),
+    false,
+  );
+  assert.equal(
+    isNowpaymentsAuthGenerationCurrent(adminAToken, 5, adminAToken, 4),
+    false,
+  );
+  assert.equal(
+    isNowpaymentsAuthGenerationCurrent(adminAToken, 4, adminBToken, 4),
+    false,
+  );
+});
+
+test("generation source guards bind Generate lifecycle to the current token and pause polling", () => {
+  assert.match(uiSource, /const authGenerationRef = useRef\(0\)/);
+  assert.match(uiSource, /const accessTokenRef = useRef\(accessToken\)/);
+  assert.match(uiSource, /const submissionControllerRef = useRef<AbortController \| null>\(null\)/);
+  assert.match(uiSource, /const submissionBusyRef = useRef\(false\)/);
+  assert.match(
+    uiSource,
+    /isNowpaymentsAuthGenerationCurrent\([\s\S]*accessTokenRef\.current,[\s\S]*authGenerationRef\.current,[\s\S]*accessToken,[\s\S]*authGeneration,[\s\S]*submissionBusyRef\.current && !allowDuringSubmission/,
+  );
+  assert.match(uiSource, /overviewRequestGateRef\.current\?\.invalidate\(\)/);
+  assert.match(uiSource, /submissionControllerRef\.current\?\.abort\(\)/);
+  assert.match(uiSource, /requestNowpaymentsDepositSession\(token, fetch, controller\.signal\)/);
+  assert.match(uiSource, /if \(!isCurrentAuthGeneration\(\)\) return;/);
+  assert.match(
+    uiSource,
+    /if \(!isCurrentAuthGeneration\(\) \|\| \(controller\.signal\.aborted && !timedOut\)\)/,
+  );
+  assert.match(
+    uiSource,
+    /if \(isCurrentAuthGeneration\(\)\) \{[\s\S]*submissionBusyRef\.current = false;[\s\S]*setGenerating\(false\);/,
+  );
+  assert.ok(
+    uiSource.indexOf("if (!isCurrentAuthGeneration() || !refreshed) return;")
+      < uiSource.indexOf('toast.success("Your USDT BEP20 deposit address is ready.");'),
+  );
 });
 
 test("copy feedback announces success, updates its name, and resets to the action state", async () => {
@@ -1004,7 +1517,7 @@ test("copy feedback announces success, updates its name, and resets to the actio
   );
   assert.match(
     uiSource,
-    /setTimeout\([\s\S]*setCopyFeedback\(IDLE_COPY_FEEDBACK\)[\s\S]*COPY_FEEDBACK_TIMEOUT_MS/,
+    /setTimeout\([\s\S]*type: "set_copy_feedback"[\s\S]*copyFeedback: IDLE_COPY_FEEDBACK[\s\S]*COPY_FEEDBACK_TIMEOUT_MS/,
   );
 });
 
@@ -1070,7 +1583,20 @@ test("UI is backend-gated, duplicate-click guarded, local-QR-only, responsive, a
   );
   assert.match(uiSource, /error && overview\.feature_enabled && <InlineRetry/);
   assert.ok(
-    (uiSource.match(/sanitizeDisabledNowpaymentsDepositOverview\(current\)/g) ?? []).length >= 3,
+    (uiSource.match(/sanitizeDisabledNowpaymentsDepositOverview\(state\.overview\)/g) ?? []).length >= 1,
+  );
+  assert.match(uiSource, /createNowpaymentsOverviewRequestGate/);
+  assert.match(uiSource, /new AbortController|ticket\.signal/);
+  assert.match(uiSource, /isCurrent\(ticket\.generation\)/);
+  assert.match(uiSource, /setInterval\(refresh, OVERVIEW_REFRESH_INTERVAL_MS\)/);
+  assert.match(uiSource, /document\.visibilityState === "visible"/);
+  assert.match(
+    uiSource,
+    /catch \{[\s\S]*clearAddressPresentation\(\);[\s\S]*type: "overview_failure"/,
+  );
+  assert.ok(
+    uiSource.indexOf("!overview.feature_enabled ?")
+      < uiSource.indexOf("activeSession ?"),
   );
 });
 
@@ -1093,12 +1619,20 @@ test("overview source keeps production and authentication gates before database 
   assert.ok(overviewSource.indexOf("if (!token || token === authorization)") < overviewSource.indexOf("admin.auth.getUser(token)"));
   assert.ok(
     overviewSource.indexOf('from("profiles")')
-      < overviewSource.indexOf('from("app_settings")'),
+      < overviewSource.indexOf('"get_nowpayments_usdt_deposit_overview_snapshot"'),
   );
   assert.doesNotMatch(overviewSource, /NOWPAYMENTS_API_KEY|api\.nowpayments\.io/);
-  assert.match(overviewSource, /\.eq\("user_id", userId\)/);
-  assert.match(overviewSource, /available_balance_usdt::text/);
-  assert.match(overviewSource, /credited_amount_usdt::text/);
+  assert.match(overviewSource, /\{ p_user_id: userId \}/);
+  assert.doesNotMatch(
+    overviewSource,
+    /\.from\("(?:app_settings|nowpayments_usdt_config|nowpayments_usdt_wallets|nowpayments_usdt_payments|nowpayments_usdt_provider_payments)"\)/,
+  );
+  assert.equal(
+    (overviewSource.match(/get_nowpayments_usdt_deposit_overview_snapshot/g) ?? []).length,
+    1,
+  );
+  assert.match(overviewSource, /available_balance_usdt/);
+  assert.match(overviewSource, /credited_amount_usdt/);
   assert.doesNotMatch(overviewSource, /outcome_amount_usdt::text/);
 });
 

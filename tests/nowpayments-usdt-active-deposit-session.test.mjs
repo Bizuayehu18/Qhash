@@ -1219,6 +1219,7 @@ test("types and endpoint expose only the hidden server-side session contract", (
     "complete_nowpayments_usdt_deposit_session",
     "mark_nowpayments_usdt_deposit_session_manual_recovery",
     "record_nowpayments_usdt_deposit_session_status",
+    "get_nowpayments_usdt_deposit_overview_snapshot",
   ]) {
     assert.match(databaseTypes, new RegExp(`\\b${rpc}:`));
   }
@@ -1233,9 +1234,9 @@ test("types and endpoint expose only the hidden server-side session contract", (
     endpointSource.indexOf("if (!isPublishedProductionDeployContext(context))")
       < endpointSource.indexOf('Netlify.env.get("VITE_SUPABASE_URL")'),
   );
-  assert.match(endpointSource, /globalRow\.value === "true" \|\| !config\.enabled/);
+  assert.match(endpointSource, /globalRow\.value === "true" \|\| !configRow\.enabled/);
   assert.ok(
-    endpointSource.indexOf('globalRow.value === "true" || !config.enabled')
+    endpointSource.indexOf('globalRow.value === "true" || !configRow.enabled')
       < endpointSource.indexOf('Netlify.env.get("NOWPAYMENTS_API_KEY")'),
   );
   assert.ok(
@@ -1302,6 +1303,7 @@ async function invokeDepositSessionGate({
   globalSettingRows = [{ key: "deposits_paused", value: "false" }],
   configEnabled = true,
   configOverrides = {},
+  configResponse = undefined,
   rpcErrorMessage = null,
 } = {}) {
   const originalFetch = globalThis.fetch;
@@ -1342,6 +1344,7 @@ async function invokeDepositSessionGate({
     if (url.includes("/rest/v1/profiles")) return Response.json(profile);
     if (url.includes("/rest/v1/app_settings")) return Response.json(globalSettingRows);
     if (url.includes("/rest/v1/nowpayments_usdt_config")) {
+      if (configResponse !== undefined) return Response.json(configResponse);
       return Response.json({
         id: "USDT-BEP20",
         enabled: configEnabled,
@@ -1451,6 +1454,9 @@ test("missing, duplicate, and malformed global deposit settings fail closed befo
     ]],
     ["wrong key", [{ key: "withdrawals_paused", value: "false" }]],
     ["malformed", [{ key: "deposits_paused", value: "FALSE" }]],
+    ["null row", [null]],
+    ["string row", ["false"]],
+    ["array row", [[]]],
   ];
   for (const [name, globalSettingRows] of cases) {
     const result = await invokeDepositSessionGate({ globalSettingRows });
@@ -1482,10 +1488,83 @@ test("authentication and active-profile validation precede deposit configuration
   assert.equal(frozen.requests.some((url) => url.includes("/rest/v1/app_settings")), false);
   assert.equal(frozen.requests.some((url) => url.includes("nowpayments_usdt_config")), false);
 
-  for (const result of [unauthenticated, invalid, frozen]) {
+  const malformedProfiles = await Promise.all([
+    null,
+    {},
+    { is_frozen: null },
+    { is_frozen: "false" },
+    [],
+    "active",
+  ].map((profile) => invokeDepositSessionGate({ profile })));
+  for (const result of malformedProfiles) {
+    assert.equal(result.status, 403);
+    assert.deepEqual(result.body, {
+      error: "account_unavailable",
+      message: "Account is unavailable.",
+    });
+    assert.equal(result.requests.some((url) => url.includes("/rest/v1/app_settings")), false);
+    assert.equal(result.requests.some((url) => url.includes("/rest/v1/rpc/")), false);
+  }
+
+  for (const result of [unauthenticated, invalid, frozen, ...malformedProfiles]) {
     assert.ok(!result.environmentReads.includes("NOWPAYMENTS_API_KEY"));
     assert.ok(!result.environmentReads.includes("URL"));
     assert.equal(result.requests.some((url) => url.startsWith("https://api.nowpayments.io")), false);
+  }
+});
+
+test("missing or malformed rail configuration fails before claim, provider secrets, or writes", async () => {
+  const invalidConfigurations = [
+    null,
+    [],
+    "USDT-BEP20",
+    {},
+    {
+      id: "USDT-BEP20",
+      enabled: "true",
+      asset: "USDT",
+      network: "BEP20",
+      provider_currency: "usdtbsc",
+      deposit_minimum_usdt: 1,
+      withdrawal_minimum_usdt: 2,
+      withdrawal_fee_percent: 5,
+    },
+    {
+      id: "USDT-BEP20",
+      enabled: true,
+      asset: "USDT",
+      network: "BEP20",
+      provider_currency: "usdtbsc",
+      deposit_minimum_usdt: "1",
+      withdrawal_minimum_usdt: 2,
+      withdrawal_fee_percent: 5,
+    },
+    {
+      id: "USDT-BEP20",
+      enabled: true,
+      asset: "USDT",
+      network: "BEP20",
+      provider_currency: "usdtbsc",
+      deposit_minimum_usdt: 1,
+      withdrawal_minimum_usdt: 2,
+      withdrawal_fee_percent: Number.NaN,
+    },
+  ];
+
+  for (const configResponse of invalidConfigurations) {
+    const result = await invokeDepositSessionGate({ configResponse });
+    assert.equal(result.status, 503, JSON.stringify(configResponse));
+    assert.deepEqual(result.body, {
+      error: "crypto_config_unavailable",
+      message: "Crypto deposits are unavailable.",
+    });
+    assert.equal(result.requests.some((url) => url.includes("/rest/v1/rpc/")), false);
+    assert.equal(
+      result.requests.some((url) => url.startsWith("https://api.nowpayments.io")),
+      false,
+    );
+    assert.ok(!result.environmentReads.includes("NOWPAYMENTS_API_KEY"));
+    assert.ok(!result.environmentReads.includes("URL"));
   }
 });
 

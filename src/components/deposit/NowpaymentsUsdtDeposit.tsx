@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -19,9 +19,11 @@ import { Button } from "@/components/ui/Button.js";
 import { formatDateTime } from "@/lib/format.js";
 import {
   fetchNowpaymentsDepositOverview,
+  createNowpaymentsOverviewRequestGate,
   createSingleFlight,
   formatDepositCountdown,
   formatUsdtDecimal,
+  isNowpaymentsAuthGenerationCurrent,
   isDepositAddressSendable,
   NowpaymentsDepositUiError,
   nowpaymentsStatusLabel,
@@ -33,9 +35,10 @@ import {
 } from "@/lib/nowpayments-deposit-ui.js";
 
 const OVERVIEW_TIMEOUT_MS = 12_000;
+const OVERVIEW_REFRESH_INTERVAL_MS = 15_000;
 const COPY_FEEDBACK_TIMEOUT_MS = 2_000;
 
-type CopyFeedback = {
+export type CopyFeedback = {
   copied: boolean;
   announcement: string;
 };
@@ -44,6 +47,106 @@ export const IDLE_COPY_FEEDBACK: CopyFeedback = {
   copied: false,
   announcement: "",
 };
+
+export type NowpaymentsDepositUiState = {
+  overview: NowpaymentsDepositOverview | null;
+  loading: boolean;
+  error: boolean;
+  copyFeedback: CopyFeedback;
+  qrDataUrl: string | null;
+};
+
+export const INITIAL_NOWPAYMENTS_DEPOSIT_UI_STATE: NowpaymentsDepositUiState = {
+  overview: null,
+  loading: true,
+  error: false,
+  copyFeedback: IDLE_COPY_FEEDBACK,
+  qrDataUrl: null,
+};
+
+type NowpaymentsDepositUiAction =
+  | { type: "auth_reset" }
+  | { type: "overview_loading" }
+  | { type: "overview_success"; overview: NowpaymentsDepositOverview }
+  | { type: "overview_failure" }
+  | { type: "confirmed_disabled" }
+  | { type: "set_loading"; loading: boolean }
+  | { type: "set_error"; error: boolean }
+  | { type: "clear_address_presentation" }
+  | { type: "set_copy_feedback"; copyFeedback: CopyFeedback }
+  | { type: "set_qr_data_url"; qrDataUrl: string | null };
+
+export function nowpaymentsDepositUiReducer(
+  state: NowpaymentsDepositUiState,
+  action: NowpaymentsDepositUiAction,
+): NowpaymentsDepositUiState {
+  switch (action.type) {
+    case "auth_reset":
+      return { ...INITIAL_NOWPAYMENTS_DEPOSIT_UI_STATE };
+    case "overview_loading":
+      return { ...state, loading: true, error: false };
+    case "overview_success":
+      return {
+        overview: action.overview,
+        loading: false,
+        error: false,
+        copyFeedback: IDLE_COPY_FEEDBACK,
+        qrDataUrl: null,
+      };
+    case "overview_failure":
+      return {
+        overview: null,
+        loading: false,
+        error: true,
+        copyFeedback: IDLE_COPY_FEEDBACK,
+        qrDataUrl: null,
+      };
+    case "confirmed_disabled":
+      return {
+        overview: state.overview
+          ? sanitizeDisabledNowpaymentsDepositOverview(state.overview)
+          : null,
+        loading: false,
+        error: false,
+        copyFeedback: IDLE_COPY_FEEDBACK,
+        qrDataUrl: null,
+      };
+    case "set_loading":
+      return { ...state, loading: action.loading };
+    case "set_error":
+      return { ...state, error: action.error };
+    case "clear_address_presentation":
+      return {
+        ...state,
+        copyFeedback: IDLE_COPY_FEEDBACK,
+        qrDataUrl: null,
+      };
+    case "set_copy_feedback":
+      return { ...state, copyFeedback: action.copyFeedback };
+    case "set_qr_data_url":
+      return { ...state, qrDataUrl: action.qrDataUrl };
+  }
+}
+
+export function nowpaymentsDepositUiVisibility(state: NowpaymentsDepositUiState) {
+  const featureEnabled = state.overview?.feature_enabled === true;
+  const activeAddressVisible = featureEnabled && state.overview?.active_session !== null;
+  const sessionState = state.overview?.session_state;
+  return {
+    address: activeAddressVisible,
+    qr: activeAddressVisible,
+    qrData: activeAddressVisible && state.qrDataUrl !== null,
+    copy: activeAddressVisible,
+    generate: featureEnabled
+      && !activeAddressVisible
+      && sessionState !== "provisioning"
+      && sessionState !== "manual_review",
+    safety: featureEnabled,
+    balances: state.overview !== null,
+    history: state.overview !== null,
+    retry: state.error && state.overview === null,
+  };
+}
 
 export function copyButtonAccessibleName({
   addressSendable,
@@ -76,20 +179,6 @@ export async function copyUsdtDepositAddress(
   }
 }
 
-async function withRequestTimeout<T>(operation: Promise<T>): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  try {
-    return await Promise.race([
-      operation,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error("crypto_request_timeout")), OVERVIEW_TIMEOUT_MS);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
 function statusVariant(status: NowpaymentsHistoryStatus) {
   if (status === "finished") return "success" as const;
   if (["failed", "refunded", "expired"].includes(status)) return "danger" as const;
@@ -104,52 +193,165 @@ export function NowpaymentsUsdtDeposit({
   accessToken: string | null;
   onBack: () => void;
 }) {
-  const [overview, setOverview] = useState<NowpaymentsDepositOverview | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [{
+    overview,
+    loading,
+    error,
+    copyFeedback,
+    qrDataUrl,
+  }, dispatchUi] = useReducer(
+    nowpaymentsDepositUiReducer,
+    INITIAL_NOWPAYMENTS_DEPOSIT_UI_STATE,
+  );
   const [generating, setGenerating] = useState(false);
-  const [copyFeedback, setCopyFeedback] = useState<CopyFeedback>(IDLE_COPY_FEEDBACK);
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const mountedRef = useRef(true);
-  const loadingRef = useRef(false);
+  const accessTokenRef = useRef(accessToken);
+  const authGenerationRef = useRef(0);
+  const overviewRequestGateRef = useRef<ReturnType<
+    typeof createNowpaymentsOverviewRequestGate
+  > | null>(null);
+  const submissionControllerRef = useRef<AbortController | null>(null);
+  const submissionBusyRef = useRef(false);
   const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  accessTokenRef.current = accessToken;
+  if (!overviewRequestGateRef.current) {
+    overviewRequestGateRef.current = createNowpaymentsOverviewRequestGate();
+  }
 
-  const loadOverview = useCallback(async () => {
+  const clearAddressPresentation = useCallback(() => {
+    if (copyResetTimerRef.current) {
+      clearTimeout(copyResetTimerRef.current);
+      copyResetTimerRef.current = null;
+    }
+    dispatchUi({ type: "clear_address_presentation" });
+  }, []);
+
+  const loadOverviewForGeneration = useCallback(async ({
+    allowDuringSubmission = false,
+    authGeneration = authGenerationRef.current,
+  }: {
+    allowDuringSubmission?: boolean;
+    authGeneration?: number;
+  } = {}): Promise<boolean> => {
+    if (
+      !mountedRef.current
+      || !isNowpaymentsAuthGenerationCurrent(
+        accessTokenRef.current,
+        authGenerationRef.current,
+        accessToken,
+        authGeneration,
+      )
+      || (submissionBusyRef.current && !allowDuringSubmission)
+    ) {
+      return false;
+    }
+    const ticket = overviewRequestGateRef.current!.begin();
     if (!accessToken) {
-      setOverview((current) =>
-        current ? sanitizeDisabledNowpaymentsDepositOverview(current) : current
-      );
-      setLoading(false);
-      setError(true);
-      return;
+      if (
+        !mountedRef.current
+        || !isNowpaymentsAuthGenerationCurrent(
+          accessTokenRef.current,
+          authGenerationRef.current,
+          accessToken,
+          authGeneration,
+        )
+        || !overviewRequestGateRef.current!.isCurrent(ticket.generation)
+      ) {
+        return false;
+      }
+      clearAddressPresentation();
+      dispatchUi({ type: "overview_failure" });
+      return false;
     }
-    if (loadingRef.current) return;
-    loadingRef.current = true;
-    setError(false);
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      ticket.abort();
+    }, OVERVIEW_TIMEOUT_MS);
+    dispatchUi({ type: "overview_loading" });
     try {
-      const result = await withRequestTimeout(fetchNowpaymentsDepositOverview(accessToken));
-      if (!mountedRef.current) return;
-      setOverview(result);
-    } catch {
-      if (!mountedRef.current) return;
-      setOverview((current) =>
-        current ? sanitizeDisabledNowpaymentsDepositOverview(current) : current
+      const result = await fetchNowpaymentsDepositOverview(
+        accessToken,
+        fetch,
+        ticket.signal,
       );
-      setError(true);
+      if (
+        !mountedRef.current
+        || !isNowpaymentsAuthGenerationCurrent(
+          accessTokenRef.current,
+          authGenerationRef.current,
+          accessToken,
+          authGeneration,
+        )
+        || !overviewRequestGateRef.current!.isCurrent(ticket.generation)
+      ) {
+        return false;
+      }
+      clearAddressPresentation();
+      dispatchUi({ type: "overview_success", overview: result });
+      return true;
+    } catch {
+      if (
+        !mountedRef.current
+        || !isNowpaymentsAuthGenerationCurrent(
+          accessTokenRef.current,
+          authGenerationRef.current,
+          accessToken,
+          authGeneration,
+        )
+        || !overviewRequestGateRef.current!.isCurrent(ticket.generation)
+        || (ticket.signal.aborted && !timedOut)
+      ) {
+        return false;
+      }
+      clearAddressPresentation();
+      dispatchUi({ type: "overview_failure" });
+      return false;
     } finally {
-      loadingRef.current = false;
-      if (mountedRef.current) setLoading(false);
+      clearTimeout(timeout);
+      if (
+        mountedRef.current
+        && isNowpaymentsAuthGenerationCurrent(
+          accessTokenRef.current,
+          authGenerationRef.current,
+          accessToken,
+          authGeneration,
+        )
+        && overviewRequestGateRef.current!.isCurrent(ticket.generation)
+      ) {
+        dispatchUi({ type: "set_loading", loading: false });
+      }
     }
-  }, [accessToken]);
+  }, [accessToken, clearAddressPresentation]);
+  const loadOverview = useCallback(
+    async (): Promise<void> => {
+      await loadOverviewForGeneration();
+    },
+    [loadOverviewForGeneration],
+  );
 
   useEffect(() => {
     mountedRef.current = true;
-    void loadOverview();
+    authGenerationRef.current += 1;
+    const authGeneration = authGenerationRef.current;
+    overviewRequestGateRef.current?.invalidate();
+    submissionControllerRef.current?.abort();
+    submissionControllerRef.current = null;
+    submissionBusyRef.current = false;
+    setGenerating(false);
+    clearAddressPresentation();
+    dispatchUi({ type: "auth_reset" });
+    void loadOverviewForGeneration({ authGeneration, allowDuringSubmission: true });
     return () => {
       mountedRef.current = false;
+      authGenerationRef.current += 1;
+      overviewRequestGateRef.current?.invalidate();
+      submissionControllerRef.current?.abort();
+      submissionControllerRef.current = null;
+      submissionBusyRef.current = false;
     };
-  }, [loadOverview]);
+  }, [accessToken, clearAddressPresentation, loadOverviewForGeneration]);
 
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 1_000);
@@ -164,9 +366,11 @@ export function NowpaymentsUsdtDeposit({
     const refresh = () => {
       if (document.visibilityState === "visible") void loadOverview();
     };
+    const refreshTimer = setInterval(refresh, OVERVIEW_REFRESH_INTERVAL_MS);
     document.addEventListener("visibilitychange", refresh);
     window.addEventListener("online", refresh);
     return () => {
+      clearInterval(refreshTimer);
       document.removeEventListener("visibilitychange", refresh);
       window.removeEventListener("online", refresh);
     };
@@ -188,7 +392,7 @@ export function NowpaymentsUsdtDeposit({
 
   useEffect(() => {
     let cancelled = false;
-    setQrDataUrl(null);
+    dispatchUi({ type: "set_qr_data_url", qrDataUrl: null });
     if (!overview?.feature_enabled || !activeSession || !addressSendable) return;
     void QRCode.toDataURL(activeSession.pay_address, {
       errorCorrectionLevel: "M",
@@ -196,9 +400,9 @@ export function NowpaymentsUsdtDeposit({
       width: 220,
       color: { dark: "#050505", light: "#ffffff" },
     }).then((dataUrl) => {
-      if (!cancelled) setQrDataUrl(dataUrl);
+      if (!cancelled) dispatchUi({ type: "set_qr_data_url", qrDataUrl: dataUrl });
     }).catch(() => {
-      if (!cancelled) setQrDataUrl(null);
+      if (!cancelled) dispatchUi({ type: "set_qr_data_url", qrDataUrl: null });
     });
     return () => {
       cancelled = true;
@@ -207,32 +411,70 @@ export function NowpaymentsUsdtDeposit({
 
   const performGenerate = useCallback(async () => {
     if (!accessToken || !overview?.feature_enabled) return;
+    const token = accessToken;
+    const authGeneration = authGenerationRef.current;
+    const isCurrentAuthGeneration = () =>
+      mountedRef.current
+      && isNowpaymentsAuthGenerationCurrent(
+        accessTokenRef.current,
+        authGenerationRef.current,
+        token,
+        authGeneration,
+      );
+    if (!isCurrentAuthGeneration() || submissionBusyRef.current) return;
+
+    overviewRequestGateRef.current?.invalidate();
+    const controller = new AbortController();
+    submissionControllerRef.current = controller;
+    submissionBusyRef.current = true;
     setGenerating(true);
-    setError(false);
+    dispatchUi({ type: "set_error", error: false });
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, OVERVIEW_TIMEOUT_MS);
     try {
-      await withRequestTimeout(requestNowpaymentsDepositSession(accessToken));
-      await loadOverview();
+      await requestNowpaymentsDepositSession(token, fetch, controller.signal);
+      if (!isCurrentAuthGeneration()) return;
+      const refreshed = await loadOverviewForGeneration({
+        allowDuringSubmission: true,
+        authGeneration,
+      });
+      if (!isCurrentAuthGeneration() || !refreshed) return;
       toast.success("Your USDT BEP20 deposit address is ready.");
     } catch (requestError) {
+      if (!isCurrentAuthGeneration() || (controller.signal.aborted && !timedOut)) {
+        return;
+      }
       if (
         requestError instanceof NowpaymentsDepositUiError
         && requestError.kind === "disabled"
       ) {
-        if (mountedRef.current) {
-          setOverview((current) =>
-            current ? sanitizeDisabledNowpaymentsDepositOverview(current) : current
-          );
-          setError(false);
-        }
+        clearAddressPresentation();
+        dispatchUi({ type: "confirmed_disabled" });
         toast.error("Crypto deposits are unavailable.");
       } else {
-        if (mountedRef.current) setError(true);
+        clearAddressPresentation();
+        dispatchUi({ type: "overview_failure" });
         toast.error("The deposit address is temporarily unavailable. Please try again.");
       }
     } finally {
-      if (mountedRef.current) setGenerating(false);
+      clearTimeout(timeout);
+      if (isCurrentAuthGeneration()) {
+        if (submissionControllerRef.current === controller) {
+          submissionControllerRef.current = null;
+        }
+        submissionBusyRef.current = false;
+        setGenerating(false);
+      }
     }
-  }, [accessToken, loadOverview, overview?.feature_enabled]);
+  }, [
+    accessToken,
+    clearAddressPresentation,
+    loadOverviewForGeneration,
+    overview?.feature_enabled,
+  ]);
   const handleGenerate = useMemo(
     () => createSingleFlight(performGenerate),
     [performGenerate],
@@ -249,10 +491,15 @@ export function NowpaymentsUsdtDeposit({
       (value) => navigator.clipboard.writeText(value),
     );
     if (!mountedRef.current) return;
-    setCopyFeedback(feedback);
+    dispatchUi({ type: "set_copy_feedback", copyFeedback: feedback });
     if (feedback.copied) {
       copyResetTimerRef.current = setTimeout(() => {
-        if (mountedRef.current) setCopyFeedback(IDLE_COPY_FEEDBACK);
+        if (mountedRef.current) {
+          dispatchUi({
+            type: "set_copy_feedback",
+            copyFeedback: IDLE_COPY_FEEDBACK,
+          });
+        }
         copyResetTimerRef.current = null;
       }, COPY_FEEDBACK_TIMEOUT_MS);
     } else {
