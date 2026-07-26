@@ -686,11 +686,15 @@ function NoticeLine() {
   return (
     <div className="flex items-start gap-2 rounded-xl border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.035)] px-3 py-2.5">
       <Info size={13} className="mt-0.5 shrink-0 text-[#00ff41]" />
-      <p className="text-[10px] leading-relaxed text-gray-500">
-        <span className="font-semibold text-[#00ff41]">24h processing</span>
-        <span> · Min {MIN_WITHDRAWAL_AMOUNT} ETB · {WITHDRAWAL_FEE_PERCENT}% fee</span>
-        <span className="mt-1 block">{CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE}</span>
-      </p>
+      <div className="min-w-0 text-[10px] leading-relaxed text-gray-500">
+        <p>
+          <span className="font-semibold text-[#00ff41]">24h processing</span>
+          <span> · Min {MIN_WITHDRAWAL_AMOUNT} ETB · {WITHDRAWAL_FEE_PERCENT}% fee</span>
+        </p>
+        <p className="mt-1.5 border-t border-[rgba(0,255,65,0.1)] pt-1.5">
+          {CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE}.
+        </p>
+      </div>
     </div>
   );
 }

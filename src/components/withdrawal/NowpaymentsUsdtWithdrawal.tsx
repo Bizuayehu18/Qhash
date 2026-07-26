@@ -308,8 +308,8 @@ export function NowpaymentsUsdtWithdrawal({
 
           <div className="flex items-start gap-2 rounded-xl border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.035)] px-3 py-2.5">
             <Clock size={14} className="mt-0.5 shrink-0 text-[#00ff41]" />
-            <p className="text-xs text-gray-400">
-              {CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE}
+            <p className="text-xs leading-relaxed text-gray-400">
+              {CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE}.
             </p>
           </div>
 

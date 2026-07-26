@@ -1,8 +1,6 @@
 -- Enforce one withdrawal across ETB and USDT rails per user and rolling 24 hours.
 -- Harden legacy withdrawal mutations behind the service-role-only request function.
 
-begin;
-
 do $preflight$
 declare
   v_legacy_function regprocedure :=
@@ -13,6 +11,14 @@ declare
     to_regprocedure(
       'public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)'
     );
+  v_approve_function regprocedure :=
+    to_regprocedure(
+      'public.approve_withdrawal_tx(uuid,uuid,text)'
+    );
+  v_reject_function regprocedure :=
+    to_regprocedure(
+      'public.reject_withdrawal_tx(uuid,uuid,text)'
+    );
   v_postgres oid := to_regrole('postgres');
   v_service_role oid := to_regrole('service_role');
   v_anon oid := to_regrole('anon');
@@ -20,6 +26,8 @@ declare
 begin
   if v_legacy_function is null
     or v_usdt_function is null
+    or v_approve_function is null
+    or v_reject_function is null
     or v_postgres is null
     or v_service_role is null
     or v_anon is null
@@ -167,6 +175,108 @@ begin
 
   if not found then
     raise exception 'Unexpected USDT withdrawal request function ACL';
+  end if;
+
+  if (
+    select count(*)
+    from pg_catalog.pg_proc function_row
+    join pg_catalog.pg_namespace function_schema
+      on function_schema.oid = function_row.pronamespace
+    join pg_catalog.pg_language function_language
+      on function_language.oid = function_row.prolang
+    where function_row.oid in (
+      v_approve_function::oid,
+      v_reject_function::oid
+    )
+      and function_schema.nspname = 'public'
+      and function_row.proname in (
+        'approve_withdrawal_tx',
+        'reject_withdrawal_tx'
+      )
+      and function_row.prokind = 'f'
+      and function_row.proowner = v_postgres
+      and function_language.lanname = 'plpgsql'
+      and function_row.prorettype = 'jsonb'::regtype
+      and function_row.prosecdef
+      and not function_row.proisstrict
+      and not function_row.proleakproof
+      and function_row.provolatile = 'v'
+      and function_row.proparallel = 'u'
+      and function_row.pronargs = 3
+      and function_row.proargtypes[0] = 'uuid'::regtype
+      and function_row.proargtypes[1] = 'uuid'::regtype
+      and function_row.proargtypes[2] = 'text'::regtype
+      and function_row.proargnames = array[
+        'p_admin_id',
+        'p_withdrawal_id',
+        'p_admin_note'
+      ]::text[]
+      and function_row.proargmodes is null
+      and function_row.proconfig = array['search_path=public']::text[]
+      and (
+        (
+          function_row.oid = v_approve_function
+          and pg_catalog.length(
+            pg_catalog.replace(function_row.prosrc, E'\r\n', E'\n')
+          ) = 1922
+          and pg_catalog.md5(
+            pg_catalog.replace(function_row.prosrc, E'\r\n', E'\n')
+          ) = '04a0b13f13e3a1278ba37623a11cc0b5'
+        )
+        or (
+          function_row.oid = v_reject_function
+          and pg_catalog.length(
+            pg_catalog.replace(function_row.prosrc, E'\r\n', E'\n')
+          ) = 2476
+          and pg_catalog.md5(
+            pg_catalog.replace(function_row.prosrc, E'\r\n', E'\n')
+          ) = '8e067be61c7376511ae1e661eec663a2'
+        )
+      )
+  ) <> 2 then
+    raise exception 'Unexpected legacy withdrawal review function catalog';
+  end if;
+
+  if exists (
+    with actual as (
+      select
+        case
+          when function_row.oid = v_approve_function then 'approve'
+          else 'reject'
+        end as function_tag,
+        case
+          when acl.grantee = 0 then 'PUBLIC'
+          else grantee_role.rolname
+        end as grantee,
+        grantor_role.rolname as grantor,
+        acl.privilege_type,
+        acl.is_grantable
+      from pg_catalog.pg_proc function_row
+      cross join lateral pg_catalog.aclexplode(function_row.proacl) acl
+      left join pg_catalog.pg_roles grantee_role
+        on grantee_role.oid = acl.grantee
+      join pg_catalog.pg_roles grantor_role
+        on grantor_role.oid = acl.grantor
+      where function_row.oid in (
+        v_approve_function::oid,
+        v_reject_function::oid
+      )
+    ),
+    expected(function_tag, grantee, grantor, privilege_type, is_grantable) as (
+      values
+        ('approve'::text, 'postgres'::text, 'postgres'::text, 'EXECUTE'::text, false),
+        ('approve'::text, 'service_role'::text, 'postgres'::text, 'EXECUTE'::text, false),
+        ('reject'::text, 'postgres'::text, 'postgres'::text, 'EXECUTE'::text, false),
+        ('reject'::text, 'service_role'::text, 'postgres'::text, 'EXECUTE'::text, false)
+    ),
+    differences as (
+      (select * from actual except all select * from expected)
+      union all
+      (select * from expected except all select * from actual)
+    )
+    select 1 from differences
+  ) then
+    raise exception 'Unexpected legacy withdrawal review function ACL';
   end if;
 
   perform 1
@@ -1386,6 +1496,14 @@ declare
     to_regprocedure(
       'public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)'
     );
+  v_approve_function regprocedure :=
+    to_regprocedure(
+      'public.approve_withdrawal_tx(uuid,uuid,text)'
+    );
+  v_reject_function regprocedure :=
+    to_regprocedure(
+      'public.reject_withdrawal_tx(uuid,uuid,text)'
+    );
   v_postgres oid := to_regrole('postgres');
   v_service_role oid := to_regrole('service_role');
 begin
@@ -1511,6 +1629,126 @@ begin
 
   if not found then
     raise exception 'Unified USDT withdrawal function ACL postflight failed';
+  end if;
+
+  if (
+    select count(*)
+    from pg_catalog.pg_proc function_row
+    join pg_catalog.pg_namespace function_schema
+      on function_schema.oid = function_row.pronamespace
+    join pg_catalog.pg_language function_language
+      on function_language.oid = function_row.prolang
+    where function_row.oid in (
+      v_approve_function::oid,
+      v_reject_function::oid
+    )
+      and function_schema.nspname = 'public'
+      and function_row.proname in (
+        'approve_withdrawal_tx',
+        'reject_withdrawal_tx'
+      )
+      and function_row.prokind = 'f'
+      and function_row.proowner = v_postgres
+      and function_language.lanname = 'plpgsql'
+      and function_row.prorettype = 'jsonb'::regtype
+      and function_row.prosecdef
+      and not function_row.proisstrict
+      and not function_row.proleakproof
+      and function_row.provolatile = 'v'
+      and function_row.proparallel = 'u'
+      and function_row.pronargs = 3
+      and function_row.proargtypes[0] = 'uuid'::regtype
+      and function_row.proargtypes[1] = 'uuid'::regtype
+      and function_row.proargtypes[2] = 'text'::regtype
+      and function_row.proargnames = array[
+        'p_admin_id',
+        'p_withdrawal_id',
+        'p_admin_note'
+      ]::text[]
+      and function_row.proargmodes is null
+      and function_row.proconfig = array['search_path=public']::text[]
+      and (
+        (
+          function_row.oid = v_approve_function
+          and pg_catalog.length(
+            pg_catalog.replace(function_row.prosrc, E'\r\n', E'\n')
+          ) = 1922
+          and pg_catalog.md5(
+            pg_catalog.replace(function_row.prosrc, E'\r\n', E'\n')
+          ) = '04a0b13f13e3a1278ba37623a11cc0b5'
+        )
+        or (
+          function_row.oid = v_reject_function
+          and pg_catalog.length(
+            pg_catalog.replace(function_row.prosrc, E'\r\n', E'\n')
+          ) = 2476
+          and pg_catalog.md5(
+            pg_catalog.replace(function_row.prosrc, E'\r\n', E'\n')
+          ) = '8e067be61c7376511ae1e661eec663a2'
+        )
+      )
+  ) <> 2 then
+    raise exception 'Unified legacy withdrawal review function postflight failed';
+  end if;
+
+  if exists (
+    with actual as (
+      select
+        case
+          when function_row.oid = v_approve_function then 'approve'
+          else 'reject'
+        end as function_tag,
+        case
+          when acl.grantee = 0 then 'PUBLIC'
+          else grantee_role.rolname
+        end as grantee,
+        grantor_role.rolname as grantor,
+        acl.privilege_type,
+        acl.is_grantable
+      from pg_catalog.pg_proc function_row
+      cross join lateral pg_catalog.aclexplode(function_row.proacl) acl
+      left join pg_catalog.pg_roles grantee_role
+        on grantee_role.oid = acl.grantee
+      join pg_catalog.pg_roles grantor_role
+        on grantor_role.oid = acl.grantor
+      where function_row.oid in (
+        v_approve_function::oid,
+        v_reject_function::oid
+      )
+    ),
+    expected(function_tag, grantee, grantor, privilege_type, is_grantable) as (
+      values
+        ('approve'::text, 'postgres'::text, 'postgres'::text, 'EXECUTE'::text, false),
+        ('approve'::text, 'service_role'::text, 'postgres'::text, 'EXECUTE'::text, false),
+        ('reject'::text, 'postgres'::text, 'postgres'::text, 'EXECUTE'::text, false),
+        ('reject'::text, 'service_role'::text, 'postgres'::text, 'EXECUTE'::text, false)
+    ),
+    differences as (
+      (select * from actual except all select * from expected)
+      union all
+      (select * from expected except all select * from actual)
+    )
+    select 1 from differences
+  ) then
+    raise exception 'Unified legacy withdrawal review function ACL postflight failed';
+  end if;
+
+  perform 1
+  from pg_catalog.pg_class table_row
+  join pg_catalog.pg_namespace table_schema
+    on table_schema.oid = table_row.relnamespace
+  where table_row.oid = 'public.withdrawals'::regclass
+    and table_schema.nspname = 'public'
+    and table_row.relname = 'withdrawals'
+    and table_row.relkind = 'r'
+    and table_row.relpersistence = 'p'
+    and table_row.relowner = v_postgres
+    and table_row.relrowsecurity
+    and not table_row.relforcerowsecurity
+    and table_row.relacl is not null;
+
+  if not found then
+    raise exception 'Unified legacy withdrawal table catalog postflight failed';
   end if;
 
   if exists (
@@ -1725,5 +1963,3 @@ begin
   );
 end
 $postflight$;
-
-commit;

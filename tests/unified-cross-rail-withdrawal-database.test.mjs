@@ -8,6 +8,8 @@ const root = new URL("../", import.meta.url);
 const migrationPath =
   "supabase/migrations/20260726120000_unified_cross_rail_withdrawal_policy/migration.sql";
 const migration = await readFile(new URL(migrationPath, root), "utf8");
+const productionTransactionControlPattern =
+  /\b(begin|commit|rollback)\s*;/i;
 
 const prerequisitePaths = [
   "supabase/migrations/20260718190000_nowpayments_usdt_bep20_foundation/migration.sql",
@@ -33,6 +35,13 @@ const maximumPrecisionMigration = await readFile(
   ),
   "utf8",
 );
+const legacyReviewMigration = await readFile(
+  new URL(
+    "netlify/database/migrations/20260608170000_create_withdrawal_rpc_functions/migration.sql",
+    root,
+  ),
+  "utf8",
+);
 const USER_IDS = Array.from(
   { length: 30 },
   (_, index) => `10000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
@@ -48,7 +57,33 @@ function occurrences(source, value) {
   return source.split(value).length - 1;
 }
 
+function liveReviewFunctionBody(action) {
+  const match = legacyReviewMigration.replaceAll("\r\n", "\n").match(
+    new RegExp(
+      `create or replace function public\\.${action}_withdrawal_tx\\([\\s\\S]+?as \\$\\$([\\s\\S]+?)\\$\\$;`,
+    ),
+  );
+  assert.ok(match, `missing ${action} withdrawal fixture source`);
+  return match[1]
+    .replace(
+      "if p_admin_id is null or length(trim(p_admin_id)) = 0 or p_withdrawal_id is null then",
+      "if p_admin_id is null or p_withdrawal_id is null then",
+    )
+    .replaceAll("p_withdrawal_id::text", "p_withdrawal_id");
+}
+
+const liveApproveBody = liveReviewFunctionBody("approve");
+const liveRejectBody = liveReviewFunctionBody("reject");
+
 test("portable migration source pins the unified policy and strict 24-hour boundary", () => {
+  for (const forbidden of ["begin;", "COMMIT ;", "rollback;"]) {
+    assert.match(forbidden, productionTransactionControlPattern);
+  }
+  assert.doesNotMatch(
+    migration,
+    productionTransactionControlPattern,
+    "the production runner owns the migration transaction boundary",
+  );
   const preflightEnd = migration.indexOf("\n$preflight$;");
   const firstMutation = migration.indexOf(
     "create or replace function public.request_withdrawal_tx(",
@@ -108,6 +143,35 @@ test("portable migration source pins the unified policy and strict 24-hour bound
     /where withdrawal_row\.user_id = p_user_id\s+union all\s+select withdrawal_row\.created_at/,
   );
   assert.doesNotMatch(migration, /date_trunc|current_date|calendar day/i);
+  for (const [name, length, md5] of [
+    ["approve_withdrawal_tx", 1922, "04a0b13f13e3a1278ba37623a11cc0b5"],
+    ["reject_withdrawal_tx", 2476, "8e067be61c7376511ae1e661eec663a2"],
+  ]) {
+    assert.equal(
+      occurrences(migration, md5),
+      2,
+      `${name} must be pinned in preflight and postflight`,
+    );
+    assert.match(
+      migration,
+      new RegExp(
+        `public\\.${name}\\(uuid,uuid,text\\)[\\s\\S]+?length\\([\\s\\S]+?= ${length}[\\s\\S]+?${md5}`,
+      ),
+    );
+  }
+  assert.match(
+    migration,
+    /Unified legacy withdrawal table catalog postflight failed/,
+  );
+  assert.ok(
+    occurrences(migration, "and table_row.relowner = v_postgres") >= 2,
+  );
+  assert.ok(
+    occurrences(migration, "and table_row.relrowsecurity") >= 2,
+  );
+  assert.ok(
+    occurrences(migration, "and not table_row.relforcerowsecurity") >= 2,
+  );
 });
 
 test("portable source keeps USDT replay before cross-rail gates and failures before writes", () => {
@@ -232,6 +296,15 @@ async function applyMigration(db, sql) {
   }
 }
 
+async function applyRunnerOwnedMigration(db, sql) {
+  if (productionTransactionControlPattern.test(sql)) {
+    throw new Error(
+      "migration contains explicit transaction control instead of using the runner-owned transaction",
+    );
+  }
+  await applyMigration(db, sql);
+}
+
 async function createFoundation(db) {
   await db.exec(`
     do $roles$
@@ -255,6 +328,7 @@ async function createFoundation(db) {
       'referral_reward', 'referral_investment_bonus', 'referral_daily_bonus'
     );
     create type public.transaction_status as enum ('pending', 'completed', 'failed');
+    create type public.deposit_status as enum ('pending', 'approved', 'rejected');
     create type public.payment_method_type as enum ('cbe', 'telebirr');
     create type public.withdrawal_status as enum ('pending', 'approved', 'rejected');
     create table public._qhash_migrations (
@@ -296,6 +370,22 @@ async function createFoundation(db) {
       account_name text not null,
       account_number text not null,
       is_active boolean not null default true
+    );
+    create table public.deposits (
+      id uuid primary key default gen_random_uuid(),
+      user_id uuid not null references public.profiles(id) on delete cascade,
+      payment_method_id uuid not null references public.payment_methods(id),
+      amount numeric(18,2) not null check (amount > 0),
+      status public.deposit_status not null default 'pending',
+      transaction_reference text not null,
+      payer_name text,
+      payer_phone text,
+      proof_url text,
+      admin_note text,
+      reviewed_by uuid references public.profiles(id),
+      reviewed_at timestamptz,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
     );
     create table public.crypto_deposit_addresses (
       id uuid primary key,
@@ -576,6 +666,51 @@ async function installLegacyFunction(db) {
   `);
 }
 
+async function installLegacyReviewFunctions(db) {
+  await db.exec(`
+    create or replace function public.approve_withdrawal_tx(
+      p_admin_id uuid,
+      p_withdrawal_id uuid,
+      p_admin_note text default null
+    )
+    returns jsonb
+    language plpgsql
+    security definer
+    set search_path = public
+    as $live_approve$${liveApproveBody}$live_approve$;
+
+    create or replace function public.reject_withdrawal_tx(
+      p_admin_id uuid,
+      p_withdrawal_id uuid,
+      p_admin_note text default null
+    )
+    returns jsonb
+    language plpgsql
+    security definer
+    set search_path = public
+    as $live_reject$${liveRejectBody}$live_reject$;
+
+    alter function public.approve_withdrawal_tx(uuid,uuid,text)
+      owner to postgres;
+    alter function public.reject_withdrawal_tx(uuid,uuid,text)
+      owner to postgres;
+    revoke all on function public.approve_withdrawal_tx(uuid,uuid,text)
+      from public, anon, authenticated, service_role, postgres;
+    revoke all on function public.reject_withdrawal_tx(uuid,uuid,text)
+      from public, anon, authenticated, service_role, postgres;
+    set role postgres;
+    grant execute on function public.approve_withdrawal_tx(uuid,uuid,text)
+      to postgres;
+    grant execute on function public.approve_withdrawal_tx(uuid,uuid,text)
+      to service_role;
+    grant execute on function public.reject_withdrawal_tx(uuid,uuid,text)
+      to postgres;
+    grant execute on function public.reject_withdrawal_tx(uuid,uuid,text)
+      to service_role;
+    reset role;
+  `);
+}
+
 async function createLegacyBaseline(db) {
   await db.exec(`
     create schema if not exists auth;
@@ -643,6 +778,7 @@ async function createLegacyBaseline(db) {
   `);
 
   await installLegacyFunction(db);
+  await installLegacyReviewFunctions(db);
 }
 
 async function installBaseline(db) {
@@ -666,6 +802,99 @@ async function installBaseline(db) {
     select id,100::numeric,0::numeric
       from public.profiles
       where not is_admin;
+
+    insert into public.payment_methods
+      (id,type,account_name,account_number,is_active)
+    values
+      ('30000000-0000-4000-8000-000000000001','cbe',
+       'QHash fiat deposit fixture','1000000000001',true);
+
+    insert into public.deposits
+      (id,user_id,payment_method_id,amount,status,transaction_reference,
+       payer_name,payer_phone,reviewed_by,reviewed_at)
+    values
+      ('30000000-0000-4000-8000-000000000002',
+       '${USER_IDS[0]}',
+       '30000000-0000-4000-8000-000000000001',
+       500,'approved','FIAT-DEPOSIT-FIXTURE',
+       'Deposit Fixture','+251900000001','${ADMIN_ID}',
+       '2030-01-01T00:00:00Z');
+
+    insert into public.transactions
+      (id,user_id,type,amount,status,description,reference_id,
+       balance_before,balance_after,created_at)
+    values
+      ('30000000-0000-4000-8000-000000000003',
+       '${USER_IDS[0]}','deposit',500,'completed',
+       'Populated fiat deposit fingerprint',
+       '30000000-0000-4000-8000-000000000002',
+       9500,10000,'2030-01-01T00:00:00Z');
+
+    insert into public.crypto_deposit_addresses
+      (id,user_id,network,asset,address,status)
+    values
+      ('30000000-0000-4000-8000-000000000004',
+       '${USER_IDS[0]}','BEP20','USDT',
+       '0x1111111111111111111111111111111111111111','retired');
+
+    insert into public.crypto_deposits
+      (id,user_id,address_id,network,asset,tx_hash,amount_usdt,status)
+    values
+      ('30000000-0000-4000-8000-000000000005',
+       '${USER_IDS[0]}',
+       '30000000-0000-4000-8000-000000000004',
+       'BEP20','USDT',
+       '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+       1.25,'credited');
+
+    insert into public.nowpayments_usdt_payments (
+      id,user_id,provider_payment_id,provider_payment_status,
+      verification_status,asset,network,provider_currency,
+      technical_reference_amount_usdt,outcome_currency,qhash_order_id,
+      session_status,pay_address,provider_minimum_usdt,
+      provider_created_at,provider_valid_until,provisioning_started_at,
+      provisioned_at,created_at,updated_at
+    ) values (
+      '30000000-0000-4000-8000-000000000006',
+      '${USER_IDS[0]}','9000000001','waiting','pending',
+      'USDT','BEP20','usdtbsc',1,'USDT',
+      '30000000-0000-4000-8000-000000000007','ready',
+      '0x2222222222222222222222222222222222222222',1,
+      '2030-01-01T00:00:00Z','2030-02-01T00:00:00Z',
+      '2030-01-01T00:00:00Z','2030-01-01T00:00:00Z',
+      '2030-01-01T00:00:00Z','2030-01-01T00:00:00Z'
+    );
+
+    insert into public.nowpayments_usdt_provider_payments (
+      id,session_id,user_id,provider_payment_id,
+      parent_provider_payment_id,payment_kind,qhash_order_id,
+      pay_address,pay_currency,provider_payment_status,
+      provider_verified_at,created_at,updated_at
+    ) values (
+      '30000000-0000-4000-8000-000000000008',
+      '30000000-0000-4000-8000-000000000006',
+      '${USER_IDS[0]}','9000000001',null,'original',
+      '30000000-0000-4000-8000-000000000007',
+      '0x2222222222222222222222222222222222222222',
+      'usdtbsc','waiting','2030-01-01T00:00:00Z',
+      '2030-01-01T00:00:00Z','2030-01-01T00:00:00Z'
+    );
+
+    insert into public.nowpayments_usdt_ledger_entries (
+      id,user_id,entry_type,available_delta_usdt,reserved_delta_usdt,
+      available_before_usdt,available_after_usdt,
+      reserved_before_usdt,reserved_after_usdt,description,created_at
+    ) values (
+      '30000000-0000-4000-8000-000000000009',
+      '${USER_IDS[0]}','admin_adjustment',0.25,0,
+      100,100.25,0,0,'Populated unrelated USDT ledger fingerprint',
+      '2030-01-01T00:00:00Z'
+    );
+
+    update public.nowpayments_usdt_wallets
+      set available_balance_usdt=100.25,
+          updated_at='2030-01-01T00:00:00Z'
+      where user_id='${USER_IDS[0]}'::uuid;
   `);
 }
 
@@ -722,6 +951,41 @@ async function financialFingerprint(client) {
           order by row_value.created_at,row_value.id), '[]'::jsonb)
         from public.transactions row_value
       ),
+      'payment_methods', (
+        select coalesce(pg_catalog.jsonb_agg(to_jsonb(row_value)
+          order by row_value.id), '[]'::jsonb)
+        from public.payment_methods row_value
+      ),
+      'fiat_deposits', (
+        select coalesce(pg_catalog.jsonb_agg(to_jsonb(row_value)
+          order by row_value.created_at,row_value.id), '[]'::jsonb)
+        from public.deposits row_value
+      ),
+      'retired_crypto_addresses', (
+        select coalesce(pg_catalog.jsonb_agg(to_jsonb(row_value)
+          order by row_value.id), '[]'::jsonb)
+        from public.crypto_deposit_addresses row_value
+      ),
+      'retired_crypto_deposits', (
+        select coalesce(pg_catalog.jsonb_agg(to_jsonb(row_value)
+          order by row_value.id), '[]'::jsonb)
+        from public.crypto_deposits row_value
+      ),
+      'nowpayments_config', (
+        select coalesce(pg_catalog.jsonb_agg(to_jsonb(row_value)
+          order by row_value.id), '[]'::jsonb)
+        from public.nowpayments_usdt_config row_value
+      ),
+      'nowpayments_sessions', (
+        select coalesce(pg_catalog.jsonb_agg(to_jsonb(row_value)
+          order by row_value.created_at,row_value.id), '[]'::jsonb)
+        from public.nowpayments_usdt_payments row_value
+      ),
+      'nowpayments_provider_payments', (
+        select coalesce(pg_catalog.jsonb_agg(to_jsonb(row_value)
+          order by row_value.created_at,row_value.id), '[]'::jsonb)
+        from public.nowpayments_usdt_provider_payments row_value
+      ),
       'usdt_wallets', (
         select coalesce(pg_catalog.jsonb_agg(to_jsonb(row_value)
           order by row_value.user_id), '[]'::jsonb)
@@ -768,6 +1032,12 @@ async function catalogFingerprint(client) {
           ),
           to_regprocedure(
             'public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)'
+          ),
+          to_regprocedure(
+            'public.approve_withdrawal_tx(uuid,uuid,text)'
+          ),
+          to_regprocedure(
+            'public.reject_withdrawal_tx(uuid,uuid,text)'
           )
         )
       ),
@@ -957,7 +1227,17 @@ test("native PostgreSQL enforces unified cross-rail acceptance and privilege bou
   )).rows[0].rows;
   const completeFinancialBefore = await financialFingerprint(observer);
 
-  await applyMigration(nativeDb(observer), migration);
+  assert.ok(completeFinancialBefore.payment_methods.length > 0);
+  assert.ok(completeFinancialBefore.fiat_deposits.length > 0);
+  assert.ok(completeFinancialBefore.retired_crypto_addresses.length > 0);
+  assert.ok(completeFinancialBefore.retired_crypto_deposits.length > 0);
+  assert.ok(completeFinancialBefore.nowpayments_config.length > 0);
+  assert.ok(completeFinancialBefore.nowpayments_sessions.length > 0);
+  assert.ok(completeFinancialBefore.nowpayments_provider_payments.length > 0);
+  assert.ok(completeFinancialBefore.usdt_wallets.length > 0);
+  assert.ok(completeFinancialBefore.usdt_ledger.length > 0);
+
+  await applyRunnerOwnedMigration(nativeDb(observer), migration);
   const historicalAfter = (await observer.query(
     `select jsonb_agg(to_jsonb(w) order by w.created_at,w.id) as rows
        from public.withdrawals w where user_id=$1::uuid`,
@@ -1093,6 +1373,50 @@ test("native PostgreSQL enforces unified cross-rail acceptance and privilege bou
       /withdrawal_already_open/,
     );
     assert.equal(await acceptedCount(observer, userId), 1);
+  });
+
+  await t.test("each advanced active USDT state blocks a fiat request", async () => {
+    for (const [offset, status] of [
+      [22, "reviewing"],
+      [23, "send_locked"],
+      [24, "broadcasted"],
+    ]) {
+      const userId = USER_IDS[offset];
+      const withdrawalId = requestId(100 + offset);
+      const sendLockedAt = status === "reviewing"
+        ? null
+        : "2030-01-01T01:00:00Z";
+      const broadcastedAt = status === "broadcasted"
+        ? "2030-01-01T02:00:00Z"
+        : null;
+      await observer.query(`
+        insert into public.nowpayments_usdt_withdrawals (
+          id,user_id,destination_address,asset,network,provider_currency,
+          gross_amount_usdt,fee_percent,status,initial_admin_id,
+          current_admin_id,claimed_at,send_locked_at,broadcasted_at,
+          requested_at,created_at,updated_at
+        ) values (
+          $1::uuid,$2::uuid,$3,'USDT','BEP20','usdtbsc',
+          2,5,$4,$5::uuid,$5::uuid,'2030-01-01T00:00:00Z',
+          $6::timestamptz,$7::timestamptz,
+          '2030-01-01T00:00:00Z','2030-01-01T00:00:00Z',
+          '2030-01-01T00:00:00Z'
+        )
+      `, [
+        withdrawalId,
+        userId,
+        DESTINATION,
+        status,
+        ADMIN_ID,
+        sendLockedAt,
+        broadcastedAt,
+      ]);
+      await expectError(
+        requestEtb(observer, userId, "cbe"),
+        /withdrawal_already_open/,
+      );
+      assert.equal(await acceptedCount(observer, userId), 1);
+    }
   });
 
   await t.test("validation, disabled, and balance failures do not consume quota", async () => {
@@ -1341,6 +1665,10 @@ test("native PostgreSQL preflight rejects targeted catalog drift without financi
     "public.request_withdrawal_tx(uuid,numeric,public.payment_method_type,text,text)";
   const usdtSignature =
     "public.request_nowpayments_usdt_withdrawal(uuid,text,text,text)";
+  const approveSignature =
+    "public.approve_withdrawal_tx(uuid,uuid,text)";
+  const rejectSignature =
+    "public.reject_withdrawal_tx(uuid,uuid,text)";
   const cases = [
     {
       name: "legacy function source",
@@ -1393,6 +1721,19 @@ test("native PostgreSQL preflight rejects targeted catalog drift without financi
           `revoke execute on function ${usdtSignature} from authenticated`,
         );
       },
+    },
+    {
+      name: "legacy approve function owner",
+      drift: `alter function ${approveSignature}
+        owner to qhash_cross_rail_drift_owner`,
+      error: /Unexpected legacy withdrawal review function catalog/,
+      restore: async () => installLegacyReviewFunctions(nativeDb(client)),
+    },
+    {
+      name: "legacy reject function ACL",
+      drift: `grant execute on function ${rejectSignature} to authenticated`,
+      error: /Unexpected legacy withdrawal review function ACL/,
+      restore: async () => installLegacyReviewFunctions(nativeDb(client)),
     },
     {
       name: "legacy table ACL",
@@ -1468,7 +1809,7 @@ test("native PostgreSQL preflight rejects targeted catalog drift without financi
       assert.notDeepEqual(driftedCatalog, baselineCatalog);
       assert.deepEqual(driftedFinancial, baselineFinancial);
       await assert.rejects(
-        applyMigration(nativeDb(client), migration),
+        applyRunnerOwnedMigration(nativeDb(client), migration),
         fixture.error,
       );
       assert.deepEqual(await catalogFingerprint(client), driftedCatalog);

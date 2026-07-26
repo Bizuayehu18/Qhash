@@ -19,6 +19,7 @@ import {
 import {
   CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE,
   formatWithdrawalCooldownMessage,
+  formatWithdrawalNextAllowedAtUtc,
   normalizeWithdrawalNextAllowedAt,
   parseWithdrawalCooldownDetail,
 } from "../src/lib/withdrawal-policy.ts";
@@ -38,7 +39,9 @@ const PUBLISHED_PRODUCTION_CONTEXT = { deploy: { context: "production", publishe
 test("cross-rail policy helpers accept only anchored ISO timestamps and produce exact copy", () => {
   assert.equal(
     CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE,
-    "One withdrawal every 24 hours across all withdrawal methods",
+    "You can submit one withdrawal request in any rolling 24-hour period across CBE, TeleBirr, and USDT. "
+      + "Once accepted, the request still counts if it is later rejected. "
+      + "Eligibility is measured from when QHash accepts the request",
   );
   assert.equal(
     parseWithdrawalCooldownDetail(
@@ -47,15 +50,29 @@ test("cross-rail policy helpers accept only anchored ISO timestamps and produce 
     "2030-01-02T03:04:05.123456+00:00",
   );
   assert.equal(
+    formatWithdrawalNextAllowedAtUtc(
+      "2030-01-02T03:04:05.123456+02:30",
+    ),
+    "January 2, 2030 at 00:34:05 UTC",
+  );
+  assert.equal(
     formatWithdrawalCooldownMessage(
       "2030-01-02T03:04:05.123Z",
     ),
-    "One withdrawal every 24 hours across all withdrawal methods. "
-      + "Next eligible: 2030-01-02T03:04:05.123Z.",
+    "You can submit one withdrawal request in any rolling 24-hour period across CBE, TeleBirr, and USDT. "
+      + "Once accepted, the request still counts if it is later rejected. "
+      + "Eligibility is measured from when QHash accepts the request. "
+      + "Next eligible: January 2, 2030 at 03:04:05 UTC.",
+  );
+  assert.doesNotMatch(
+    formatWithdrawalCooldownMessage("2030-01-02T03:04:05.123Z"),
+    /2030-01-02T03:04:05/,
   );
   assert.equal(
     formatWithdrawalCooldownMessage(null),
-    "One withdrawal every 24 hours across all withdrawal methods.",
+    "You can submit one withdrawal request in any rolling 24-hour period across CBE, TeleBirr, and USDT. "
+      + "Once accepted, the request still counts if it is later rejected. "
+      + "Eligibility is measured from when QHash accepts the request.",
   );
   for (const rejected of [
     "next_allowed_at=2030-01-02",
@@ -632,7 +649,9 @@ test("cross-rail cooldown exposes only the stable code and normalized safe next-
     assert.equal(response.status, 409);
     assert.deepEqual(await response.json(), {
       error: "withdrawal_cooldown_active",
-      message: "One withdrawal every 24 hours across all withdrawal methods.",
+      message: "You can submit one withdrawal request in any rolling 24-hour period across CBE, TeleBirr, and USDT. "
+        + "Once accepted, the request still counts if it is later rejected. "
+        + "Eligibility is measured from when QHash accepts the request.",
       next_allowed_at: "2030-01-02T03:04:05.123456+00:00",
     });
   });
@@ -649,7 +668,9 @@ test("cross-rail cooldown exposes only the stable code and normalized safe next-
     assert.equal(response.status, 409);
     assert.deepEqual(await response.json(), {
       error: "withdrawal_cooldown_active",
-      message: "One withdrawal every 24 hours across all withdrawal methods.",
+      message: "You can submit one withdrawal request in any rolling 24-hour period across CBE, TeleBirr, and USDT. "
+        + "Once accepted, the request still counts if it is later rejected. "
+        + "Eligibility is measured from when QHash accepts the request.",
     });
   });
 });
@@ -797,12 +818,23 @@ test("source boundaries contain no provider, signing, payout, client database, o
   assert.equal((requestSource.match(/verify_fund_password_tx/g) ?? []).length, 1);
   assert.match(requestSource, /parseWithdrawalCooldownDetail\(error\?\.details\)/);
   assert.match(etbWithdrawalServer, /parseWithdrawalCooldownDetail\(error\?\.details\)/);
-  assert.match(withdrawalPolicySource, /One withdrawal every 24 hours across all withdrawal methods/);
+  assert.match(
+    withdrawalPolicySource,
+    /one withdrawal request in any rolling 24-hour period across CBE, TeleBirr, and USDT/,
+  );
+  assert.match(withdrawalPolicySource, /request still counts if it is later rejected/);
+  assert.match(withdrawalPolicySource, /Eligibility is measured from when QHash accepts the request/);
+  assert.match(withdrawalPolicySource, /Next eligible: \$\{nextAllowedAtUtc\}/);
+  assert.match(withdrawalPolicySource, /UTC/);
   assert.match(uiSource, /formatWithdrawalCooldownMessage\(error\.nextAllowedAt\)/);
   assert.match(withdrawRoute, /formatWithdrawalCooldownMessage\(result\.next_allowed_at\)/);
+  assert.match(
+    withdrawRoute,
+    /24h processing[\s\S]*?<p className="mt-1\.5 border-t[\s\S]*?CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE/,
+  );
   assert.doesNotMatch(
     `${uiSource}\n${withdrawRoute}`,
-    /one request\/day|try again tomorrow|calendar day/i,
+    /one request\/day|one per day|try again tomorrow|calendar day/i,
   );
   assert.match(uiSource, /Four-digit Fund PIN/);
   assert.doesNotMatch(clientSource, /transaction_hash|current_broadcast_id|confirmations|manual review/i);
