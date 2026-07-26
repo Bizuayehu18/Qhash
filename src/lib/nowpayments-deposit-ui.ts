@@ -61,6 +61,31 @@ export type NowpaymentsDepositOverview = {
   history: NowpaymentsDepositHistoryView[];
 };
 
+function isCompletedDepositHistory(
+  entry: NowpaymentsDepositHistoryView,
+): boolean {
+  return entry.status === "finished"
+    && entry.credited_amount_usdt !== null
+    && entry.completed_at !== null;
+}
+
+export function sanitizeDisabledNowpaymentsDepositOverview(
+  overview: NowpaymentsDepositOverview,
+): NowpaymentsDepositOverview {
+  return {
+    ...overview,
+    feature_enabled: false,
+    session_state: "none",
+    active_session: null,
+    history: overview.history
+      .filter(isCompletedDepositHistory)
+      .map((entry) => ({
+        ...entry,
+        pay_address: null,
+      })),
+  };
+}
+
 const DECIMAL_PATTERN = /^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/;
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const ACTIVE_STATUS_SET = new Set<string>(NOWPAYMENTS_ACTIVE_STATUSES);
@@ -162,6 +187,7 @@ export function parseNowpaymentsDepositOverview(value: unknown): NowpaymentsDepo
     throw new NowpaymentsDepositUiError("unavailable");
   }
   const activeSession = parseSession(value.active_session);
+  const history = value.history.map(parseHistory);
   if (
     typeof value.feature_enabled !== "boolean"
     || value.asset !== "USDT"
@@ -183,6 +209,14 @@ export function parseNowpaymentsDepositOverview(value: unknown): NowpaymentsDepo
       String(value.session_state),
     )) !== Boolean(activeSession)
     || (activeSession !== null && value.session_state !== activeSession.address_lifecycle)
+    || (value.feature_enabled === false
+      && (
+        activeSession !== null
+        || value.session_state !== "none"
+        || history.some((entry) =>
+          !isCompletedDepositHistory(entry) || entry.pay_address !== null
+        )
+      ))
   ) {
     throw new NowpaymentsDepositUiError("unavailable");
   }
@@ -198,7 +232,7 @@ export function parseNowpaymentsDepositOverview(value: unknown): NowpaymentsDepo
     },
     session_state: value.session_state as NowpaymentsDepositOverview["session_state"],
     active_session: activeSession,
-    history: value.history.map(parseHistory),
+    history,
   };
 }
 

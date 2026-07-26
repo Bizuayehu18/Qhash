@@ -136,7 +136,18 @@ function createSessionStore(
     parameters: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     const { data, error } = await client.rpc(functionName, parameters);
-    if (error) throw new NowpaymentsDepositSessionError("database_operation_failed");
+    if (error) {
+      if (
+        error.message === "nowpayments_deposits_paused"
+        || error.message === "nowpayments_usdt_bep20_disabled"
+      ) {
+        throw new NowpaymentsDepositSessionError("deposits_disabled");
+      }
+      if (error.message === "nowpayments_deposit_availability_unavailable") {
+        throw new NowpaymentsDepositSessionError("provider_config");
+      }
+      throw new NowpaymentsDepositSessionError("database_operation_failed");
+    }
     return asObject(data);
   }
 
@@ -259,6 +270,9 @@ function safeSessionError(error: unknown): Response {
       503,
     );
   }
+  if (code === "deposits_disabled") {
+    return json({ error: "crypto_deposits_disabled", message: "Crypto deposits are disabled." }, 503);
+  }
   if (code === "provider_config") {
     return json({ error: "provider_config", message: "Crypto deposits are unavailable." }, 503);
   }
@@ -303,23 +317,44 @@ export default async (req: Request, context?: Context): Promise<Response> => {
     return json({ error: "invalid_session", message: "Invalid or expired session." }, 401);
   }
 
-  const [{ data: profile, error: profileError }, { data: config, error: configError }] =
-    await Promise.all([
-      admin.from("profiles").select("is_frozen").eq("id", authData.user.id).maybeSingle(),
-      admin
-        .from("nowpayments_usdt_config")
-        .select(
-          "id, enabled, asset, network, provider_currency, deposit_minimum_usdt, withdrawal_minimum_usdt, withdrawal_fee_percent",
-        )
-        .eq("id", "USDT-BEP20")
-        .maybeSingle(),
-    ]);
+  const { data: profile, error: profileError } = await admin
+    .from("profiles")
+    .select("is_frozen")
+    .eq("id", authData.user.id)
+    .maybeSingle();
 
   if (profileError || !profile || profile.is_frozen) {
     return json({ error: "account_unavailable", message: "Account is unavailable." }, 403);
   }
+
+  const [
+    { data: globalDepositSettings, error: globalDepositSettingsError },
+    { data: config, error: configError },
+  ] = await Promise.all([
+    admin
+      .from("app_settings")
+      .select("key,value")
+      .eq("key", "deposits_paused")
+      .limit(2),
+    admin
+      .from("nowpayments_usdt_config")
+      .select(
+        "id, enabled, asset, network, provider_currency, deposit_minimum_usdt, withdrawal_minimum_usdt, withdrawal_fee_percent",
+      )
+      .eq("id", "USDT-BEP20")
+      .maybeSingle(),
+  ]);
+
+  const globalRows = globalDepositSettings as unknown;
+  const globalRow = Array.isArray(globalRows) && globalRows.length === 1
+    ? globalRows[0] as Record<string, unknown>
+    : null;
   if (
-    configError
+    globalDepositSettingsError
+    || !globalRow
+    || globalRow.key !== "deposits_paused"
+    || (globalRow.value !== "true" && globalRow.value !== "false")
+    || configError
     || !config
     || config.id !== "USDT-BEP20"
     || config.asset !== "USDT"
@@ -328,10 +363,11 @@ export default async (req: Request, context?: Context): Promise<Response> => {
     || Number(config.deposit_minimum_usdt) !== 1
     || Number(config.withdrawal_minimum_usdt) !== 2
     || Number(config.withdrawal_fee_percent) !== 5
+    || typeof config.enabled !== "boolean"
   ) {
     return json({ error: "crypto_config_unavailable", message: "Crypto deposits are unavailable." }, 503);
   }
-  if (!config.enabled) {
+  if (globalRow.value === "true" || !config.enabled) {
     return json({ error: "crypto_deposits_disabled", message: "Crypto deposits are disabled." }, 503);
   }
 

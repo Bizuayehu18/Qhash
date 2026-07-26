@@ -64,6 +64,13 @@ const permanentAddressMigration = await readFile(
   ),
   "utf8",
 );
+const globalDepositPauseMigration = await readFile(
+  new URL(
+    "supabase/migrations/20260727120000_nowpayments_shared_global_deposit_pause/migration.sql",
+    repositoryRoot,
+  ),
+  "utf8",
+);
 const databaseTypes = await readFile(
   new URL("src/lib/database.types.ts", repositoryRoot),
   "utf8",
@@ -162,6 +169,15 @@ async function createFixture(db) {
       phone text not null,
       is_frozen boolean not null default false
     );
+    create table public.app_settings (
+      key text primary key,
+      value text not null,
+      description text,
+      updated_by uuid references public.profiles(id),
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    );
+    alter table public.app_settings enable row level security;
     create table public.wallets (
       user_id uuid primary key references public.profiles(id),
       balance numeric(18, 2) not null default 0,
@@ -217,6 +233,8 @@ async function createFixture(db) {
 
     insert into public.profiles (id, username, phone)
     values ('${USER_ID}', 'ipn-user', '+251900000000');
+    insert into public.app_settings (key, value, description)
+    values ('deposits_paused', 'false', 'Pause all new deposit requests');
     insert into public.wallets (user_id, balance)
     values ('${USER_ID}', 1234.56);
     insert into public.transactions (
@@ -257,6 +275,39 @@ async function createPreGrossDatabase(t) {
 async function createMigratedDatabase(t) {
   const db = await createPreGrossDatabase(t);
   await applyMigration(db, grossCreditMigration);
+  return db;
+}
+
+async function createGlobalPauseDatabase(t) {
+  const db = new PGlite();
+  t.after(() => db.close());
+  await createFixture(db);
+  for (const migration of [
+    foundationMigration,
+    sessionMigration,
+    settlementMigration,
+    grossCreditMigration,
+    permanentAddressMigration,
+    globalDepositPauseMigration,
+  ]) {
+    await applyMigration(db, migration);
+  }
+  return db;
+}
+
+async function createPreGlobalPauseDatabase(t) {
+  const db = new PGlite();
+  t.after(() => db.close());
+  await createFixture(db);
+  for (const migration of [
+    foundationMigration,
+    sessionMigration,
+    settlementMigration,
+    grossCreditMigration,
+    permanentAddressMigration,
+  ]) {
+    await applyMigration(db, migration);
+  }
   return db;
 }
 
@@ -566,6 +617,83 @@ async function assertSingleCrossHandlerCredit(db, expectedAmount) {
     ledger_count: 1,
   }]);
 }
+
+test("signed original/repeated IPNs and administrator recovery settle while globally paused", async (t) => {
+  const db = await createGlobalPauseDatabase(t);
+  const session = await createReadySession(db);
+  await db.exec(`
+    update public.app_settings
+    set value = 'true'
+    where key = 'deposits_paused'
+  `);
+
+  const original = verifiedFinishedPayment({
+    qhashOrderId: session.qhash_order_id,
+    actuallyPaidUsdt: "0.2",
+    outcomeAmountUsdt: "0.1",
+  });
+  const originalHandlers = createCrossHandlerPair(db, original);
+  const originalResponse = await invokePublished(
+    originalHandlers.ipn,
+    createSignedRequest({ payment_id: ORIGINAL_PROVIDER_ID }),
+  );
+  assert.equal(originalResponse.status, 200);
+  assert.deepEqual(await originalResponse.json(), { status: "processed" });
+
+  const repeated = verifiedFinishedPayment({
+    providerPaymentId: CHILD_PROVIDER_ID,
+    parentProviderPaymentId: ORIGINAL_PROVIDER_ID,
+    qhashOrderId: null,
+    actuallyPaidUsdt: "0.3",
+    outcomeAmountUsdt: "0.2",
+  });
+  const repeatedHandlers = createCrossHandlerPair(db, repeated);
+  const repeatedResponse = await invokePublished(
+    repeatedHandlers.ipn,
+    createSignedRequest({ payment_id: CHILD_PROVIDER_ID }),
+  );
+  assert.equal(repeatedResponse.status, 200);
+  assert.deepEqual(await repeatedResponse.json(), { status: "processed" });
+
+  const recovered = verifiedFinishedPayment({
+    providerPaymentId: PRODUCTION_SECOND_CHILD_PROVIDER_ID,
+    parentProviderPaymentId: ORIGINAL_PROVIDER_ID,
+    qhashOrderId: null,
+    actuallyPaidUsdt: "0.4",
+    outcomeAmountUsdt: "0.3",
+  });
+  const recoveryHandlers = createCrossHandlerPair(db, recovered);
+  const recoveryResponse = await invokePublished(
+    recoveryHandlers.recovery,
+    createRecoveryRequest(PRODUCTION_SECOND_CHILD_PROVIDER_ID),
+  );
+  assert.equal(recoveryResponse.status, 200);
+  assert.deepEqual(await recoveryResponse.json(), {
+    success: true,
+    code: "reconciliation_completed",
+    message: "The payment was reconciled successfully.",
+  });
+
+  const state = await db.query(`
+    select
+      (select value from public.app_settings where key = 'deposits_paused') as paused,
+      wallet.available_balance_usdt::text as available,
+      wallet.reserved_balance_usdt::text as reserved,
+      (select count(*)::integer from public.nowpayments_usdt_provider_payments) as providers,
+      (select count(*)::integer from public.nowpayments_usdt_ledger_entries) as credits
+    from public.nowpayments_usdt_wallets wallet
+    where wallet.user_id = '${USER_ID}'
+  `);
+  assert.deepEqual(state.rows, [{
+    paused: "true",
+    available: "0.900000000000000000",
+    reserved: "0.000000000000000000",
+    providers: 3,
+    credits: 3,
+  }]);
+  assert.doesNotMatch(endpointSource, /deposits_paused|app_settings/);
+  assert.doesNotMatch(recoveryEndpointSource, /deposits_paused|app_settings/);
+});
 
 test("migration keeps crypto disabled, private, precise, and separate from ETB", async (t) => {
   const db = await createMigratedDatabase(t);
@@ -1201,6 +1329,11 @@ async function resetNativeLifecycleFixture(client) {
   }
 }
 
+async function resetNativeGlobalPauseFixture(client) {
+  await resetNativeLifecycleFixture(client);
+  await applyMigration(nativeDb(client), globalDepositPauseMigration);
+}
+
 async function seedTerminalNativeOriginal(client, providerPaymentId) {
   await client.query(
     "update public.nowpayments_usdt_config set enabled = true where id = 'USDT-BEP20'",
@@ -1233,12 +1366,23 @@ async function seedTerminalNativeOriginal(client, providerPaymentId) {
   return { ...reserved, deadline };
 }
 
-async function settleNativeOriginal(client, session, providerPaymentId, functionName) {
+async function settleNativeOriginal(
+  client,
+  session,
+  providerPaymentId,
+  functionName,
+  parentProviderPaymentId = null,
+) {
   const result = await client.query(
     `select public.${functionName}(
-       $1, null, $2, $3, 'usdtbsc', 'finished', '3', '2.95', 'usdtbsc'
+       $1, $2, $3, $4, 'usdtbsc', 'finished', '3', '2.95', 'usdtbsc'
      ) as result`,
-    [providerPaymentId, session.qhash_order_id, PAY_ADDRESS],
+    [
+      providerPaymentId,
+      parentProviderPaymentId,
+      parentProviderPaymentId === null ? session.qhash_order_id : null,
+      PAY_ADDRESS,
+    ],
   );
   return result.rows[0].result;
 }
@@ -1298,6 +1442,479 @@ async function nativeLifecycleCounts(client) {
       (select coalesce(sum(available_balance_usdt), 0)::text from public.nowpayments_usdt_wallets) as available
   `)).rows[0];
 }
+
+async function globalPauseFinancialFingerprint(db) {
+  return (await db.query(`
+    select pg_catalog.jsonb_build_object(
+      'app_settings', (
+        select pg_catalog.jsonb_agg(to_jsonb(setting_row) order by setting_row.key)
+        from public.app_settings setting_row
+      ),
+      'fiat_deposits', (
+        select pg_catalog.jsonb_agg(to_jsonb(deposit_row) order by deposit_row.id)
+        from public.test_fiat_deposits deposit_row
+      ),
+      'fiat_withdrawals', (
+        select pg_catalog.jsonb_agg(to_jsonb(withdrawal_row) order by withdrawal_row.id)
+        from public.test_fiat_withdrawals withdrawal_row
+      ),
+      'etb_wallets', (
+        select pg_catalog.jsonb_agg(to_jsonb(wallet_row) order by wallet_row.user_id)
+        from public.wallets wallet_row
+      ),
+      'etb_transactions', (
+        select pg_catalog.jsonb_agg(to_jsonb(transaction_row) order by transaction_row.id)
+        from public.transactions transaction_row
+      ),
+      'retired_addresses', (
+        select pg_catalog.jsonb_agg(to_jsonb(address_row) order by address_row.id)
+        from public.crypto_deposit_addresses address_row
+      ),
+      'retired_deposits', (
+        select pg_catalog.jsonb_agg(to_jsonb(deposit_row) order by deposit_row.id)
+        from public.crypto_deposits deposit_row
+      ),
+      'sessions', (
+        select pg_catalog.jsonb_agg(to_jsonb(session_row) order by session_row.id)
+        from public.nowpayments_usdt_payments session_row
+      ),
+      'provider_payments', (
+        select pg_catalog.jsonb_agg(to_jsonb(provider_row) order by provider_row.id)
+        from public.nowpayments_usdt_provider_payments provider_row
+      ),
+      'usdt_withdrawals', (
+        select pg_catalog.jsonb_agg(to_jsonb(withdrawal_row) order by withdrawal_row.id)
+        from public.nowpayments_usdt_withdrawals withdrawal_row
+      ),
+      'usdt_wallets', (
+        select pg_catalog.jsonb_agg(to_jsonb(wallet_row) order by wallet_row.user_id)
+        from public.nowpayments_usdt_wallets wallet_row
+      ),
+      'usdt_ledger', (
+        select pg_catalog.jsonb_agg(to_jsonb(ledger_row) order by ledger_row.id)
+        from public.nowpayments_usdt_ledger_entries ledger_row
+      )
+    ) as fingerprint
+  `)).rows[0].fingerprint;
+}
+
+test("global deposit-pause migration is runner-owned and preserves populated financial rows", async (t) => {
+  assert.doesNotMatch(
+    globalDepositPauseMigration,
+    /\b(begin|commit|rollback)\s*;/i,
+  );
+  assert.match(
+    globalDepositPauseMigration,
+    /create or replace function public\.get_current_nowpayments_usdt_deposit_session/,
+  );
+  assert.match(
+    globalDepositPauseMigration,
+    /create or replace function public\.claim_nowpayments_usdt_deposit_session/,
+  );
+  assert.doesNotMatch(
+    globalDepositPauseMigration,
+    /create or replace function public\.(?:configure|complete|mark|record|settle|reconcile)_nowpayments/i,
+  );
+
+  const db = await createPreGlobalPauseDatabase(t);
+  await db.exec(`
+    create table public.test_fiat_deposits (
+      id uuid primary key,
+      user_id uuid not null references public.profiles(id),
+      amount numeric(18,2) not null,
+      status text not null
+    );
+    create table public.test_fiat_withdrawals (
+      id uuid primary key,
+      user_id uuid not null references public.profiles(id),
+      amount numeric(18,2) not null,
+      status text not null
+    );
+    insert into public.test_fiat_deposits values (
+      '77777777-7777-4777-8777-777777777777',
+      '${USER_ID}',
+      123.45,
+      'approved'
+    );
+    insert into public.test_fiat_withdrawals values (
+      '88888888-8888-4888-8888-888888888888',
+      '${USER_ID}',
+      67.89,
+      'rejected'
+    );
+    update public.nowpayments_usdt_config
+    set enabled = true
+    where id = 'USDT-BEP20';
+  `);
+  const session = await seedTerminalNativeOriginal(db, "88400");
+  const settled = await settleNativeOriginal(
+    db,
+    session,
+    "88400",
+    "settle_verified_nowpayments_usdt_payment",
+  );
+  assert.equal(settled.status, "credited");
+  await db.exec(`
+    insert into public.nowpayments_usdt_withdrawals (
+      id, user_id, destination_address, amount_usdt, status
+    ) values (
+      '99999999-9999-4999-8999-999999999999',
+      '${USER_ID}',
+      '0x8888888888888888888888888888888888888888',
+      2,
+      'requested'
+    )
+  `);
+
+  const before = await globalPauseFinancialFingerprint(db);
+  await applyMigration(db, globalDepositPauseMigration);
+  const after = await globalPauseFinancialFingerprint(db);
+  assert.deepEqual(after, before);
+});
+
+test("global deposit-pause database boundary fails closed and reuses the stored session after unpause", async (t) => {
+  const db = await createGlobalPauseDatabase(t);
+  await db.exec(`
+    update public.nowpayments_usdt_config
+    set enabled = true
+    where id = 'USDT-BEP20';
+  `);
+
+  const claimed = (await db.query(
+    "select public.claim_nowpayments_usdt_deposit_session($1::uuid) as result",
+    [USER_ID],
+  )).rows[0].result;
+  assert.equal(claimed.disposition, "claimed");
+
+  const beforePause = (await db.query(
+    "select to_jsonb(session_row) as row from public.nowpayments_usdt_payments session_row where id = $1::uuid",
+    [claimed.id],
+  )).rows[0].row;
+  await db.exec(`
+    update public.app_settings
+    set value = 'true'
+    where key = 'deposits_paused'
+  `);
+  await assert.rejects(
+    db.query(
+      "select public.get_current_nowpayments_usdt_deposit_session($1::uuid)",
+      [USER_ID],
+    ),
+    /nowpayments_deposits_paused/,
+  );
+  await assert.rejects(
+    db.query(
+      "select public.claim_nowpayments_usdt_deposit_session($1::uuid)",
+      [USER_ID],
+    ),
+    /nowpayments_deposits_paused/,
+  );
+  const whilePaused = (await db.query(
+    "select to_jsonb(session_row) as row from public.nowpayments_usdt_payments session_row where id = $1::uuid",
+    [claimed.id],
+  )).rows[0].row;
+  assert.deepEqual(whilePaused, beforePause);
+
+  await db.exec(`
+    update public.app_settings
+    set value = 'false'
+    where key = 'deposits_paused'
+  `);
+  const reused = (await db.query(
+    "select public.claim_nowpayments_usdt_deposit_session($1::uuid) as result",
+    [USER_ID],
+  )).rows[0].result;
+  assert.equal(reused.id, claimed.id);
+  assert.equal(reused.disposition, "existing");
+  assert.equal(
+    (await db.query("select count(*)::integer as count from public.nowpayments_usdt_payments"))
+      .rows[0].count,
+    1,
+  );
+});
+
+test("missing, malformed, duplicate, and rail-disabled availability fail before a claim", async (t) => {
+  const cases = [
+    {
+      name: "missing",
+      mutate: "delete from public.app_settings where key = 'deposits_paused'",
+      expected: /nowpayments_deposit_availability_unavailable/,
+    },
+    {
+      name: "malformed",
+      mutate: "update public.app_settings set value = 'FALSE' where key = 'deposits_paused'",
+      expected: /nowpayments_deposit_availability_unavailable/,
+    },
+    {
+      name: "duplicate",
+      mutate: `
+        alter table public.app_settings drop constraint app_settings_pkey;
+        insert into public.app_settings (key, value)
+        values ('deposits_paused', 'false')
+      `,
+      expected: /nowpayments_deposit_availability_unavailable/,
+    },
+    {
+      name: "rail disabled",
+      mutate: `
+        update public.nowpayments_usdt_config
+        set enabled = false
+        where id = 'USDT-BEP20'
+      `,
+      expected: /nowpayments_usdt_bep20_disabled/,
+    },
+  ];
+
+  for (const fixture of cases) {
+    await t.test(fixture.name, async (subtest) => {
+      const db = await createGlobalPauseDatabase(subtest);
+      await db.exec(`
+        update public.nowpayments_usdt_config
+        set enabled = true
+        where id = 'USDT-BEP20';
+        ${fixture.mutate}
+      `);
+      for (const functionName of [
+        "get_current_nowpayments_usdt_deposit_session",
+        "claim_nowpayments_usdt_deposit_session",
+      ]) {
+        await assert.rejects(
+          db.query(
+            `select public.${functionName}($1::uuid)`,
+            [USER_ID],
+          ),
+          fixture.expected,
+          functionName,
+        );
+      }
+      assert.equal(
+        (await db.query("select count(*)::integer as count from public.nowpayments_usdt_payments"))
+          .rows[0].count,
+        0,
+      );
+    });
+  }
+});
+
+test("global deposit-pause preflight rejects function, ACL, and primary-key drift before replacement", async (t) => {
+  const cases = [
+    [
+      "function owner",
+      "alter function public.claim_nowpayments_usdt_deposit_session(uuid) owner to service_role",
+      /unexpected NOWPayments global deposit-pause function catalog/,
+    ],
+    [
+      "function ACL",
+      "grant execute on function public.get_current_nowpayments_usdt_deposit_session(uuid) to authenticated",
+      /unexpected NOWPayments global deposit-pause function ACL/,
+    ],
+    [
+      "app_settings primary key",
+      "alter table public.app_settings drop constraint app_settings_pkey",
+      /unexpected app_settings primary-key catalog/,
+    ],
+  ];
+
+  for (const [name, mutation, expected] of cases) {
+    await t.test(name, async (subtest) => {
+      const db = await createPreGlobalPauseDatabase(subtest);
+      await db.exec(mutation);
+      const before = (await db.query(`
+        select
+          (select pg_catalog.md5(prosrc)
+           from pg_catalog.pg_proc
+           where oid = 'public.get_current_nowpayments_usdt_deposit_session(uuid)'::regprocedure)
+            as get_source,
+          (select pg_catalog.md5(prosrc)
+           from pg_catalog.pg_proc
+           where oid = 'public.claim_nowpayments_usdt_deposit_session(uuid)'::regprocedure)
+            as claim_source,
+          (select count(*)::integer from public.nowpayments_usdt_payments) as session_count
+      `)).rows[0];
+      await assert.rejects(applyMigration(db, globalDepositPauseMigration), expected);
+      const after = (await db.query(`
+        select
+          (select pg_catalog.md5(prosrc)
+           from pg_catalog.pg_proc
+           where oid = 'public.get_current_nowpayments_usdt_deposit_session(uuid)'::regprocedure)
+            as get_source,
+          (select pg_catalog.md5(prosrc)
+           from pg_catalog.pg_proc
+           where oid = 'public.claim_nowpayments_usdt_deposit_session(uuid)'::regprocedure)
+            as claim_source,
+          (select count(*)::integer from public.nowpayments_usdt_payments) as session_count
+      `)).rows[0];
+      assert.deepEqual(after, before);
+    });
+  }
+});
+
+test("native PostgreSQL serializes the global pause against claim admission", {
+  timeout: 30_000,
+}, async (t) => {
+  const connectionString = disposablePostgresUrl(t);
+  if (!connectionString) return;
+
+  const observer = new Client({ connectionString, application_name: "qhash-pause-observer" });
+  const pauseClient = new Client({ connectionString, application_name: "qhash-pause-writer" });
+  const claimClient = new Client({ connectionString, application_name: "qhash-pause-claim" });
+  await Promise.all([observer.connect(), pauseClient.connect(), claimClient.connect()]);
+  t.after(async () => {
+    await Promise.allSettled([
+      observer.query("rollback"),
+      pauseClient.query("rollback"),
+      claimClient.query("rollback"),
+    ]);
+    await Promise.allSettled([observer.end(), pauseClient.end(), claimClient.end()]);
+  });
+
+  const [observerPid, pausePid, claimPid] = await Promise.all(
+    [observer, pauseClient, claimClient].map(async (client) => (
+      await client.query("select pg_backend_pid()::integer as pid")
+    ).rows[0].pid),
+  );
+  assert.equal(new Set([observerPid, pausePid, claimPid]).size, 3);
+
+  await t.test("pause-first blocks claim and rejects it after commit", async () => {
+    await resetNativeGlobalPauseFixture(observer);
+    await observer.query(
+      "update public.nowpayments_usdt_config set enabled = true where id = 'USDT-BEP20'",
+    );
+    await pauseClient.query("begin");
+    await pauseClient.query("set local statement_timeout = '8s'; set local lock_timeout = '4s'");
+    await pauseClient.query(
+      "update public.app_settings set value = 'true' where key = 'deposits_paused'",
+    );
+
+    await claimClient.query("begin");
+    await claimClient.query("set local statement_timeout = '8s'; set local lock_timeout = '4s'");
+    const claimPromise = claimClient.query(
+      "select public.claim_nowpayments_usdt_deposit_session($1::uuid) as result",
+      [USER_ID],
+    );
+    const wait = await waitForBackendWait(observer, claimPid, "Lock", pausePid);
+    assert.equal(wait.expected_blocker, true);
+    assert.match(wait.query, /claim_nowpayments_usdt_deposit_session/);
+    assert.equal(
+      (await observer.query("select count(*)::integer as count from public.nowpayments_usdt_payments"))
+        .rows[0].count,
+      0,
+    );
+
+    await pauseClient.query("commit");
+    await assert.rejects(
+      bounded(claimPromise, 3_000, "pause-first claim"),
+      /nowpayments_deposits_paused/,
+    );
+    await claimClient.query("rollback");
+    assert.equal(
+      (await observer.query("select count(*)::integer as count from public.nowpayments_usdt_payments"))
+        .rows[0].count,
+      0,
+    );
+  });
+
+  await t.test("claim-first admits one row and pause waits without blocking completion", async () => {
+    await resetNativeGlobalPauseFixture(observer);
+    await observer.query(
+      "update public.nowpayments_usdt_config set enabled = true where id = 'USDT-BEP20'",
+    );
+
+    await claimClient.query("begin");
+    await claimClient.query("set local statement_timeout = '8s'; set local lock_timeout = '4s'");
+    const claim = (await claimClient.query(
+      "select public.claim_nowpayments_usdt_deposit_session($1::uuid) as result",
+      [USER_ID],
+    )).rows[0].result;
+    assert.equal(claim.disposition, "claimed");
+
+    await pauseClient.query("begin");
+    await pauseClient.query("set local statement_timeout = '8s'; set local lock_timeout = '4s'");
+    const pausePromise = pauseClient.query(
+      "update public.app_settings set value = 'true' where key = 'deposits_paused'",
+    );
+    const wait = await waitForBackendWait(observer, pausePid, "Lock", claimPid);
+    assert.equal(wait.expected_blocker, true);
+    assert.match(wait.query, /update public\.app_settings/i);
+
+    await claimClient.query("commit");
+    await bounded(pausePromise, 3_000, "claim-first pause");
+    await pauseClient.query("commit");
+
+    await observer.query(
+      `select public.configure_nowpayments_usdt_deposit_session_amounts(
+         $1::uuid, $2::uuid, $3::uuid, '1', '1'
+       )`,
+      [USER_ID, claim.id, claim.qhash_order_id],
+    );
+    const createdAt = new Date(Date.now() - 10_000).toISOString();
+    const validUntil = new Date(Date.now() + 120_000).toISOString();
+    const completed = (await observer.query(
+      `select public.complete_nowpayments_usdt_deposit_session(
+         $1::uuid, $2::uuid, '88401', $3, 'waiting',
+         $4::timestamptz, $5::timestamptz
+       ) as result`,
+      [claim.id, claim.qhash_order_id, PAY_ADDRESS, createdAt, validUntil],
+    )).rows[0].result;
+    assert.equal(completed.disposition, "completed");
+    assert.equal(completed.id, claim.id);
+    assert.equal(
+      (await observer.query("select count(*)::integer as count from public.nowpayments_usdt_payments"))
+        .rows[0].count,
+      1,
+    );
+  });
+});
+
+test("original and repeated settlement stay active while global deposits are paused", {
+  timeout: 30_000,
+}, async (t) => {
+  const connectionString = disposablePostgresUrl(t);
+  if (!connectionString) return;
+  const client = new Client({ connectionString, application_name: "qhash-paused-settlement" });
+  await client.connect();
+  t.after(async () => {
+    await client.query("rollback").catch(() => {});
+    await client.end();
+  });
+  await resetNativeGlobalPauseFixture(client);
+  const session = await seedTerminalNativeOriginal(client, "88402");
+  await client.query(
+    "update public.app_settings set value = 'true' where key = 'deposits_paused'",
+  );
+
+  const original = await settleNativeOriginal(
+    client,
+    session,
+    "88402",
+    "settle_verified_nowpayments_usdt_payment",
+  );
+  assert.equal(original.status, "credited");
+  const repeated = await settleNativeOriginal(
+    client,
+    session,
+    "88403",
+    "settle_verified_nowpayments_usdt_payment",
+    "88402",
+  );
+  assert.equal(repeated.status, "credited");
+  const duplicate = await settleNativeOriginal(
+    client,
+    session,
+    "88403",
+    "settle_verified_nowpayments_usdt_payment",
+    "88402",
+  );
+  assert.equal(duplicate.status, "already_credited");
+  assert.deepEqual(await nativeLifecycleCounts(client), {
+    sessions: 1,
+    providers: 2,
+    activated: 1,
+    provisioning: 0,
+    credits: 2,
+    available: "6.000000000000000000",
+  });
+});
 
 test("native PostgreSQL serializes qualifying settlement against replacement claim", {
   timeout: 30_000,

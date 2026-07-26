@@ -23,8 +23,10 @@ import {
   formatDepositCountdown,
   formatUsdtDecimal,
   isDepositAddressSendable,
+  NowpaymentsDepositUiError,
   nowpaymentsStatusLabel,
   requestNowpaymentsDepositSession,
+  sanitizeDisabledNowpaymentsDepositOverview,
   type NowpaymentsDepositHistoryView,
   type NowpaymentsDepositOverview,
   type NowpaymentsHistoryStatus,
@@ -115,6 +117,9 @@ export function NowpaymentsUsdtDeposit({
 
   const loadOverview = useCallback(async () => {
     if (!accessToken) {
+      setOverview((current) =>
+        current ? sanitizeDisabledNowpaymentsDepositOverview(current) : current
+      );
       setLoading(false);
       setError(true);
       return;
@@ -128,6 +133,9 @@ export function NowpaymentsUsdtDeposit({
       setOverview(result);
     } catch {
       if (!mountedRef.current) return;
+      setOverview((current) =>
+        current ? sanitizeDisabledNowpaymentsDepositOverview(current) : current
+      );
       setError(true);
     } finally {
       loadingRef.current = false;
@@ -165,7 +173,7 @@ export function NowpaymentsUsdtDeposit({
   }, [loadOverview]);
 
   const activeSession = overview?.active_session ?? null;
-  const addressSendable = activeSession
+  const addressSendable = overview?.feature_enabled && activeSession
     ? isDepositAddressSendable(activeSession, nowMs)
     : false;
 
@@ -181,7 +189,7 @@ export function NowpaymentsUsdtDeposit({
   useEffect(() => {
     let cancelled = false;
     setQrDataUrl(null);
-    if (!activeSession || !addressSendable) return;
+    if (!overview?.feature_enabled || !activeSession || !addressSendable) return;
     void QRCode.toDataURL(activeSession.pay_address, {
       errorCorrectionLevel: "M",
       margin: 2,
@@ -195,7 +203,7 @@ export function NowpaymentsUsdtDeposit({
     return () => {
       cancelled = true;
     };
-  }, [activeSession, addressSendable]);
+  }, [activeSession, addressSendable, overview?.feature_enabled]);
 
   const performGenerate = useCallback(async () => {
     if (!accessToken || !overview?.feature_enabled) return;
@@ -205,9 +213,22 @@ export function NowpaymentsUsdtDeposit({
       await withRequestTimeout(requestNowpaymentsDepositSession(accessToken));
       await loadOverview();
       toast.success("Your USDT BEP20 deposit address is ready.");
-    } catch {
-      if (mountedRef.current) setError(true);
-      toast.error("The deposit address is temporarily unavailable. Please try again.");
+    } catch (requestError) {
+      if (
+        requestError instanceof NowpaymentsDepositUiError
+        && requestError.kind === "disabled"
+      ) {
+        if (mountedRef.current) {
+          setOverview((current) =>
+            current ? sanitizeDisabledNowpaymentsDepositOverview(current) : current
+          );
+          setError(false);
+        }
+        toast.error("Crypto deposits are unavailable.");
+      } else {
+        if (mountedRef.current) setError(true);
+        toast.error("The deposit address is temporarily unavailable. Please try again.");
+      }
     } finally {
       if (mountedRef.current) setGenerating(false);
     }
@@ -218,7 +239,7 @@ export function NowpaymentsUsdtDeposit({
   );
 
   const handleCopy = useCallback(async () => {
-    if (!activeSession || !addressSendable) return;
+    if (!overview?.feature_enabled || !activeSession || !addressSendable) return;
     if (copyResetTimerRef.current) {
       clearTimeout(copyResetTimerRef.current);
       copyResetTimerRef.current = null;
@@ -237,7 +258,7 @@ export function NowpaymentsUsdtDeposit({
     } else {
       toast.error("Unable to copy. Please copy the address manually.");
     }
-  }, [activeSession, addressSendable]);
+  }, [activeSession, addressSendable, overview?.feature_enabled]);
 
   const lastResolved = useMemo(
     () => overview?.history[0] ?? null,
@@ -281,7 +302,9 @@ export function NowpaymentsUsdtDeposit({
         <>
           <UsdtWalletSummary overview={overview} />
 
-          {activeSession ? (
+          {!overview.feature_enabled ? (
+            <DisabledCryptoState />
+          ) : activeSession ? (
             <ActiveDepositCard
               session={activeSession}
               nowMs={nowMs}
@@ -290,8 +313,6 @@ export function NowpaymentsUsdtDeposit({
               copied={copyFeedback.copied}
               onCopy={handleCopy}
             />
-          ) : !overview.feature_enabled ? (
-            <DisabledCryptoState />
           ) : overview.session_state === "provisioning" ? (
             <ProcessingState label="Deposit address setup is in progress." />
           ) : overview.session_state === "manual_review" ? (
@@ -304,8 +325,10 @@ export function NowpaymentsUsdtDeposit({
             />
           )}
 
-          {error && <InlineRetry onRetry={loadOverview} />}
-          <DepositSafetyNotice minimum={activeSession?.minimum_deposit_usdt ?? overview.minimum_deposit_usdt} />
+          {error && overview.feature_enabled && <InlineRetry onRetry={loadOverview} />}
+          {overview.feature_enabled && (
+            <DepositSafetyNotice minimum={activeSession?.minimum_deposit_usdt ?? overview.minimum_deposit_usdt} />
+          )}
           <CryptoDepositHistory history={overview.history} />
         </>
       ) : null}
@@ -369,11 +392,8 @@ function DisabledCryptoState() {
       <Coins size={22} className="mx-auto text-gray-600" />
       <p className="mt-2 text-sm font-semibold text-gray-200">USDT deposits are not available yet</p>
       <p className="mt-1 text-xs leading-relaxed text-gray-500">
-        Address generation is disabled. CBE and TeleBirr deposits remain available.
+        Address generation is unavailable.
       </p>
-      <Button type="button" fullWidth disabled className="mt-4">
-        Generate Deposit Address
-      </Button>
     </div>
   );
 }

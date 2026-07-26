@@ -389,17 +389,11 @@ async function handleOverview(
 
   const userId = authData.user.id;
   invocation.currentStage = "profile_config_query";
-  const [{ data: profile, error: profileError }, { data: config, error: configError }] =
-    await Promise.all([
-      admin.from("profiles").select("is_frozen").eq("id", userId).maybeSingle(),
-      admin
-        .from("nowpayments_usdt_config")
-        .select(
-          "id,enabled,asset,network,provider_currency,deposit_minimum_usdt::text,withdrawal_minimum_usdt::text,withdrawal_fee_percent::text",
-        )
-        .eq("id", "USDT-BEP20")
-        .maybeSingle(),
-    ]);
+  const { data: profile, error: profileError } = await admin
+    .from("profiles")
+    .select("is_frozen")
+    .eq("id", userId)
+    .maybeSingle();
 
   if (profileError || !profile || profile.is_frozen) {
     return terminalResponse(
@@ -410,9 +404,36 @@ async function handleOverview(
       "account_unavailable",
     );
   }
+
+  const [
+    { data: globalDepositSettings, error: globalDepositSettingsError },
+    { data: config, error: configError },
+  ] = await Promise.all([
+    admin
+      .from("app_settings")
+      .select("key,value")
+      .eq("key", "deposits_paused")
+      .limit(2),
+    admin
+      .from("nowpayments_usdt_config")
+      .select(
+        "id,enabled,asset,network,provider_currency,deposit_minimum_usdt::text,withdrawal_minimum_usdt::text,withdrawal_fee_percent::text",
+      )
+      .eq("id", "USDT-BEP20")
+      .maybeSingle(),
+  ]);
+
+  const globalRows = globalDepositSettings as unknown;
+  const globalRow = Array.isArray(globalRows) && globalRows.length === 1
+    ? globalRows[0] as Record<string, unknown>
+    : null;
   const configRow = config as unknown as Record<string, unknown> | null;
   if (
-    configError
+    globalDepositSettingsError
+    || !globalRow
+    || globalRow.key !== "deposits_paused"
+    || (globalRow.value !== "true" && globalRow.value !== "false")
+    || configError
     || !configRow
     || configRow.id !== "USDT-BEP20"
     || configRow.asset !== "USDT"
@@ -434,6 +455,7 @@ async function handleOverview(
       "crypto_config_unavailable",
     );
   }
+  const featureEnabled = globalRow.value === "false" && configRow.enabled === true;
 
   invocation.currentStage = "overview_queries";
   const [walletResult, sessionsResult, providerPaymentsResult] = await Promise.all([
@@ -570,10 +592,24 @@ async function handleOverview(
                 ? "expired_unactivated"
                 : "none";
 
+    const history = buildHistory(sessions, providerPayments, nowMs);
+    const publicHistory = featureEnabled
+      ? history
+      : history
+        .filter((entry) =>
+          entry.status === "finished"
+          && entry.credited_amount_usdt !== null
+          && entry.completed_at !== null
+        )
+        .map((entry) => ({
+          ...entry,
+          pay_address: null,
+        }));
+
     return terminalResponse(
       invocation,
       {
-        feature_enabled: configRow.enabled,
+        feature_enabled: featureEnabled,
         asset: "USDT",
         network: "BEP20",
         minimum_deposit_usdt: configRow.deposit_minimum_usdt,
@@ -581,9 +617,9 @@ async function handleOverview(
           available_balance_usdt: walletRow?.available_balance_usdt ?? "0",
           reserved_balance_usdt: walletRow?.reserved_balance_usdt ?? "0",
         },
-        session_state: sessionState,
-        active_session: activeSession,
-        history: buildHistory(sessions, providerPayments, nowMs),
+        session_state: featureEnabled ? sessionState : "none",
+        active_session: featureEnabled ? activeSession : null,
+        history: publicHistory,
       },
       200,
       "complete",

@@ -14,6 +14,7 @@ import {
   isDepositAddressSendable,
   parseNowpaymentsDepositOverview,
   requestNowpaymentsDepositSession,
+  sanitizeDisabledNowpaymentsDepositOverview,
 } from "../src/lib/nowpayments-deposit-ui.ts";
 
 const repositoryRoot = new URL("../", import.meta.url);
@@ -133,6 +134,7 @@ async function invokeOverview({
   environmentThrowName = null,
   configEnabled = false,
   configOverrides = {},
+  globalSettingRows = [{ key: "deposits_paused", value: "false" }],
   profile = { is_frozen: false },
   sessions = [],
   providerPayments = [],
@@ -191,6 +193,7 @@ async function invokeOverview({
         : Response.json({ message: "sensitive auth response detail" }, { status: 401 });
     }
     if (url.includes("/rest/v1/profiles")) return Response.json(profile);
+    if (url.includes("/rest/v1/app_settings")) return Response.json(globalSettingRows);
     if (url.includes("/rest/v1/nowpayments_usdt_config")) {
       return Response.json({
         id: "USDT-BEP20",
@@ -316,6 +319,13 @@ test("missing and invalid authentication cannot read user data or contact NOWPay
   assert.equal(invalid.response.status, 401);
   assert.ok(invalid.requests.every((url) => !url.startsWith("https://api.nowpayments.io")));
   assert.ok(!invalid.requests.some((url) => url.includes("nowpayments_usdt_payments")));
+
+  const frozen = await invokeOverview({ profile: { is_frozen: true }, configEnabled: true });
+  assert.equal(frozen.response.status, 403);
+  assert.ok(frozen.requests.some((url) => url.includes("/rest/v1/profiles")));
+  assert.ok(!frozen.requests.some((url) => url.includes("/rest/v1/app_settings")));
+  assert.ok(!frozen.requests.some((url) => url.includes("/rest/v1/nowpayments_usdt_config")));
+  assert.ok(frozen.environmentReads.every((name) => name !== "NOWPAYMENTS_API_KEY"));
 });
 
 test("disabled feature returns a safe empty own-user view and never contacts the provider", async () => {
@@ -333,6 +343,107 @@ test("disabled feature returns a safe empty own-user view and never contacts the
   });
   assert.ok(result.requests.every((url) => !url.startsWith("https://api.nowpayments.io")));
   assert.ok(result.environmentReads.every((name) => name !== "NOWPAYMENTS_API_KEY"));
+});
+
+test("global pause and crypto-rail disablement return byte-identical sanitized views", async () => {
+  const finished = validSession({
+    provider_payment_status: "finished",
+    session_status: "terminal",
+    address_activated_at: "2030-01-02T00:00:00.000Z",
+    terminal_at: "2030-01-02T00:00:00.000Z",
+    credited_amount_usdt: "3",
+    credited_at: "2030-01-02T00:00:00.000Z",
+  });
+  const shared = {
+    sessions: [finished],
+    providerPayments: [validProviderPayment({ credited_amount_usdt: "3" })],
+    wallet: {
+      user_id: USER_ID,
+      asset: "USDT",
+      available_balance_usdt: "9.000000000000000000",
+      reserved_balance_usdt: "0.000000000000000000",
+    },
+  };
+  const globalPaused = await invokeOverview({
+    ...shared,
+    configEnabled: true,
+    globalSettingRows: [{ key: "deposits_paused", value: "true" }],
+  });
+  const railDisabled = await invokeOverview({
+    ...shared,
+    configEnabled: false,
+  });
+  const bothBlocked = await invokeOverview({
+    ...shared,
+    configEnabled: false,
+    globalSettingRows: [{ key: "deposits_paused", value: "true" }],
+  });
+
+  assert.equal(globalPaused.response.status, 200);
+  assert.deepEqual(globalPaused.body, railDisabled.body);
+  assert.deepEqual(globalPaused.body, bothBlocked.body);
+  assert.equal(globalPaused.body.feature_enabled, false);
+  assert.equal(globalPaused.body.session_state, "none");
+  assert.equal(globalPaused.body.active_session, null);
+  assert.deepEqual(globalPaused.body.history, [{
+    asset: "USDT",
+    network: "BEP20",
+    status: "finished",
+    pay_address: null,
+    credited_amount_usdt: "3",
+    created_at: "2030-01-02T00:00:00.000Z",
+    valid_until: "2030-01-08T00:00:00.000Z",
+    completed_at: "2030-01-02T00:00:00.000Z",
+  }]);
+  for (const result of [globalPaused, railDisabled, bothBlocked]) {
+    assert.ok(result.requests.every((url) => !url.startsWith("https://api.nowpayments.io")));
+    assert.ok(result.environmentReads.every((name) => name !== "NOWPAYMENTS_API_KEY"));
+    assert.equal(JSON.stringify(result.body).includes(ADDRESS), false);
+  }
+});
+
+test("a pending address is hidden completely while the global pause is active", async () => {
+  const result = await invokeOverview({
+    configEnabled: true,
+    globalSettingRows: [{ key: "deposits_paused", value: "true" }],
+    sessions: [validSession()],
+  });
+
+  assert.equal(result.response.status, 200);
+  assert.equal(result.body.feature_enabled, false);
+  assert.equal(result.body.session_state, "none");
+  assert.equal(result.body.active_session, null);
+  assert.deepEqual(result.body.history, []);
+  assert.equal(JSON.stringify(result.body).includes(ADDRESS), false);
+  assert.ok(result.requests.every((url) => !url.startsWith("https://api.nowpayments.io")));
+  assert.ok(result.environmentReads.every((name) => name !== "NOWPAYMENTS_API_KEY"));
+});
+
+test("missing, duplicate, and malformed global deposit settings fail closed", async () => {
+  const cases = [
+    ["missing", []],
+    ["duplicate", [
+      { key: "deposits_paused", value: "false" },
+      { key: "deposits_paused", value: "false" },
+    ]],
+    ["wrong key", [{ key: "withdrawals_paused", value: "false" }]],
+    ["malformed", [{ key: "deposits_paused", value: "FALSE" }]],
+  ];
+
+  for (const [name, globalSettingRows] of cases) {
+    const result = await invokeOverview({
+      configEnabled: true,
+      globalSettingRows,
+      sessions: [validSession()],
+    });
+    assert.equal(result.response.status, 503, name);
+    assert.deepEqual(result.body, {
+      error: "crypto_config_unavailable",
+      message: "Crypto deposits are unavailable.",
+    }, name);
+    assert.equal(result.requests.some((url) => url.includes("nowpayments_usdt_payments")), false);
+    assert.ok(result.environmentReads.every((entry) => entry !== "NOWPAYMENTS_API_KEY"));
+  }
 });
 
 test("active session and exact wallet decimals are returned without internal identifiers", async () => {
@@ -423,7 +534,7 @@ test("terminal unactivated sessions stay non-generating strictly before, but not
   }
 });
 
-test("permanently activated address remains usable without expiry when generation is disabled", async () => {
+test("permanently activated address and controls are hidden while generation is disabled", async () => {
   const result = await invokeOverview({
     configEnabled: false,
     sessions: [validSession({
@@ -438,17 +549,17 @@ test("permanently activated address remains usable without expiry when generatio
   });
   assert.equal(result.response.status, 200);
   assert.equal(result.body.feature_enabled, false);
-  assert.equal(result.body.session_state, "permanently_activated");
-  assert.equal(result.body.active_session.address_lifecycle, "permanently_activated");
-  assert.equal(result.body.active_session.pay_address, ADDRESS);
-  assert.equal(result.body.active_session.valid_until, null);
+  assert.equal(result.body.session_state, "none");
+  assert.equal(result.body.active_session, null);
+  assert.equal(result.body.history[0].pay_address, null);
+  assert.equal(JSON.stringify(result.body).includes(ADDRESS), false);
   const parsed = parseNowpaymentsDepositOverview(result.body);
-  assert.equal(isDepositAddressSendable(parsed.active_session, Date.parse("2100-01-01T00:00:00Z")), true);
+  assert.equal(parsed.active_session, null);
 });
 
 test("overview does not accept exact-deadline activation evidence", async () => {
   const result = await invokeOverview({
-    configEnabled: false,
+    configEnabled: true,
     sessions: [validSession({
       provider_payment_status: "finished",
       session_status: "terminal",
@@ -724,6 +835,85 @@ test("client validation, countdown boundary, and decimal rendering avoid floatin
   assert.equal(formatUsdtDecimal("123456789012345678.123456789012345678"), "123,456,789,012,345,678.123456789012345678");
 });
 
+test("client parser rejects disabled payloads that expose active or historical addresses", () => {
+  const active = {
+    feature_enabled: false,
+    asset: "USDT",
+    network: "BEP20",
+    minimum_deposit_usdt: "1",
+    wallet: { available_balance_usdt: "0", reserved_balance_usdt: "0" },
+    session_state: "pending_activation",
+    active_session: {
+      asset: "USDT",
+      network: "BEP20",
+      status: "waiting",
+      pay_address: ADDRESS,
+      minimum_deposit_usdt: "1",
+      provider_minimum_usdt: "1",
+      created_at: "2030-01-01T00:00:00.000Z",
+      address_lifecycle: "pending_activation",
+      valid_until: "2030-01-08T00:00:00.000Z",
+    },
+    history: [],
+  };
+  assert.throws(() => parseNowpaymentsDepositOverview(active), /unavailable/);
+
+  const historyAddress = {
+    ...emptyOverviewBody(false),
+    history: [{
+      asset: "USDT",
+      network: "BEP20",
+      status: "finished",
+      pay_address: ADDRESS,
+      credited_amount_usdt: "3",
+      created_at: "2030-01-01T00:00:00.000Z",
+      valid_until: "2030-01-08T00:00:00.000Z",
+      completed_at: "2030-01-02T00:00:00.000Z",
+    }],
+  };
+  assert.throws(() => parseNowpaymentsDepositOverview(historyAddress), /unavailable/);
+});
+
+test("client sanitization removes a previously usable address after a failed refresh", () => {
+  const staleEnabledOverview = parseNowpaymentsDepositOverview({
+    feature_enabled: true,
+    asset: "USDT",
+    network: "BEP20",
+    minimum_deposit_usdt: "1",
+    wallet: { available_balance_usdt: "9", reserved_balance_usdt: "0" },
+    session_state: "pending_activation",
+    active_session: {
+      asset: "USDT",
+      network: "BEP20",
+      status: "waiting",
+      pay_address: ADDRESS,
+      minimum_deposit_usdt: "1",
+      provider_minimum_usdt: "1",
+      created_at: "2030-01-01T00:00:00.000Z",
+      address_lifecycle: "pending_activation",
+      valid_until: "2030-01-08T00:00:00.000Z",
+    },
+    history: [{
+      asset: "USDT",
+      network: "BEP20",
+      status: "waiting",
+      pay_address: ADDRESS,
+      credited_amount_usdt: null,
+      created_at: "2030-01-01T00:00:00.000Z",
+      valid_until: "2030-01-08T00:00:00.000Z",
+      completed_at: null,
+    }],
+  });
+
+  const sanitized = sanitizeDisabledNowpaymentsDepositOverview(staleEnabledOverview);
+  assert.equal(sanitized.feature_enabled, false);
+  assert.equal(sanitized.session_state, "none");
+  assert.equal(sanitized.active_session, null);
+  assert.deepEqual(sanitized.history, []);
+  assert.equal(JSON.stringify(sanitized).includes(ADDRESS), false);
+  assert.doesNotThrow(() => parseNowpaymentsDepositOverview(sanitized));
+});
+
 test("address generation client sends no amount or user ID and validates the public response", async () => {
   const calls = [];
   await requestNowpaymentsDepositSession("token", async (input, init) => {
@@ -845,7 +1035,10 @@ test("expired addresses keep copy disabled without invoking clipboard or provide
     copyButtonAccessibleName({ addressSendable: false, copied: false }),
     "Copy disabled for expired address.",
   );
-  assert.match(uiSource, /if \(!activeSession \|\| !addressSendable\) return;/);
+  assert.match(
+    uiSource,
+    /if \(!overview\?\.feature_enabled \|\| !activeSession \|\| !addressSendable\) return;/,
+  );
   assert.match(uiSource, /disabled=\{!addressSendable\}/);
   assert.equal((uiSource.match(/navigator\.clipboard\.writeText/g) ?? []).length, 1);
   assert.match(uiSource, /createSingleFlight\(performGenerate\)/);
@@ -866,6 +1059,19 @@ test("UI is backend-gated, duplicate-click guarded, local-QR-only, responsive, a
   assert.match(uiSource, /Expired — do not send/);
   assert.match(uiSource, /available_balance_usdt/);
   assert.match(uiSource, /reserved_balance_usdt/);
+  const disabledState = uiSource.slice(
+    uiSource.indexOf("function DisabledCryptoState"),
+    uiSource.indexOf("function ActiveDepositCard"),
+  );
+  assert.doesNotMatch(disabledState, /Generate Deposit Address|Retry|QRCode\.toDataURL|navigator\.clipboard/);
+  assert.ok(
+    uiSource.indexOf("!overview.feature_enabled ?")
+      < uiSource.indexOf("activeSession ?"),
+  );
+  assert.match(uiSource, /error && overview\.feature_enabled && <InlineRetry/);
+  assert.ok(
+    (uiSource.match(/sanitizeDisabledNowpaymentsDepositOverview\(current\)/g) ?? []).length >= 3,
+  );
 });
 
 test("CBE and TeleBirr deposit paths remain present and crypto is a parallel option", () => {
@@ -885,6 +1091,10 @@ test("overview source keeps production and authentication gates before database 
   assert.match(deployContextSource, /deploy\?\.published === true/);
   assert.doesNotMatch(deployContextSource, /Netlify\.env|getEnvironment|process\.env/);
   assert.ok(overviewSource.indexOf("if (!token || token === authorization)") < overviewSource.indexOf("admin.auth.getUser(token)"));
+  assert.ok(
+    overviewSource.indexOf('from("profiles")')
+      < overviewSource.indexOf('from("app_settings")'),
+  );
   assert.doesNotMatch(overviewSource, /NOWPAYMENTS_API_KEY|api\.nowpayments\.io/);
   assert.match(overviewSource, /\.eq\("user_id", userId\)/);
   assert.match(overviewSource, /available_balance_usdt::text/);

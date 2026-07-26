@@ -1233,10 +1233,14 @@ test("types and endpoint expose only the hidden server-side session contract", (
     endpointSource.indexOf("if (!isPublishedProductionDeployContext(context))")
       < endpointSource.indexOf('Netlify.env.get("VITE_SUPABASE_URL")'),
   );
-  assert.match(endpointSource, /if \(!config\.enabled\)/);
+  assert.match(endpointSource, /globalRow\.value === "true" \|\| !config\.enabled/);
   assert.ok(
-    endpointSource.indexOf('if (!config.enabled)')
+    endpointSource.indexOf('globalRow.value === "true" || !config.enabled')
       < endpointSource.indexOf('Netlify.env.get("NOWPAYMENTS_API_KEY")'),
+  );
+  assert.ok(
+    endpointSource.indexOf('from("profiles")')
+      < endpointSource.indexOf('from("app_settings")'),
   );
   assert.doesNotMatch(endpointSource, /req\.json\(|requested_amount|price_amount/);
   assert.match(endpointSource, /path: "\/api\/crypto\/nowpayments\/deposit-session"/);
@@ -1291,6 +1295,96 @@ function assertNonProductionRejected(result) {
   assert.deepEqual(result.requests, []);
 }
 
+async function invokeDepositSessionGate({
+  authorization = "Bearer mock-user-token",
+  authValid = true,
+  profile = { is_frozen: false },
+  globalSettingRows = [{ key: "deposits_paused", value: "false" }],
+  configEnabled = true,
+  configOverrides = {},
+  rpcErrorMessage = null,
+} = {}) {
+  const originalFetch = globalThis.fetch;
+  const originalNetlify = globalThis.Netlify;
+  const environmentReads = [];
+  const requests = [];
+  globalThis.Netlify = {
+    env: {
+      get(name) {
+        environmentReads.push(name);
+        if (name === "VITE_SUPABASE_URL") return "https://supabase.mock";
+        if (name === "SUPABASE_SERVICE_ROLE_KEY") return "service-role-mock";
+        if (name === "NOWPAYMENTS_API_KEY") return "must-not-be-read";
+        if (name === "URL") return "https://qhash.mock";
+        return undefined;
+      },
+    },
+  };
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    requests.push(url);
+    if (url.startsWith("https://api.nowpayments.io")) {
+      throw new Error("blocked endpoint must not contact NOWPayments");
+    }
+    if (url.includes("/auth/v1/user")) {
+      return authValid
+        ? Response.json({
+            id: USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: "mock@example.test",
+            app_metadata: {},
+            user_metadata: {},
+            created_at: "2030-01-01T00:00:00Z",
+          })
+        : Response.json({ message: "invalid token" }, { status: 401 });
+    }
+    if (url.includes("/rest/v1/profiles")) return Response.json(profile);
+    if (url.includes("/rest/v1/app_settings")) return Response.json(globalSettingRows);
+    if (url.includes("/rest/v1/nowpayments_usdt_config")) {
+      return Response.json({
+        id: "USDT-BEP20",
+        enabled: configEnabled,
+        asset: "USDT",
+        network: "BEP20",
+        provider_currency: "usdtbsc",
+        deposit_minimum_usdt: 1,
+        withdrawal_minimum_usdt: 2,
+        withdrawal_fee_percent: 5,
+        ...configOverrides,
+      });
+    }
+    if (url.includes("/rest/v1/rpc/get_current_nowpayments_usdt_deposit_session")) {
+      if (rpcErrorMessage) {
+        return Response.json({ message: rpcErrorMessage }, { status: 400 });
+      }
+      throw new Error("blocked endpoint must not reach the session store");
+    }
+    throw new Error(`Unexpected mock request: ${url}`);
+  };
+
+  try {
+    const headers = authorization ? { authorization } : {};
+    const response = await nowpaymentsDepositSessionHandler(
+      new Request("https://qhash.mock/api/crypto/nowpayments/deposit-session", {
+        method: "POST",
+        headers,
+      }),
+      PUBLISHED_PRODUCTION_CONTEXT,
+    );
+    return {
+      status: response.status,
+      body: await response.json(),
+      environmentReads,
+      requests,
+    };
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalNetlify === undefined) delete globalThis.Netlify;
+    else globalThis.Netlify = originalNetlify;
+  }
+}
+
 test("only a published production deploy reaches secrets, database, or provider access", async () => {
   const rejectedContexts = [
     { deploy: { context: "production", published: false } },
@@ -1315,6 +1409,98 @@ test("only a published production deploy reaches secrets, database, or provider 
   for (const runtimeContext of rejectedContexts) {
     assertNonProductionRejected(await invokeRejectedRuntimeEndpoint(runtimeContext));
   }
+});
+
+test("global pause and crypto-rail disablement return the same static disabled response before store or provider access", async () => {
+  const globalPaused = await invokeDepositSessionGate({
+    globalSettingRows: [{ key: "deposits_paused", value: "true" }],
+  });
+  const railDisabled = await invokeDepositSessionGate({ configEnabled: false });
+  const bothBlocked = await invokeDepositSessionGate({
+    globalSettingRows: [{ key: "deposits_paused", value: "true" }],
+    configEnabled: false,
+  });
+
+  for (const result of [globalPaused, railDisabled, bothBlocked]) {
+    assert.equal(result.status, 503);
+    assert.deepEqual(result.body, {
+      error: "crypto_deposits_disabled",
+      message: "Crypto deposits are disabled.",
+    });
+    assert.equal(
+      result.requests.some((url) => url.includes("/rest/v1/rpc/")),
+      false,
+    );
+    assert.equal(
+      result.requests.some((url) => url.startsWith("https://api.nowpayments.io")),
+      false,
+    );
+    assert.ok(!result.environmentReads.includes("NOWPAYMENTS_API_KEY"));
+    assert.ok(!result.environmentReads.includes("URL"));
+  }
+  assert.deepEqual(globalPaused.body, railDisabled.body);
+  assert.deepEqual(globalPaused.body, bothBlocked.body);
+});
+
+test("missing, duplicate, and malformed global deposit settings fail closed before store or provider access", async () => {
+  const cases = [
+    ["missing", []],
+    ["duplicate", [
+      { key: "deposits_paused", value: "false" },
+      { key: "deposits_paused", value: "false" },
+    ]],
+    ["wrong key", [{ key: "withdrawals_paused", value: "false" }]],
+    ["malformed", [{ key: "deposits_paused", value: "FALSE" }]],
+  ];
+  for (const [name, globalSettingRows] of cases) {
+    const result = await invokeDepositSessionGate({ globalSettingRows });
+    assert.equal(result.status, 503, name);
+    assert.deepEqual(result.body, {
+      error: "crypto_config_unavailable",
+      message: "Crypto deposits are unavailable.",
+    }, name);
+    assert.equal(result.requests.some((url) => url.includes("/rest/v1/rpc/")), false, name);
+    assert.ok(!result.environmentReads.includes("NOWPAYMENTS_API_KEY"), name);
+    assert.ok(!result.environmentReads.includes("URL"), name);
+  }
+});
+
+test("authentication and active-profile validation precede deposit configuration and provider access", async () => {
+  const unauthenticated = await invokeDepositSessionGate({ authorization: "" });
+  assert.equal(unauthenticated.status, 401);
+  assert.equal(unauthenticated.requests.some((url) => url.includes("/rest/v1/profiles")), false);
+  assert.equal(unauthenticated.requests.some((url) => url.includes("/rest/v1/app_settings")), false);
+
+  const invalid = await invokeDepositSessionGate({ authValid: false });
+  assert.equal(invalid.status, 401);
+  assert.equal(invalid.requests.some((url) => url.includes("/rest/v1/profiles")), false);
+  assert.equal(invalid.requests.some((url) => url.includes("/rest/v1/app_settings")), false);
+
+  const frozen = await invokeDepositSessionGate({ profile: { is_frozen: true } });
+  assert.equal(frozen.status, 403);
+  assert.equal(frozen.requests.some((url) => url.includes("/rest/v1/profiles")), true);
+  assert.equal(frozen.requests.some((url) => url.includes("/rest/v1/app_settings")), false);
+  assert.equal(frozen.requests.some((url) => url.includes("nowpayments_usdt_config")), false);
+
+  for (const result of [unauthenticated, invalid, frozen]) {
+    assert.ok(!result.environmentReads.includes("NOWPAYMENTS_API_KEY"));
+    assert.ok(!result.environmentReads.includes("URL"));
+    assert.equal(result.requests.some((url) => url.startsWith("https://api.nowpayments.io")), false);
+  }
+});
+
+test("an authoritative pause winning the handler-to-claim race maps to the same static disabled response", async () => {
+  const result = await invokeDepositSessionGate({
+    rpcErrorMessage: "nowpayments_deposits_paused",
+  });
+  assert.equal(result.status, 503);
+  assert.deepEqual(result.body, {
+    error: "crypto_deposits_disabled",
+    message: "Crypto deposits are disabled.",
+  });
+  assert.ok(!result.environmentReads.includes("NOWPAYMENTS_API_KEY"));
+  assert.ok(!result.environmentReads.includes("URL"));
+  assert.equal(result.requests.some((url) => url.startsWith("https://api.nowpayments.io")), false);
 });
 
 test("production context reaches authentication, configuration, and disabled gate", async (t) => {
@@ -1352,6 +1538,9 @@ test("production context reaches authentication, configuration, and disabled gat
     }
     if (url.includes("/rest/v1/profiles")) {
       return Response.json({ is_frozen: false });
+    }
+    if (url.includes("/rest/v1/app_settings")) {
+      return Response.json([{ key: "deposits_paused", value: "false" }]);
     }
     if (url.includes("/rest/v1/nowpayments_usdt_config")) {
       return Response.json({
@@ -1394,7 +1583,7 @@ test("production context reaches authentication, configuration, and disabled gat
   assert.ok(!environmentReads.includes("NOWPAYMENTS_API_KEY"));
 });
 
-test("enabled endpoint returns stored pending and permanent addresses without provider access", async (t) => {
+test("after unpausing, stored pending and permanent addresses are reused without provider access", async (t) => {
   const originalFetch = globalThis.fetch;
   const originalNetlify = globalThis.Netlify;
   t.after(() => {
@@ -1404,6 +1593,13 @@ test("enabled endpoint returns stored pending and permanent addresses without pr
   });
 
   for (const lifecycle of ["pending", "activated"]) {
+    const paused = await invokeDepositSessionGate({
+      globalSettingRows: [{ key: "deposits_paused", value: "true" }],
+    });
+    assert.equal(paused.status, 503);
+    assert.equal(paused.requests.some((url) => url.includes("/rest/v1/rpc/")), false);
+    assert.ok(!paused.environmentReads.includes("NOWPAYMENTS_API_KEY"));
+
     const environmentReads = [];
     const requests = [];
     globalThis.Netlify = {
@@ -1437,6 +1633,9 @@ test("enabled endpoint returns stored pending and permanent addresses without pr
         });
       }
       if (url.includes("/rest/v1/profiles")) return Response.json({ is_frozen: false });
+      if (url.includes("/rest/v1/app_settings")) {
+        return Response.json([{ key: "deposits_paused", value: "false" }]);
+      }
       if (url.includes("/rest/v1/nowpayments_usdt_config")) {
         return Response.json({
           id: "USDT-BEP20",
@@ -1524,6 +1723,9 @@ test("endpoint activation between current lookup and claim reads no provider sec
       });
     }
     if (url.includes("/rest/v1/profiles")) return Response.json({ is_frozen: false });
+    if (url.includes("/rest/v1/app_settings")) {
+      return Response.json([{ key: "deposits_paused", value: "false" }]);
+    }
     if (url.includes("/rest/v1/nowpayments_usdt_config")) {
       return Response.json({
         id: "USDT-BEP20",
