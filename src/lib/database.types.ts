@@ -359,6 +359,39 @@ export interface Database {
         }
         Relationships: []
       }
+      user_security_settings: {
+        Row: {
+          user_id: string
+          fund_password_hash: string
+          fund_password_set_at: string
+          fund_password_updated_at: string
+          fund_password_failed_attempts: number
+          fund_password_locked_until: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          user_id: string
+          fund_password_hash: string
+          fund_password_set_at?: string
+          fund_password_updated_at?: string
+          fund_password_failed_attempts?: number
+          fund_password_locked_until?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          user_id?: string
+          fund_password_hash?: string
+          fund_password_set_at?: string
+          fund_password_updated_at?: string
+          fund_password_failed_attempts?: number
+          fund_password_locked_until?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       nowpayments_usdt_config: {
         Row: {
           id: 'USDT-BEP20'
@@ -1068,20 +1101,41 @@ export interface Database {
         }
         Returns: Json
       }
+      get_fund_password_status_tx: {
+        Args: {
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      set_fund_password_tx: {
+        Args: {
+          p_user_id: string
+          p_fund_password: string
+        }
+        Returns: Json
+      }
       verify_fund_password_tx: {
         Args: {
           p_user_id: string
           p_fund_password: string
         }
-        Returns: {
-          success?: boolean
-          code?: string
-          message?: string
-          locked_until?: string | null
-          failed_attempts?: number
-          remaining_attempts?: number
-          [key: string]: Json | undefined
+        Returns: Json
+      }
+      change_fund_password_tx: {
+        Args: {
+          p_user_id: string
+          p_current_fund_password: string
+          p_new_fund_password: string
         }
+        Returns: Json
+      }
+      reset_user_fund_password_tx: {
+        Args: {
+          p_admin_user_id: string
+          p_target_user_id: string
+          p_reason: string
+        }
+        Returns: Json
       }
       complete_nowpayments_usdt_withdrawal_manual: {
         Args: {
@@ -1183,6 +1237,7 @@ export type Deposit = Database['public']['Tables']['deposits']['Row']
 export type Withdrawal = Database['public']['Tables']['withdrawals']['Row']
 export type Notification = Database['public']['Tables']['notifications']['Row']
 export type AppSetting = Database['public']['Tables']['app_settings']['Row']
+export type UserSecuritySetting = Database['public']['Tables']['user_security_settings']['Row']
 export type NowpaymentsUsdtConfig = Database['public']['Tables']['nowpayments_usdt_config']['Row']
 export type NowpaymentsUsdtWallet = Database['public']['Tables']['nowpayments_usdt_wallets']['Row']
 export type NowpaymentsUsdtPayment = Database['public']['Tables']['nowpayments_usdt_payments']['Row']
