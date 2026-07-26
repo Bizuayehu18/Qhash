@@ -6,6 +6,10 @@ import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
 import { formatDateTime } from "@/lib/format.js";
 import {
+  CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE,
+  formatWithdrawalCooldownMessage,
+} from "@/lib/withdrawal-policy.js";
+import {
   calculateWithdrawalPreview,
   createLatestWithdrawalOverviewRequestGuard,
   createWithdrawalAttemptKeyManager,
@@ -225,6 +229,7 @@ export function NowpaymentsUsdtWithdrawal({
         const messages: Record<NowpaymentsWithdrawalUiError["kind"], string> = {
           authentication: "Your session has expired. Please sign in again.",
           disabled: "USDT withdrawals are temporarily unavailable.",
+          cooldown: `${CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE}.`,
           conflict: "A withdrawal is already in progress or this request changed. Refresh and review it.",
           insufficient_balance: "Insufficient available USDT balance.",
           invalid_destination: "Use a valid external USDT BEP20 destination address.",
@@ -234,7 +239,11 @@ export function NowpaymentsUsdtWithdrawal({
           validation: "Check the withdrawal amount, destination, and Fund PIN.",
           unavailable: "USDT withdrawal could not be submitted. You can retry safely.",
         };
-        toast.error(messages[error.kind]);
+        toast.error(
+          error.kind === "cooldown"
+            ? formatWithdrawalCooldownMessage(error.nextAllowedAt)
+            : messages[error.kind],
+        );
       } else {
         toast.error("USDT withdrawal could not be submitted. You can retry safely.");
       }
@@ -296,6 +305,13 @@ export function NowpaymentsUsdtWithdrawal({
               </p>
             </div>
           )}
+
+          <div className="flex items-start gap-2 rounded-xl border border-[rgba(0,255,65,0.14)] bg-[rgba(0,255,65,0.035)] px-3 py-2.5">
+            <Clock size={14} className="mt-0.5 shrink-0 text-[#00ff41]" />
+            <p className="text-xs leading-relaxed text-gray-400">
+              {CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE}.
+            </p>
+          </div>
 
           <section className="overflow-hidden rounded-xl border border-[rgba(0,255,65,0.14)] bg-[#111]">
             <div className="border-b border-[#1a1a1a] px-3.5 py-3">

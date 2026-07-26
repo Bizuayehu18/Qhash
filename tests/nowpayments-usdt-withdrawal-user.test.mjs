@@ -16,6 +16,13 @@ import {
   runSingleFlight,
   submitNowpaymentsWithdrawalRequest,
 } from "../src/lib/nowpayments-withdrawal-ui.ts";
+import {
+  CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE,
+  formatWithdrawalCooldownMessage,
+  formatWithdrawalNextAllowedAtUtc,
+  normalizeWithdrawalNextAllowedAt,
+  parseWithdrawalCooldownDetail,
+} from "../src/lib/withdrawal-policy.ts";
 
 const root = new URL("../", import.meta.url);
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -28,6 +35,59 @@ const ADDRESS = "0x1111111111111111111111111111111111111111";
 const OTHER_ADDRESS = "0x2222222222222222222222222222222222222222";
 const HASH = `0x${"a".repeat(64)}`;
 const PUBLISHED_PRODUCTION_CONTEXT = { deploy: { context: "production", published: true } };
+
+test("cross-rail policy helpers accept only anchored ISO timestamps and produce exact copy", () => {
+  assert.equal(
+    CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE,
+    "You can submit one withdrawal request in any rolling 24-hour period across CBE, TeleBirr, and USDT. "
+      + "Once accepted, the request still counts if it is later rejected. "
+      + "Eligibility is measured from when QHash accepts the request",
+  );
+  assert.equal(
+    parseWithdrawalCooldownDetail(
+      "next_allowed_at=2030-01-02T03:04:05.123456+00:00",
+    ),
+    "2030-01-02T03:04:05.123456+00:00",
+  );
+  assert.equal(
+    formatWithdrawalNextAllowedAtUtc(
+      "2030-01-02T03:04:05.123456+02:30",
+    ),
+    "January 2, 2030 at 00:34:05 UTC",
+  );
+  assert.equal(
+    formatWithdrawalCooldownMessage(
+      "2030-01-02T03:04:05.123Z",
+    ),
+    "You can submit one withdrawal request in any rolling 24-hour period across CBE, TeleBirr, and USDT. "
+      + "Once accepted, the request still counts if it is later rejected. "
+      + "Eligibility is measured from when QHash accepts the request. "
+      + "Next eligible: January 2, 2030 at 03:04:05 UTC.",
+  );
+  assert.doesNotMatch(
+    formatWithdrawalCooldownMessage("2030-01-02T03:04:05.123Z"),
+    /2030-01-02T03:04:05/,
+  );
+  assert.equal(
+    formatWithdrawalCooldownMessage(null),
+    "You can submit one withdrawal request in any rolling 24-hour period across CBE, TeleBirr, and USDT. "
+      + "Once accepted, the request still counts if it is later rejected. "
+      + "Eligibility is measured from when QHash accepts the request.",
+  );
+  for (const rejected of [
+    "next_allowed_at=2030-01-02",
+    "next_allowed_at=2030-01-02T03:04:05Z extra",
+    "prefix next_allowed_at=2030-01-02T03:04:05Z",
+    "next_allowed_at=2030-01-02T03:04:05",
+    "next_allowed_at=not-a-timestamp",
+  ]) {
+    assert.equal(parseWithdrawalCooldownDetail(rejected), null);
+  }
+  assert.equal(normalizeWithdrawalNextAllowedAt("2030-13-02T03:04:05Z"), null);
+  assert.equal(normalizeWithdrawalNextAllowedAt("2030-02-31T03:04:05Z"), null);
+  assert.equal(normalizeWithdrawalNextAllowedAt("2030-01-01T24:00:00Z"), null);
+  assert.equal(normalizeWithdrawalNextAllowedAt("2030-01-01T03:04:05+14:01"), null);
+});
 
 function validOverviewWithdrawal(overrides = {}) {
   return {
@@ -154,7 +214,12 @@ async function withRuntime(options, operation) {
       rpcBodies.push(body);
       if (options.rpcError) {
         return Response.json(
-          { code: "P0001", message: options.rpcError, details: null, hint: null },
+          {
+            code: "P0001",
+            message: options.rpcError,
+            details: options.rpcErrorDetails ?? null,
+            hint: null,
+          },
           { status: 400 },
         );
       }
@@ -571,6 +636,74 @@ test("database-authoritative disabled, minimum, balance, and prohibited-destinat
   }
 });
 
+test("cross-rail cooldown exposes only the stable code and normalized safe next-eligible time", async () => {
+  await withRuntime({
+    withdrawalsEnabled: true,
+    rpcError: "withdrawal_cooldown_active",
+    rpcErrorDetails: "next_allowed_at=2030-01-02T03:04:05.123456+00:00",
+  }, async () => {
+    const response = await requestHandler(
+      withdrawalRequest(validRequestBody()),
+      PUBLISHED_PRODUCTION_CONTEXT,
+    );
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), {
+      error: "withdrawal_cooldown_active",
+      message: "You can submit one withdrawal request in any rolling 24-hour period across CBE, TeleBirr, and USDT. "
+        + "Once accepted, the request still counts if it is later rejected. "
+        + "Eligibility is measured from when QHash accepts the request.",
+      next_allowed_at: "2030-01-02T03:04:05.123456+00:00",
+    });
+  });
+
+  await withRuntime({
+    withdrawalsEnabled: true,
+    rpcError: "withdrawal_cooldown_active",
+    rpcErrorDetails: "next_allowed_at=not-a-timestamp sensitive_detail",
+  }, async () => {
+    const response = await requestHandler(
+      withdrawalRequest(validRequestBody()),
+      PUBLISHED_PRODUCTION_CONTEXT,
+    );
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), {
+      error: "withdrawal_cooldown_active",
+      message: "You can submit one withdrawal request in any rolling 24-hour period across CBE, TeleBirr, and USDT. "
+        + "Once accepted, the request still counts if it is later rejected. "
+        + "Eligibility is measured from when QHash accepts the request.",
+    });
+  });
+});
+
+test("browser cooldown parsing preserves the static copy and allowlisted timestamp only", async () => {
+  const request = async () => Response.json({
+    error: "withdrawal_cooldown_active",
+    message: "unsafe server detail",
+    next_allowed_at: "2030-01-02T03:04:05.123Z",
+    internal_state: "must not escape through the error",
+  }, { status: 409 });
+
+  await assert.rejects(
+    submitNowpaymentsWithdrawalRequest("token", validRequestBody(), request),
+    (error) => (
+      error?.kind === "cooldown"
+      && error.nextAllowedAt === "2030-01-02T03:04:05.123Z"
+      && error.message === "cooldown"
+      && !JSON.stringify(error).includes("unsafe server detail")
+      && !JSON.stringify(error).includes("internal_state")
+    ),
+  );
+
+  const malformedRequest = async () => Response.json({
+    error: "withdrawal_cooldown_active",
+    next_allowed_at: "2030-01-02 tomorrow",
+  }, { status: 409 });
+  await assert.rejects(
+    submitNowpaymentsWithdrawalRequest("token", validRequestBody(), malformedRequest),
+    (error) => error?.kind === "cooldown" && error.nextAllowedAt === null,
+  );
+});
+
 test("existing Fund PIN failures preserve retry protection and never reserve funds", async () => {
   const cases = [
     [{ success: false, code: "fund_password_not_set" }, 409, "fund_password_not_set"],
@@ -652,12 +785,24 @@ test("browser helpers call only QHash endpoints and reject disabled requests wit
 });
 
 test("source boundaries contain no provider, signing, payout, client database, or sensitive logging path", async () => {
-  const [overviewSource, requestSource, uiSource, uiLibSource, withdrawRoute, depositRoute, typecheck] =
+  const [
+    overviewSource,
+    requestSource,
+    uiSource,
+    uiLibSource,
+    withdrawalPolicySource,
+    etbWithdrawalServer,
+    withdrawRoute,
+    depositRoute,
+    typecheck,
+  ] =
     await Promise.all([
       readFile(new URL("netlify/functions/nowpayments-usdt-withdrawal-overview.mts", root), "utf8"),
       readFile(new URL("netlify/functions/nowpayments-usdt-withdrawal-request.mts", root), "utf8"),
       readFile(new URL("src/components/withdrawal/NowpaymentsUsdtWithdrawal.tsx", root), "utf8"),
       readFile(new URL("src/lib/nowpayments-withdrawal-ui.ts", root), "utf8"),
+      readFile(new URL("src/lib/withdrawal-policy.ts", root), "utf8"),
+      readFile(new URL("src/lib/server/withdrawals.ts", root), "utf8"),
       readFile(new URL("src/routes/_app/withdraw.tsx", root), "utf8"),
       readFile(new URL("src/routes/_app/deposit.tsx", root), "utf8"),
       readFile(new URL("tsconfig.netlify.json", root), "utf8"),
@@ -671,6 +816,26 @@ test("source boundaries contain no provider, signing, payout, client database, o
   assert.equal((requestSource.match(/\.rpc\("request_nowpayments_usdt_withdrawal"/g) ?? []).length, 1);
   assert.match(requestSource, /\.rpc\(\s*"verify_fund_password_tx"/);
   assert.equal((requestSource.match(/verify_fund_password_tx/g) ?? []).length, 1);
+  assert.match(requestSource, /parseWithdrawalCooldownDetail\(error\?\.details\)/);
+  assert.match(etbWithdrawalServer, /parseWithdrawalCooldownDetail\(error\?\.details\)/);
+  assert.match(
+    withdrawalPolicySource,
+    /one withdrawal request in any rolling 24-hour period across CBE, TeleBirr, and USDT/,
+  );
+  assert.match(withdrawalPolicySource, /request still counts if it is later rejected/);
+  assert.match(withdrawalPolicySource, /Eligibility is measured from when QHash accepts the request/);
+  assert.match(withdrawalPolicySource, /Next eligible: \$\{nextAllowedAtUtc\}/);
+  assert.match(withdrawalPolicySource, /UTC/);
+  assert.match(uiSource, /formatWithdrawalCooldownMessage\(error\.nextAllowedAt\)/);
+  assert.match(withdrawRoute, /formatWithdrawalCooldownMessage\(result\.next_allowed_at\)/);
+  assert.match(
+    withdrawRoute,
+    /24h processing[\s\S]*?<p className="mt-1\.5 border-t[\s\S]*?CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE/,
+  );
+  assert.doesNotMatch(
+    `${uiSource}\n${withdrawRoute}`,
+    /one request\/day|one per day|try again tomorrow|calendar day/i,
+  );
   assert.match(uiSource, /Four-digit Fund PIN/);
   assert.doesNotMatch(clientSource, /transaction_hash|current_broadcast_id|confirmations|manual review/i);
   assert.match(uiSource, /BigInt|formatUsdtMicros/);
