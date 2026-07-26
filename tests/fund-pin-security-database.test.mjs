@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import pg from "pg";
@@ -142,9 +143,12 @@ async function applyMigration(client, sql = migration) {
   }
 }
 
-function disableFundPinRiTriggerSql({ side, functionName }) {
+function setFundPinRiTriggerStateSql(
+  { side, functionName },
+  { command },
+) {
   return `
-    do $disable_fund_pin_ri_trigger$
+    do $set_fund_pin_ri_trigger_state$
     declare
       v_relation_schema text;
       v_relation_name text;
@@ -184,13 +188,106 @@ function disableFundPinRiTriggerSql({ side, functionName }) {
         and function_row.proname = '${functionName}';
 
       execute format(
-        'alter table %I.%I disable trigger %I',
+        'alter table %I.%I ${command} trigger %I',
         v_relation_schema,
         v_relation_name,
         v_trigger_name
       );
     end
-    $disable_fund_pin_ri_trigger$;
+    $set_fund_pin_ri_trigger_state$;
+  `;
+}
+
+const FUND_PIN_TRIGGER_STATES = [
+  { label: "disabled", command: "disable" },
+  { label: "replica", command: "enable replica" },
+  { label: "always", command: "enable always" },
+];
+const PREFLIGHT_ERRORS = {
+  tableIdentity:
+    "unexpected Fund PIN settings table identity, owner, or RLS state",
+  columns: "unexpected Fund PIN settings column catalog",
+  constraints: "unexpected Fund PIN settings constraint catalog",
+  referencedKey:
+    "unexpected Fund PIN settings referenced key and index catalog",
+  indexes: "unexpected Fund PIN settings index catalog",
+  triggers: "unexpected Fund PIN settings trigger catalog",
+  tableAcl: "unexpected Fund PIN settings table ACL catalog",
+  functionIdentity: "unexpected Fund PIN function identity catalog",
+  functions: "unexpected Fund PIN function catalog",
+};
+
+async function installMigrationMutationSentinel(client) {
+  await client.query(`
+    create function public.fund_pin_migration_mutation_sentinel()
+    returns event_trigger
+    language plpgsql
+    as $sentinel$
+    begin
+      raise exception 'mutation_reached';
+    end
+    $sentinel$;
+
+    create event trigger fund_pin_migration_mutation_sentinel
+    on ddl_command_start
+    when tag in (
+      'CREATE FUNCTION',
+      'ALTER FUNCTION',
+      'DROP FUNCTION',
+      'CREATE TABLE',
+      'ALTER TABLE',
+      'DROP TABLE',
+      'CREATE INDEX',
+      'ALTER INDEX',
+      'DROP INDEX',
+      'CREATE TRIGGER',
+      'DROP TRIGGER',
+      'GRANT',
+      'REVOKE',
+      'COMMENT'
+    )
+    execute function public.fund_pin_migration_mutation_sentinel();
+  `);
+}
+
+async function removeMigrationMutationSentinel(client) {
+  await client.query(`
+    drop event trigger if exists fund_pin_migration_mutation_sentinel;
+    drop function if exists public.fund_pin_migration_mutation_sentinel();
+  `);
+}
+
+function rebindFundPinFkToAlternateIndexSql({ includeColumn = false } = {}) {
+  const includedColumn = includeColumn
+    ? `
+      alter table auth.users
+        add column fund_pin_drift_marker text not null default 'marker';
+      create unique index fund_pin_users_id_alt_unique
+        on auth.users (id) include (fund_pin_drift_marker);
+    `
+    : `
+      create unique index fund_pin_users_id_alt_unique
+        on auth.users (id);
+    `;
+
+  return `
+    ${includedColumn}
+    alter table public.user_security_settings
+      drop constraint user_security_settings_user_id_fkey;
+    alter table auth.users
+      drop constraint users_pkey cascade;
+    alter table public.user_security_settings
+      add constraint user_security_settings_user_id_fkey
+      foreign key (user_id)
+      references auth.users(id)
+      on delete cascade;
+    alter table auth.users
+      add constraint users_pkey primary key (id);
+    alter table public.profiles
+      add constraint profiles_id_fkey
+      foreign key (id)
+      references auth.users(id)
+      on delete cascade;
   `;
 }
 
@@ -323,7 +420,7 @@ async function createLivePreMigrationCatalog(client) {
 }
 
 async function catalogAndDataFingerprint(client) {
-  return (await client.query(`
+  const fingerprint = (await client.query(`
     with target_functions as (
       select p.oid
       from pg_proc p
@@ -529,6 +626,165 @@ async function catalogAndDataFingerprint(client) {
       )
     ) as fingerprint
   `)).rows[0].fingerprint;
+
+  return {
+    rowCount: fingerprint.rows.length,
+    resetAuditCount: fingerprint.reset_audit.length,
+    digest: createHash("sha256")
+      .update(JSON.stringify(fingerprint))
+      .digest("hex"),
+  };
+}
+
+async function fundPinRowFingerprint(client) {
+  return (await client.query(`
+    select
+      count(*)::integer as row_count,
+      md5(coalesce(
+        jsonb_agg(to_jsonb(settings_row) order by settings_row.user_id),
+        '[]'::jsonb
+      )::text) as row_digest
+    from public.user_security_settings settings_row
+  `)).rows[0];
+}
+
+async function fundPinReferencedKeySemantics(client) {
+  return (await client.query(`
+    select
+      child_schema.nspname as child_schema,
+      child_relation.relname as child_relation,
+      array(
+        select child_attribute.attname::text
+        from unnest(constraint_row.conkey)
+          with ordinality as child_key(attnum, position)
+        join pg_attribute child_attribute
+          on child_attribute.attrelid = constraint_row.conrelid
+         and child_attribute.attnum = child_key.attnum
+         and not child_attribute.attisdropped
+        order by child_key.position
+      ) as child_key_columns,
+      parent_schema.nspname as parent_schema,
+      parent_relation.relname as parent_relation,
+      array(
+        select parent_attribute.attname::text
+        from unnest(constraint_row.confkey)
+          with ordinality as parent_key(attnum, position)
+        join pg_attribute parent_attribute
+          on parent_attribute.attrelid = constraint_row.confrelid
+         and parent_attribute.attnum = parent_key.attnum
+         and not parent_attribute.attisdropped
+        order by parent_key.position
+      ) as parent_key_columns,
+      constraint_row.conindid <> 0 as referenced_index_nonzero,
+      referenced_index.indrelid = constraint_row.confrelid
+        as index_relation_matches_parent,
+      referenced_index_schema.nspname as index_schema,
+      referenced_index_method.amname as index_method,
+      referenced_index.indisprimary as index_primary,
+      referenced_index.indisunique as index_unique,
+      referenced_index.indimmediate as index_immediate,
+      referenced_index.indisvalid as index_valid,
+      referenced_index.indisready as index_ready,
+      referenced_index.indislive as index_live,
+      referenced_index.indisexclusion as index_exclusion,
+      referenced_index.indnkeyatts::integer as index_key_count,
+      referenced_index.indnatts::integer as index_attribute_count,
+      referenced_index.indexprs is null as index_has_no_expressions,
+      referenced_index.indpred is null as index_is_not_partial,
+      array(
+        select index_attribute.attname::text
+        from unnest(referenced_index.indkey::smallint[])
+          with ordinality as index_key(attnum, position)
+        join pg_attribute index_attribute
+          on index_attribute.attrelid = referenced_index.indrelid
+         and index_attribute.attnum = index_key.attnum
+         and not index_attribute.attisdropped
+        where index_key.position <= referenced_index.indnkeyatts
+        order by index_key.position
+      ) as index_key_columns,
+      primary_constraint.convalidated as primary_validated,
+      primary_constraint.condeferrable as primary_deferrable,
+      primary_constraint.condeferred as primary_initially_deferred,
+      primary_constraint.conindid = constraint_row.conindid
+        as primary_index_matches_fk,
+      array(
+        select primary_attribute.attname::text
+        from unnest(primary_constraint.conkey)
+          with ordinality as primary_key(attnum, position)
+        join pg_attribute primary_attribute
+          on primary_attribute.attrelid = primary_constraint.conrelid
+         and primary_attribute.attnum = primary_key.attnum
+         and not primary_attribute.attisdropped
+        order by primary_key.position
+      ) as primary_key_columns,
+      (
+        select count(*)::integer
+        from pg_trigger trigger_row
+        where trigger_row.tgconstraint = constraint_row.oid
+          and trigger_row.tgconstrindid = constraint_row.conindid
+          and trigger_row.tgconstrindid <> 0
+      ) as matching_trigger_indexes
+    from pg_constraint constraint_row
+    join pg_class child_relation
+      on child_relation.oid = constraint_row.conrelid
+    join pg_namespace child_schema
+      on child_schema.oid = child_relation.relnamespace
+    join pg_class parent_relation
+      on parent_relation.oid = constraint_row.confrelid
+    join pg_namespace parent_schema
+      on parent_schema.oid = parent_relation.relnamespace
+    join pg_index referenced_index
+      on referenced_index.indexrelid = constraint_row.conindid
+    join pg_class referenced_index_relation
+      on referenced_index_relation.oid = referenced_index.indexrelid
+    join pg_namespace referenced_index_schema
+      on referenced_index_schema.oid =
+        referenced_index_relation.relnamespace
+    join pg_am referenced_index_method
+      on referenced_index_method.oid = referenced_index_relation.relam
+    left join pg_constraint primary_constraint
+      on primary_constraint.contype = 'p'
+     and primary_constraint.conrelid = constraint_row.confrelid
+     and primary_constraint.conindid = constraint_row.conindid
+    where constraint_row.conrelid =
+        'public.user_security_settings'::regclass
+      and constraint_row.conname =
+        'user_security_settings_user_id_fkey'
+      and constraint_row.contype = 'f'
+  `)).rows[0];
+}
+
+function assertExactFundPinReferencedKeySemantics(row) {
+  assert.deepEqual(row, {
+    child_schema: "public",
+    child_relation: "user_security_settings",
+    child_key_columns: ["user_id"],
+    parent_schema: "auth",
+    parent_relation: "users",
+    parent_key_columns: ["id"],
+    referenced_index_nonzero: true,
+    index_relation_matches_parent: true,
+    index_schema: "auth",
+    index_method: "btree",
+    index_primary: true,
+    index_unique: true,
+    index_immediate: true,
+    index_valid: true,
+    index_ready: true,
+    index_live: true,
+    index_exclusion: false,
+    index_key_count: 1,
+    index_attribute_count: 1,
+    index_has_no_expressions: true,
+    index_is_not_partial: true,
+    index_key_columns: ["id"],
+    primary_validated: true,
+    primary_deferrable: false,
+    primary_initially_deferred: false,
+    primary_index_matches_fk: true,
+    primary_key_columns: ["id"],
+    matching_trigger_indexes: 4,
+  });
 }
 
 async function fundPinRiTriggerSemantics(client) {
@@ -835,6 +1091,31 @@ test("migration commits the complete Fund PIN catalog and service-only boundary"
       `${riFunction} must be pinned once in preflight and once in postflight`,
     );
   }
+  for (const referencedKeyToken of [
+    "constraint_row.conkey",
+    "constraint_row.confkey",
+    "constraint_row.conindid <> 0",
+    "referenced_index.indrelid = constraint_row.confrelid",
+    "referenced_index.indisprimary is true",
+    "referenced_index.indisunique is true",
+    "referenced_index.indimmediate is true",
+    "referenced_index.indisvalid is true",
+    "referenced_index.indisready is true",
+    "referenced_index.indislive is true",
+    "referenced_index.indnkeyatts = 1",
+    "referenced_index.indnatts = 1",
+    "referenced_index.indexprs is null",
+    "referenced_index.indpred is null",
+    "primary_constraint.conindid = constraint_row.conindid",
+    "trigger_row.tgconstrindid = 0",
+  ]) {
+    assert.equal(
+      (migration.match(new RegExp(escapeRegExp(referencedKeyToken), "g")) ?? [])
+        .length,
+      2,
+      `${referencedKeyToken} must be pinned in preflight and postflight`,
+    );
+  }
   assert.equal(
     (migration.match(/except\s+all/gi) ?? []).length,
     4,
@@ -933,13 +1214,18 @@ test("native PostgreSQL enforces exact preflight, service-only ACLs, and Fund PI
   });
   await client.connect();
   t.after(async () => {
-    await Promise.allSettled([client.query("rollback"), client.end()]);
+    await Promise.allSettled([
+      client.query("rollback"),
+      removeMigrationMutationSentinel(client),
+    ]);
+    await client.end();
   });
 
   const driftFixtures = [
     {
       name: "function owner",
       sql: "alter function public.get_fund_password_status_tx(uuid) owner to fund_pin_drift_owner",
+      expectedError: PREFLIGHT_ERRORS.functions,
     },
     {
       name: "function source",
@@ -949,6 +1235,7 @@ test("native PostgreSQL enforces exact preflight, service-only ACLs, and Fund PI
         set search_path to 'public', 'extensions'
         as $function$ begin return '{}'::jsonb; end; $function$
       `,
+      expectedError: PREFLIGHT_ERRORS.functions,
     },
     {
       name: "signature",
@@ -956,6 +1243,7 @@ test("native PostgreSQL enforces exact preflight, service-only ACLs, and Fund PI
         create function public.get_fund_password_status_tx(p_user_id text)
         returns jsonb language sql as $function$ select '{}'::jsonb $function$
       `,
+      expectedError: PREFLIGHT_ERRORS.functionIdentity,
     },
     {
       name: "return type",
@@ -966,34 +1254,42 @@ test("native PostgreSQL enforces exact preflight, service-only ACLs, and Fund PI
         set search_path to 'public', 'extensions'
         as $function$ select '{}'::text $function$
       `,
+      expectedError: PREFLIGHT_ERRORS.functions,
     },
     {
       name: "security mode",
       sql: "alter function public.get_fund_password_status_tx(uuid) security invoker",
+      expectedError: PREFLIGHT_ERRORS.functions,
     },
     {
       name: "search path",
       sql: "alter function public.get_fund_password_status_tx(uuid) set search_path to public",
+      expectedError: PREFLIGHT_ERRORS.functions,
     },
     {
       name: "missing service role grant",
       sql: "revoke execute on function public.get_fund_password_status_tx(uuid) from service_role",
+      expectedError: PREFLIGHT_ERRORS.functions,
     },
     {
       name: "public grant",
       sql: "grant execute on function public.get_fund_password_status_tx(uuid) to public",
+      expectedError: PREFLIGHT_ERRORS.functions,
     },
     {
       name: "missing authenticated grant",
       sql: "revoke execute on function public.get_fund_password_status_tx(uuid) from authenticated",
+      expectedError: PREFLIGHT_ERRORS.functions,
     },
     {
       name: "unexpected grantee",
       sql: "grant execute on function public.get_fund_password_status_tx(uuid) to fund_pin_unexpected_grantee",
+      expectedError: PREFLIGHT_ERRORS.functions,
     },
     {
       name: "grant option",
       sql: "grant execute on function public.get_fund_password_status_tx(uuid) to service_role with grant option",
+      expectedError: PREFLIGHT_ERRORS.functions,
     },
     {
       name: "trigger",
@@ -1004,24 +1300,30 @@ test("native PostgreSQL enforces exact preflight, service-only ACLs, and Fund PI
         before update on public.user_security_settings
         for each row execute function public.fund_pin_drift_trigger()
       `,
+      expectedError: PREFLIGHT_ERRORS.triggers,
     },
-    ...FUND_PIN_RI_TRIGGERS.map((trigger) => ({
-      name:
-        `${trigger.side} ${trigger.action} internal FK trigger disabled`,
-      sql: disableFundPinRiTriggerSql(trigger),
-    })),
-    {
-      name: "all four internal FK triggers disabled",
+    ...FUND_PIN_TRIGGER_STATES.flatMap((state) =>
+      FUND_PIN_RI_TRIGGERS.map((trigger) => ({
+        name:
+          `${trigger.side} ${trigger.action} internal FK trigger ${state.label}`,
+        sql: setFundPinRiTriggerStateSql(trigger, state),
+        expectedError: PREFLIGHT_ERRORS.triggers,
+      }))
+    ),
+    ...FUND_PIN_TRIGGER_STATES.map((state) => ({
+      name: `all four internal FK triggers ${state.label}`,
       sql: FUND_PIN_RI_TRIGGERS
-        .map((trigger) => disableFundPinRiTriggerSql(trigger))
+        .map((trigger) => setFundPinRiTriggerStateSql(trigger, state))
         .join("\n"),
-    },
+      expectedError: PREFLIGHT_ERRORS.triggers,
+    })),
     {
       name: "missing internal FK trigger relationship",
       sql: `
         alter table public.user_security_settings
           drop constraint user_security_settings_user_id_fkey
       `,
+      expectedError: PREFLIGHT_ERRORS.constraints,
     },
     {
       name: "duplicate internal FK trigger relationship",
@@ -1030,6 +1332,7 @@ test("native PostgreSQL enforces exact preflight, service-only ACLs, and Fund PI
           add constraint user_security_settings_user_id_fkey_duplicate
           foreign key (user_id) references auth.users(id) on delete cascade
       `,
+      expectedError: PREFLIGHT_ERRORS.constraints,
     },
     {
       name: "internal FK parent relationship",
@@ -1047,6 +1350,116 @@ test("native PostgreSQL enforces exact preflight, service-only ACLs, and Fund PI
           references auth.fund_pin_drift_users(id)
           on delete cascade
       `,
+      expectedError: PREFLIGHT_ERRORS.constraints,
+    },
+    {
+      name: "internal FK alternate child key columns",
+      sql: `
+        alter table auth.users
+          add column fund_pin_drift_counter integer not null default 0;
+        alter table auth.users
+          add constraint users_id_counter_key
+          unique (id, fund_pin_drift_counter);
+        alter table public.user_security_settings
+          drop constraint user_security_settings_user_id_fkey;
+        alter table public.user_security_settings
+          add constraint user_security_settings_user_id_fkey
+          foreign key (user_id, fund_password_failed_attempts)
+          references auth.users(id, fund_pin_drift_counter)
+          on delete cascade
+      `,
+      expectedError: PREFLIGHT_ERRORS.constraints,
+    },
+    {
+      name: "internal FK alternate parent key column",
+      sql: `
+        alter table auth.users
+          add column fund_pin_drift_id uuid;
+        update auth.users set fund_pin_drift_id = id;
+        alter table auth.users
+          alter column fund_pin_drift_id set not null;
+        alter table auth.users
+          add constraint users_fund_pin_drift_id_key
+          unique (fund_pin_drift_id);
+        alter table public.user_security_settings
+          drop constraint user_security_settings_user_id_fkey;
+        alter table public.user_security_settings
+          add constraint user_security_settings_user_id_fkey
+          foreign key (user_id)
+          references auth.users(fund_pin_drift_id)
+          on delete cascade
+      `,
+      expectedError: PREFLIGHT_ERRORS.constraints,
+    },
+    {
+      name: "identical FK rebound to alternate unique non-primary index",
+      sql: rebindFundPinFkToAlternateIndexSql(),
+      expectedError: PREFLIGHT_ERRORS.referencedKey,
+      verify: async (fixtureClient) => {
+        const semantics =
+          await fundPinReferencedKeySemantics(fixtureClient);
+        assert.equal(semantics.index_primary, false);
+        assert.equal(semantics.index_unique, true);
+        assert.equal(semantics.index_key_count, 1);
+        assert.deepEqual(semantics.index_key_columns, ["id"]);
+        assert.equal(semantics.matching_trigger_indexes, 4);
+      },
+    },
+    {
+      name: "referenced index with an included column",
+      sql: rebindFundPinFkToAlternateIndexSql({ includeColumn: true }),
+      expectedError: PREFLIGHT_ERRORS.referencedKey,
+      verify: async (fixtureClient) => {
+        const semantics =
+          await fundPinReferencedKeySemantics(fixtureClient);
+        assert.equal(semantics.index_primary, false);
+        assert.equal(semantics.index_unique, true);
+        assert.equal(semantics.index_key_count, 1);
+        assert.equal(semantics.index_attribute_count, 2);
+        assert.equal(semantics.matching_trigger_indexes, 4);
+      },
+    },
+    {
+      name: "NOT VALID internal FK",
+      sql: `
+        alter table public.user_security_settings
+          drop constraint user_security_settings_user_id_fkey;
+        alter table public.user_security_settings
+          add constraint user_security_settings_user_id_fkey
+          foreign key (user_id)
+          references auth.users(id)
+          on delete cascade
+          not valid
+      `,
+      expectedError: PREFLIGHT_ERRORS.constraints,
+    },
+    {
+      name: "DEFERRABLE internal FK",
+      sql: `
+        alter table public.user_security_settings
+          drop constraint user_security_settings_user_id_fkey;
+        alter table public.user_security_settings
+          add constraint user_security_settings_user_id_fkey
+          foreign key (user_id)
+          references auth.users(id)
+          on delete cascade
+          deferrable initially immediate
+      `,
+      expectedError: PREFLIGHT_ERRORS.constraints,
+    },
+    {
+      name: "DEFERRABLE INITIALLY DEFERRED internal FK",
+      sql: `
+        alter table public.user_security_settings
+          drop constraint user_security_settings_user_id_fkey;
+        alter table public.user_security_settings
+          add constraint user_security_settings_user_id_fkey
+          foreign key (user_id)
+          references auth.users(id)
+          on delete cascade
+          deferrable initially deferred
+      `,
+      expectedError: PREFLIGHT_ERRORS.constraints,
     },
     {
       name: "internal FK RI action function",
@@ -1059,6 +1472,7 @@ test("native PostgreSQL enforces exact preflight, service-only ACLs, and Fund PI
           references auth.users(id)
           on delete restrict
       `,
+      expectedError: PREFLIGHT_ERRORS.constraints,
     },
     {
       name: "constraint",
@@ -1069,6 +1483,7 @@ test("native PostgreSQL enforces exact preflight, service-only ACLs, and Fund PI
           add constraint user_security_settings_fund_password_failed_attempts_check
           check (fund_password_failed_attempts between 0 and 5)
       `,
+      expectedError: PREFLIGHT_ERRORS.constraints,
     },
     {
       name: "index",
@@ -1076,31 +1491,78 @@ test("native PostgreSQL enforces exact preflight, service-only ACLs, and Fund PI
         create index fund_pin_drift_index
         on public.user_security_settings (fund_password_updated_at)
       `,
+      expectedError: PREFLIGHT_ERRORS.indexes,
     },
     {
       name: "RLS",
       sql: "alter table public.user_security_settings disable row level security",
+      expectedError: PREFLIGHT_ERRORS.tableIdentity,
     },
     {
       name: "table grant",
       sql: "grant select on public.user_security_settings to authenticated",
+      expectedError: PREFLIGHT_ERRORS.tableAcl,
     },
     {
       name: "column grant",
       sql: "grant select (fund_password_hash) on public.user_security_settings to authenticated",
+      expectedError: PREFLIGHT_ERRORS.columns,
     },
   ];
+
+  await t.test("mutation sentinel detects attempted migration DDL", async () => {
+    await createLivePreMigrationCatalog(client);
+    await installMigrationMutationSentinel(client);
+    try {
+      await assert.rejects(
+        client.query(`
+          create function public.fund_pin_sentinel_probe()
+          returns void
+          language plpgsql
+          as $probe$ begin null; end $probe$
+        `),
+        (error) => {
+          assert.equal(error.code, "P0001");
+          assert.equal(error.message, "mutation_reached");
+          return true;
+        },
+      );
+      assert.equal(
+        (await client.query(
+          "select to_regprocedure('public.fund_pin_sentinel_probe()') is null as absent",
+        )).rows[0].absent,
+        true,
+      );
+    } finally {
+      await removeMigrationMutationSentinel(client);
+    }
+  });
 
   for (const fixture of driftFixtures) {
     await t.test(`fails before mutation on ${fixture.name} drift`, async () => {
       await createLivePreMigrationCatalog(client);
       await client.query(fixture.sql);
+      await fixture.verify?.(client);
       const before = await catalogAndDataFingerprint(client);
 
-      await assert.rejects(
-        applyMigration(client),
-        /unexpected|drift|catalog|Fund PIN|fund password/i,
+      let migrationError;
+      await installMigrationMutationSentinel(client);
+      try {
+        await applyMigration(client);
+      } catch (error) {
+        migrationError = error;
+      } finally {
+        await removeMigrationMutationSentinel(client);
+      }
+
+      assert.ok(migrationError, `${fixture.name} drift must be rejected`);
+      assert.equal(migrationError.code, "P0001");
+      assert.notEqual(
+        migrationError.message,
+        "mutation_reached",
+        `${fixture.name} drift reached the first migration mutation`,
       );
+      assert.equal(migrationError.message, fixture.expectedError);
 
       assert.deepEqual(
         await catalogAndDataFingerprint(client),
@@ -1115,11 +1577,10 @@ test("native PostgreSQL enforces exact preflight, service-only ACLs, and Fund PI
     assertExactFundPinRiTriggerSemantics(
       await fundPinRiTriggerSemantics(client),
     );
-    const beforeRows = (await client.query(`
-      select to_jsonb(s) as row
-      from public.user_security_settings s
-      order by user_id
-    `)).rows;
+    assertExactFundPinReferencedKeySemantics(
+      await fundPinReferencedKeySemantics(client),
+    );
+    const beforeRows = await fundPinRowFingerprint(client);
     const resetSourceBefore = (await client.query(`
       select p.prosrc
       from pg_proc p
@@ -1131,13 +1592,12 @@ test("native PostgreSQL enforces exact preflight, service-only ACLs, and Fund PI
     assertExactFundPinRiTriggerSemantics(
       await fundPinRiTriggerSemantics(client),
     );
+    assertExactFundPinReferencedKeySemantics(
+      await fundPinReferencedKeySemantics(client),
+    );
 
     assert.deepEqual(
-      (await client.query(`
-        select to_jsonb(s) as row
-        from public.user_security_settings s
-        order by user_id
-      `)).rows,
+      await fundPinRowFingerprint(client),
       beforeRows,
     );
     assert.equal(
@@ -1227,14 +1687,14 @@ test("native PostgreSQL enforces exact preflight, service-only ACLs, and Fund PI
     )).rows[0].result;
     assert.equal(set.success, true);
     const stored = (await client.query(
-      `select fund_password_hash,
-              fund_password_hash = '1234' as plaintext
+      `select fund_password_hash = '1234' as plaintext,
+              fund_password_hash ~ '^\\$2[aby]\\$' as bcrypt_format
          from public.user_security_settings
         where user_id = $1::uuid`,
       [USER_ID],
     )).rows[0];
     assert.equal(stored.plaintext, false);
-    assert.match(stored.fund_password_hash, /^\$2[aby]\$/);
+    assert.equal(stored.bcrypt_format, true);
 
     const duplicateSet = (await client.query(
       "select public.set_fund_password_tx($1::uuid,'4321') as result",

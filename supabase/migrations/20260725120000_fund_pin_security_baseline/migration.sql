@@ -150,6 +150,127 @@ begin
     raise exception 'unexpected Fund PIN settings constraint catalog';
   end if;
 
+  if (
+    select count(*)
+    from pg_constraint constraint_row
+    where constraint_row.conrelid =
+        'public.user_security_settings'::regclass
+      and constraint_row.conname =
+        'user_security_settings_user_id_fkey'
+      and constraint_row.contype = 'f'
+  ) <> 1
+  or not exists (
+    select 1
+    from pg_constraint constraint_row
+    join pg_class child_relation
+      on child_relation.oid = constraint_row.conrelid
+    join pg_namespace child_schema
+      on child_schema.oid = child_relation.relnamespace
+    join pg_class parent_relation
+      on parent_relation.oid = constraint_row.confrelid
+    join pg_namespace parent_schema
+      on parent_schema.oid = parent_relation.relnamespace
+    join pg_index referenced_index
+      on referenced_index.indexrelid = constraint_row.conindid
+    join pg_class referenced_index_relation
+      on referenced_index_relation.oid = referenced_index.indexrelid
+    join pg_namespace referenced_index_schema
+      on referenced_index_schema.oid =
+        referenced_index_relation.relnamespace
+    join pg_am referenced_index_method
+      on referenced_index_method.oid = referenced_index_relation.relam
+    join pg_constraint primary_constraint
+      on primary_constraint.contype = 'p'
+     and primary_constraint.conrelid = constraint_row.confrelid
+     and primary_constraint.conindid = constraint_row.conindid
+    where constraint_row.conrelid =
+        'public.user_security_settings'::regclass
+      and constraint_row.conname =
+        'user_security_settings_user_id_fkey'
+      and constraint_row.contype = 'f'
+      and child_schema.nspname = 'public'
+      and child_relation.relname = 'user_security_settings'
+      and parent_schema.nspname = 'auth'
+      and parent_relation.relname = 'users'
+      and array(
+        select child_attribute.attname::text
+        from unnest(constraint_row.conkey)
+          with ordinality as child_key(attnum, position)
+        join pg_attribute child_attribute
+          on child_attribute.attrelid = constraint_row.conrelid
+         and child_attribute.attnum = child_key.attnum
+         and not child_attribute.attisdropped
+        order by child_key.position
+      ) = array['user_id']::text[]
+      and array(
+        select parent_attribute.attname::text
+        from unnest(constraint_row.confkey)
+          with ordinality as parent_key(attnum, position)
+        join pg_attribute parent_attribute
+          on parent_attribute.attrelid = constraint_row.confrelid
+         and parent_attribute.attnum = parent_key.attnum
+         and not parent_attribute.attisdropped
+        order by parent_key.position
+      ) = array['id']::text[]
+      and constraint_row.conindid <> 0
+      and referenced_index.indrelid = constraint_row.confrelid
+      and referenced_index_schema.nspname = 'auth'
+      and referenced_index_method.amname = 'btree'
+      and referenced_index.indisprimary is true
+      and referenced_index.indisunique is true
+      and referenced_index.indimmediate is true
+      and referenced_index.indisvalid is true
+      and referenced_index.indisready is true
+      and referenced_index.indislive is true
+      and referenced_index.indisexclusion is false
+      and referenced_index.indnkeyatts = 1
+      and referenced_index.indnatts = 1
+      and referenced_index.indexprs is null
+      and referenced_index.indpred is null
+      and array(
+        select index_attribute.attname::text
+        from unnest(referenced_index.indkey::smallint[])
+          with ordinality as index_key(attnum, position)
+        join pg_attribute index_attribute
+          on index_attribute.attrelid = referenced_index.indrelid
+         and index_attribute.attnum = index_key.attnum
+         and not index_attribute.attisdropped
+        where index_key.position <= referenced_index.indnkeyatts
+        order by index_key.position
+      ) = array['id']::text[]
+      and primary_constraint.convalidated is true
+      and primary_constraint.condeferrable is false
+      and primary_constraint.condeferred is false
+      and array(
+        select primary_attribute.attname::text
+        from unnest(primary_constraint.conkey)
+          with ordinality as primary_key(attnum, position)
+        join pg_attribute primary_attribute
+          on primary_attribute.attrelid = primary_constraint.conrelid
+         and primary_attribute.attnum = primary_key.attnum
+         and not primary_attribute.attisdropped
+        order by primary_key.position
+      ) = array['id']::text[]
+      and (
+        select count(*)
+        from pg_trigger trigger_row
+        where trigger_row.tgconstraint = constraint_row.oid
+      ) = 4
+      and not exists (
+        select 1
+        from pg_trigger trigger_row
+        where trigger_row.tgconstraint = constraint_row.oid
+          and (
+            trigger_row.tgconstrindid = 0
+            or trigger_row.tgconstrindid <>
+              constraint_row.conindid
+          )
+      )
+  ) then
+    raise exception
+      'unexpected Fund PIN settings referenced key and index catalog';
+  end if;
+
   if exists (
     with actual(
       index_name,
@@ -1203,6 +1324,127 @@ begin
     (select * from expected except select * from actual)
   ) then
     raise exception 'Fund PIN settings constraint postflight failed';
+  end if;
+
+  if (
+    select count(*)
+    from pg_constraint constraint_row
+    where constraint_row.conrelid =
+        'public.user_security_settings'::regclass
+      and constraint_row.conname =
+        'user_security_settings_user_id_fkey'
+      and constraint_row.contype = 'f'
+  ) <> 1
+  or not exists (
+    select 1
+    from pg_constraint constraint_row
+    join pg_class child_relation
+      on child_relation.oid = constraint_row.conrelid
+    join pg_namespace child_schema
+      on child_schema.oid = child_relation.relnamespace
+    join pg_class parent_relation
+      on parent_relation.oid = constraint_row.confrelid
+    join pg_namespace parent_schema
+      on parent_schema.oid = parent_relation.relnamespace
+    join pg_index referenced_index
+      on referenced_index.indexrelid = constraint_row.conindid
+    join pg_class referenced_index_relation
+      on referenced_index_relation.oid = referenced_index.indexrelid
+    join pg_namespace referenced_index_schema
+      on referenced_index_schema.oid =
+        referenced_index_relation.relnamespace
+    join pg_am referenced_index_method
+      on referenced_index_method.oid = referenced_index_relation.relam
+    join pg_constraint primary_constraint
+      on primary_constraint.contype = 'p'
+     and primary_constraint.conrelid = constraint_row.confrelid
+     and primary_constraint.conindid = constraint_row.conindid
+    where constraint_row.conrelid =
+        'public.user_security_settings'::regclass
+      and constraint_row.conname =
+        'user_security_settings_user_id_fkey'
+      and constraint_row.contype = 'f'
+      and child_schema.nspname = 'public'
+      and child_relation.relname = 'user_security_settings'
+      and parent_schema.nspname = 'auth'
+      and parent_relation.relname = 'users'
+      and array(
+        select child_attribute.attname::text
+        from unnest(constraint_row.conkey)
+          with ordinality as child_key(attnum, position)
+        join pg_attribute child_attribute
+          on child_attribute.attrelid = constraint_row.conrelid
+         and child_attribute.attnum = child_key.attnum
+         and not child_attribute.attisdropped
+        order by child_key.position
+      ) = array['user_id']::text[]
+      and array(
+        select parent_attribute.attname::text
+        from unnest(constraint_row.confkey)
+          with ordinality as parent_key(attnum, position)
+        join pg_attribute parent_attribute
+          on parent_attribute.attrelid = constraint_row.confrelid
+         and parent_attribute.attnum = parent_key.attnum
+         and not parent_attribute.attisdropped
+        order by parent_key.position
+      ) = array['id']::text[]
+      and constraint_row.conindid <> 0
+      and referenced_index.indrelid = constraint_row.confrelid
+      and referenced_index_schema.nspname = 'auth'
+      and referenced_index_method.amname = 'btree'
+      and referenced_index.indisprimary is true
+      and referenced_index.indisunique is true
+      and referenced_index.indimmediate is true
+      and referenced_index.indisvalid is true
+      and referenced_index.indisready is true
+      and referenced_index.indislive is true
+      and referenced_index.indisexclusion is false
+      and referenced_index.indnkeyatts = 1
+      and referenced_index.indnatts = 1
+      and referenced_index.indexprs is null
+      and referenced_index.indpred is null
+      and array(
+        select index_attribute.attname::text
+        from unnest(referenced_index.indkey::smallint[])
+          with ordinality as index_key(attnum, position)
+        join pg_attribute index_attribute
+          on index_attribute.attrelid = referenced_index.indrelid
+         and index_attribute.attnum = index_key.attnum
+         and not index_attribute.attisdropped
+        where index_key.position <= referenced_index.indnkeyatts
+        order by index_key.position
+      ) = array['id']::text[]
+      and primary_constraint.convalidated is true
+      and primary_constraint.condeferrable is false
+      and primary_constraint.condeferred is false
+      and array(
+        select primary_attribute.attname::text
+        from unnest(primary_constraint.conkey)
+          with ordinality as primary_key(attnum, position)
+        join pg_attribute primary_attribute
+          on primary_attribute.attrelid = primary_constraint.conrelid
+         and primary_attribute.attnum = primary_key.attnum
+         and not primary_attribute.attisdropped
+        order by primary_key.position
+      ) = array['id']::text[]
+      and (
+        select count(*)
+        from pg_trigger trigger_row
+        where trigger_row.tgconstraint = constraint_row.oid
+      ) = 4
+      and not exists (
+        select 1
+        from pg_trigger trigger_row
+        where trigger_row.tgconstraint = constraint_row.oid
+          and (
+            trigger_row.tgconstrindid = 0
+            or trigger_row.tgconstrindid <>
+              constraint_row.conindid
+          )
+      )
+  ) then
+    raise exception
+      'Fund PIN settings referenced key and index postflight failed';
   end if;
 
   if exists (
