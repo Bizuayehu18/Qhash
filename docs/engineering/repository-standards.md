@@ -1,6 +1,6 @@
 # Repository standards
 
-Status: Proposed engineering standard
+Status: Adopted incrementally; Phase 1 checks active
 Applies to: application code, server code, Netlify Functions, tests, documentation, and future generated artifacts
 
 ## Purpose
@@ -258,20 +258,14 @@ must update the type file deliberately and document how it was verified.
 Placeholder project IDs and ad hoc shell redirection are not an acceptable
 long-term workflow.
 
-## Target validation commands
+## Validation commands
 
-The repository currently lacks a single complete validation interface. The
-following script names describe the target contract; they must not be treated
-as available until added and documented in `package.json`.
+Phase 1 established one supported interface with Node `22.23.1`, npm `11.9.0`,
+a complete lockfile, and explicit test/typecheck scopes. The commands below are
+available in `package.json` and are documented in
+[Verification and generated artifacts](./verification.md).
 
-At the documented baseline, a reproducible clean `npm ci` result has not been
-demonstrated; recent task validation reported a manifest/lockfile mismatch.
-Broad application TypeScript also has known pre-existing diagnostics. Phase 1
-must reproduce, repair where confirmed, and capture these baselines before the
-target checks below become required gates. A prepared local install is not an
-acceptable long-term substitute for a reproducible clean install.
-
-| Target script | Responsibility |
+| Script | Responsibility |
 |---|---|
 | `test:portable` | deterministic tests requiring no live database or network |
 | `test:native` | PostgreSQL-specific schema, concurrency, drift, and security tests |
@@ -279,15 +273,20 @@ acceptable long-term substitute for a reproducible clean install.
 | `typecheck` | application TypeScript |
 | `typecheck:netlify` | Netlify/server TypeScript |
 | `check:routes-generated` | deterministic route-tree generation |
-| `check:database-types` | deterministic Supabase type generation |
+| `check:database-types` | committed Supabase type snapshot and migration-provenance drift |
 | `check:boundaries` | import direction and client/server boundaries |
 | `check:complexity` | initially report-only file/function warnings |
 | `check:docs` | links, required documents, ADR index, and formatting |
 | `verify` | the supported aggregate local/CI verification |
 
 Native tests must use isolated disposable PostgreSQL, separate connections
-where concurrency matters, and explicit readiness/teardown. Production
-databases and provider APIs are not test fixtures.
+where concurrency matters, serialized file-level schema setup, and explicit
+readiness/teardown. Production databases and provider APIs are not test
+fixtures.
+
+Existing complexity and server-bridge debt is recorded rather than
+grandfathered invisibly. A recorded warning may remain at or below its
+baseline; a new warning or an increase fails the check.
 
 ## Compatibility during reorganization
 

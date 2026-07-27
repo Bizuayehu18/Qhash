@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Repository revision `a1d1371fc35620dba9de911ae0f9c8561a98f5bb`
+**Scope:** Runtime baseline at repository revision `3e2fe504a0b60de84413bb595b6b21ce5b26a681`, plus the Phase 1 engineering controls documented below
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -57,15 +57,17 @@ The repository is organized mainly by technical layer, with several business dom
 
 | Area | Current role | Observed concentration |
 |---|---|---|
-| `src/routes` | TanStack route entry points and substantial page logic | `admin.tsx` is 2,335 lines, `withdraw.tsx` 1,149, and `deposit.tsx` 920 |
-| `src/components` | Shared UI plus a few extracted crypto flows | NOWPayments deposit, withdrawal, and admin components are 899, 489, and 538 lines |
+| `src/routes` | TanStack route entry points and substantial page logic | Phase 1 records 13 route files over the 150-nonblank-line warning, including `admin.tsx`, `withdraw.tsx`, and `deposit.tsx` |
+| `src/components` | Shared UI plus a few extracted crypto flows | Phase 1 records three NOWPayments components over the 300-nonblank-line warning |
 | `src/lib/server` | TanStack server functions for many domains in one flat folder | Large deposit, verification, withdrawal, earning, security, and admin modules |
 | `netlify/functions` | provider-facing, scheduled, verification, and admin Functions | NOWPayments handlers are partly decomposed through `netlify/functions/lib` |
 | `supabase/migrations` | forward-only Supabase schema history | authoritative production schema history; large applied files are immutable |
 | `netlify/database/migrations` | Netlify Database migration history | a different database; it is not the Supabase financial migration source |
 | `tests` | portable source tests and native PostgreSQL fixtures | several files exceed 1,500 lines; critical financial behavior has strong regression coverage |
 
-Line counts are orientation measurements at the pinned revision, not permanent limits.
+The exact report-only file measurements are machine recorded in
+`scripts/engineering-baseline.json`; they are orientation measurements, not
+permanent limits.
 
 ### Route concentration
 
@@ -73,29 +75,36 @@ The current user URLs are broad pages such as `/deposit`, `/withdraw`, and `/adm
 
 `src/components/layout/AppLayout.tsx` also hard-codes the navigation and route labels. The admin experience is a single large route rather than grouped Users, Deposits, Withdrawals, Plans, and Settings sections.
 
-### Generated-route drift
+### Generated route tree
 
-`src/routeTree.gen.ts` is generated and must not be hand-edited. At this revision it does not match the route filesystem: it references an authenticated `_app/support` route that is no longer present and omits the nested profile-security routes that are present. Builds can regenerate this file, which creates local/build-only noise and weakens confidence in a clean checkout.
-
-**Target recommendation:** add a deterministic route-generation and clean-tree check. Generated artifacts must be explicitly exempt from ordinary complexity rules but must be reproducible from source.
+`src/routeTree.gen.ts` is generated and must not be hand-edited. Phase 1
+regenerated the previously stale artifact from the route filesystem and added
+an exact temporary-output comparison. The production build now fails its
+prebuild check if the committed route tree is stale. Generated artifacts are
+excluded from ordinary complexity warnings but not from reproducibility
+checks.
 
 ### Type coverage
 
-`src/lib/database.types.ts` is the application-facing Supabase type snapshot. It is extensive but not demonstrated to be reproducibly generated and compared with the live schema in the normal validation workflow. `tsconfig.netlify.json` manually enumerates selected NOWPayments files rather than type-checking every server boundary.
+`src/lib/database.types.ts` remains the application-facing compatibility
+surface. Phase 1 also commits `src/lib/database.generated.ts`, the exact
+authorized read-only live Supabase type snapshot captured on 2026-07-27.
+Offline provenance checks pin both files, all migration paths/checksums, and
+the known compatibility gap: three tables and seven functions exist in the
+live snapshot but not yet in the compatibility surface.
 
-The dependency and application-type baselines are also not deterministic at
-this revision:
+The dependency and TypeScript baselines are now deterministic:
 
-- a reproducible clean `npm ci` result has not been established; recent task
-  validation reported a package manifest/lockfile mismatch, which Phase 1 must
-  reproduce before choosing the repair;
-- the scoped `npm run typecheck:netlify` check passes in established
-  validation environments, but the broad `tsc -p tsconfig.json` command
-  reports known pre-existing application diagnostics; and
-- validation has therefore sometimes relied on an already prepared or clean
-  local dependency installation rather than a reproducible lockfile install.
+- Node `22.23.1` and npm `11.9.0` are pinned across local, CI, and Netlify
+  declarations;
+- the repaired lockfile supports a clean
+  `npm ci --include=dev --no-audit --no-fund`;
+- complete application TypeScript passes; and
+- `tsconfig.netlify.json` covers every `netlify/functions/**/*.mts` file
+  instead of a manual allowlist.
 
-**Target recommendation:** make schema type generation or verification reproducible, and replace manual server-file allowlists with domain-aware checks that cannot silently omit a new handler.
+The compatibility type debt is deliberately frozen for later migration. Phase
+1 does not replace application types wholesale.
 
 ## Current identity model
 
@@ -164,11 +173,15 @@ At the pinned revision:
 2. The legacy ETB and provider-named USDT accounting models are not a provider-neutral international ledger.
 3. Authentication, public identity, country, and referral identity are coupled to username and Ethiopian phone assumptions.
 4. Two database systems exist, while their ownership boundary is not prominent in the main documentation.
-5. Generated route and database type artifacts can drift from their source.
-6. Dependency installation and full-application TypeScript do not yet have a
-   demonstrated clean, passing, reproducible baseline.
-7. The production command migrates before it builds, creating a strict compatibility requirement between old application code, new schema, and the new application build.
-8. Root documentation and historical checkpoints do not form an authoritative, navigable architecture set.
+5. Twenty-seven existing route/component-to-server bridge imports remain as
+   frozen legacy coupling; Phase 1 blocks growth but does not misclassify them
+   as a completed domain architecture.
+6. Thirty-eight existing file-size warnings identify decomposition debt; they
+   remain report-only at or below the recorded baseline.
+7. The compatibility Supabase type surface lacks three live tables and seven
+   live functions, although the authoritative generated snapshot and
+   migration provenance are now pinned.
+8. The production command migrates before it builds, creating a strict compatibility requirement between old application code, new schema, and the new application build.
 
 ## Non-negotiable rule for the reorganization
 

@@ -1,0 +1,63 @@
+{
+  "boundaries": {
+    "serverBridgeImports": 27
+  },
+  "complexity": {
+    "warnings": {
+      "src/components/admin/NowpaymentsUsdtWithdrawalAdmin.tsx": 517,
+      "src/components/deposit/NowpaymentsUsdtDeposit.tsx": 852,
+      "src/components/withdrawal/NowpaymentsUsdtWithdrawal.tsx": 466,
+      "src/lib/server/cbe-verify.ts": 1179,
+      "src/lib/server/deposits.ts": 1112,
+      "src/lib/server/security.ts": 461,
+      "src/lib/server/telebirr-verify.ts": 571,
+      "src/lib/server/withdrawals.ts": 757,
+      "src/routes/_app/admin-earnings.tsx": 229,
+      "src/routes/_app/admin.tsx": 2058,
+      "src/routes/_app/dashboard.tsx": 580,
+      "src/routes/_app/deposit.tsx": 818,
+      "src/routes/_app/notifications.tsx": 248,
+      "src/routes/_app/plans.tsx": 482,
+      "src/routes/_app/profile/security/fund-password.tsx": 295,
+      "src/routes/_app/profile/security.tsx": 157,
+      "src/routes/_app/profile.tsx": 216,
+      "src/routes/_app/referrals.tsx": 609,
+      "src/routes/_app/transactions.tsx": 214,
+      "src/routes/_app/withdraw.tsx": 1013,
+      "src/routes/_auth/register.tsx": 167,
+      "netlify/functions/lib/nowpayments-client.mts": 543,
+      "netlify/functions/lib/nowpayments-deposit-session.mts": 326,
+      "netlify/functions/lib/process-all-earnings.mts": 393,
+      "netlify/functions/nowpayments-usdt-deposit-overview.mts": 629,
+      "netlify/functions/nowpayments-usdt-deposit-session.mts": 423,
+      "netlify/functions/nowpayments-usdt-reconcile-payment.mts": 253,
+      "netlify/functions/nowpayments-usdt-withdrawal-admin.mts": 528,
+      "netlify/functions/nowpayments-usdt-withdrawal-request.mts": 336,
+      "netlify/functions/verifier-submit-telebirr-result.mts": 817,
+      "tests/deposit-approval-rpc-security.test.mjs": 1139,
+      "tests/fund-pin-security-database.test.mjs": 1735,
+      "tests/nowpayments-usdt-active-deposit-session.test.mjs": 1770,
+      "tests/nowpayments-usdt-deposit-ui.test.mjs": 1570,
+      "tests/nowpayments-usdt-ipn-settlement.test.mjs": 4221,
+      "tests/nowpayments-usdt-manual-withdrawal-database.test.mjs": 3245,
+      "tests/nowpayments-usdt-withdrawal-user.test.mjs": 825,
+      "tests/unified-cross-rail-withdrawal-database.test.mjs": 1718
+    }
+  },
+  "docs": {
+    "required": [
+      "docs/README.md",
+      "docs/architecture/current-state.md",
+      "docs/architecture/data-security-and-deployment.md",
+      "docs/architecture/domain-boundaries.md",
+      "docs/architecture/reorganization-roadmap.md",
+      "docs/architecture/routing-and-country-rails.md",
+      "docs/architecture/target-state.md",
+      "docs/architecture/decisions/README.md",
+      "docs/engineering/change-policy.md",
+      "docs/engineering/repository-standards.md",
+      "docs/engineering/verification.md",
+      "docs/product/international-usdt-requirements.md"
+    ]
+  }
+}

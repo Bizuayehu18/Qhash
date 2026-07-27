@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SupportRouteImport } from './routes/support'
 import { Route as FaqRouteImport } from './routes/faq'
 import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as AppRouteImport } from './routes/_app'
@@ -17,7 +18,6 @@ import { Route as AuthRegisterRouteImport } from './routes/_auth/register'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
 import { Route as AppWithdrawRouteImport } from './routes/_app/withdraw'
 import { Route as AppTransactionsRouteImport } from './routes/_app/transactions'
-import { Route as AppSupportRouteImport } from './routes/_app/support'
 import { Route as AppSecurityRouteImport } from './routes/_app/security'
 import { Route as AppReferralsRouteImport } from './routes/_app/referrals'
 import { Route as AppProfileRouteImport } from './routes/_app/profile'
@@ -25,9 +25,17 @@ import { Route as AppPlansRouteImport } from './routes/_app/plans'
 import { Route as AppNotificationsRouteImport } from './routes/_app/notifications'
 import { Route as AppDepositRouteImport } from './routes/_app/deposit'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
-import { Route as AppAdminRouteImport } from './routes/_app/admin'
 import { Route as AppAdminEarningsRouteImport } from './routes/_app/admin-earnings'
+import { Route as AppAdminRouteImport } from './routes/_app/admin'
+import { Route as AppProfileSecurityRouteImport } from './routes/_app/profile/security'
+import { Route as AppProfileSecurityLoginPasswordRouteImport } from './routes/_app/profile/security/login-password'
+import { Route as AppProfileSecurityFundPasswordRouteImport } from './routes/_app/profile/security/fund-password'
 
+const SupportRoute = SupportRouteImport.update({
+  id: '/support',
+  path: '/support',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const FaqRoute = FaqRouteImport.update({
   id: '/faq',
   path: '/faq',
@@ -66,11 +74,6 @@ const AppTransactionsRoute = AppTransactionsRouteImport.update({
   path: '/transactions',
   getParentRoute: () => AppRoute,
 } as any)
-const AppSupportRoute = AppSupportRouteImport.update({
-  id: '/support',
-  path: '/support',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppSecurityRoute = AppSecurityRouteImport.update({
   id: '/security',
   path: '/security',
@@ -106,52 +109,75 @@ const AppDashboardRoute = AppDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AppRoute,
 } as any)
-const AppAdminRoute = AppAdminRouteImport.update({
-  id: '/admin',
-  path: '/admin',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppAdminEarningsRoute = AppAdminEarningsRouteImport.update({
   id: '/admin-earnings',
   path: '/admin-earnings',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAdminRoute = AppAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppProfileSecurityRoute = AppProfileSecurityRouteImport.update({
+  id: '/security',
+  path: '/security',
+  getParentRoute: () => AppProfileRoute,
+} as any)
+const AppProfileSecurityLoginPasswordRoute =
+  AppProfileSecurityLoginPasswordRouteImport.update({
+    id: '/login-password',
+    path: '/login-password',
+    getParentRoute: () => AppProfileSecurityRoute,
+  } as any)
+const AppProfileSecurityFundPasswordRoute =
+  AppProfileSecurityFundPasswordRouteImport.update({
+    id: '/fund-password',
+    path: '/fund-password',
+    getParentRoute: () => AppProfileSecurityRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/faq': typeof FaqRoute
-  '/admin-earnings': typeof AppAdminEarningsRoute
+  '/support': typeof SupportRoute
   '/admin': typeof AppAdminRoute
+  '/admin-earnings': typeof AppAdminEarningsRoute
   '/dashboard': typeof AppDashboardRoute
   '/deposit': typeof AppDepositRoute
   '/notifications': typeof AppNotificationsRoute
   '/plans': typeof AppPlansRoute
-  '/profile': typeof AppProfileRoute
+  '/profile': typeof AppProfileRouteWithChildren
   '/referrals': typeof AppReferralsRoute
   '/security': typeof AppSecurityRoute
-  '/support': typeof AppSupportRoute
   '/transactions': typeof AppTransactionsRoute
   '/withdraw': typeof AppWithdrawRoute
   '/login': typeof AuthLoginRoute
   '/register': typeof AuthRegisterRoute
+  '/profile/security': typeof AppProfileSecurityRouteWithChildren
+  '/profile/security/fund-password': typeof AppProfileSecurityFundPasswordRoute
+  '/profile/security/login-password': typeof AppProfileSecurityLoginPasswordRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/faq': typeof FaqRoute
-  '/admin-earnings': typeof AppAdminEarningsRoute
+  '/support': typeof SupportRoute
   '/admin': typeof AppAdminRoute
+  '/admin-earnings': typeof AppAdminEarningsRoute
   '/dashboard': typeof AppDashboardRoute
   '/deposit': typeof AppDepositRoute
   '/notifications': typeof AppNotificationsRoute
   '/plans': typeof AppPlansRoute
-  '/profile': typeof AppProfileRoute
+  '/profile': typeof AppProfileRouteWithChildren
   '/referrals': typeof AppReferralsRoute
   '/security': typeof AppSecurityRoute
-  '/support': typeof AppSupportRoute
   '/transactions': typeof AppTransactionsRoute
   '/withdraw': typeof AppWithdrawRoute
   '/login': typeof AuthLoginRoute
   '/register': typeof AuthRegisterRoute
+  '/profile/security': typeof AppProfileSecurityRouteWithChildren
+  '/profile/security/fund-password': typeof AppProfileSecurityFundPasswordRoute
+  '/profile/security/login-password': typeof AppProfileSecurityLoginPasswordRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -159,28 +185,32 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/_auth': typeof AuthRouteWithChildren
   '/faq': typeof FaqRoute
-  '/_app/admin-earnings': typeof AppAdminEarningsRoute
+  '/support': typeof SupportRoute
   '/_app/admin': typeof AppAdminRoute
+  '/_app/admin-earnings': typeof AppAdminEarningsRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/deposit': typeof AppDepositRoute
   '/_app/notifications': typeof AppNotificationsRoute
   '/_app/plans': typeof AppPlansRoute
-  '/_app/profile': typeof AppProfileRoute
+  '/_app/profile': typeof AppProfileRouteWithChildren
   '/_app/referrals': typeof AppReferralsRoute
   '/_app/security': typeof AppSecurityRoute
-  '/_app/support': typeof AppSupportRoute
   '/_app/transactions': typeof AppTransactionsRoute
   '/_app/withdraw': typeof AppWithdrawRoute
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/register': typeof AuthRegisterRoute
+  '/_app/profile/security': typeof AppProfileSecurityRouteWithChildren
+  '/_app/profile/security/fund-password': typeof AppProfileSecurityFundPasswordRoute
+  '/_app/profile/security/login-password': typeof AppProfileSecurityLoginPasswordRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/faq'
-    | '/admin-earnings'
+    | '/support'
     | '/admin'
+    | '/admin-earnings'
     | '/dashboard'
     | '/deposit'
     | '/notifications'
@@ -188,17 +218,20 @@ export interface FileRouteTypes {
     | '/profile'
     | '/referrals'
     | '/security'
-    | '/support'
     | '/transactions'
     | '/withdraw'
     | '/login'
     | '/register'
+    | '/profile/security'
+    | '/profile/security/fund-password'
+    | '/profile/security/login-password'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/faq'
-    | '/admin-earnings'
+    | '/support'
     | '/admin'
+    | '/admin-earnings'
     | '/dashboard'
     | '/deposit'
     | '/notifications'
@@ -206,19 +239,22 @@ export interface FileRouteTypes {
     | '/profile'
     | '/referrals'
     | '/security'
-    | '/support'
     | '/transactions'
     | '/withdraw'
     | '/login'
     | '/register'
+    | '/profile/security'
+    | '/profile/security/fund-password'
+    | '/profile/security/login-password'
   id:
     | '__root__'
     | '/'
     | '/_app'
     | '/_auth'
     | '/faq'
-    | '/_app/admin-earnings'
+    | '/support'
     | '/_app/admin'
+    | '/_app/admin-earnings'
     | '/_app/dashboard'
     | '/_app/deposit'
     | '/_app/notifications'
@@ -226,11 +262,13 @@ export interface FileRouteTypes {
     | '/_app/profile'
     | '/_app/referrals'
     | '/_app/security'
-    | '/_app/support'
     | '/_app/transactions'
     | '/_app/withdraw'
     | '/_auth/login'
     | '/_auth/register'
+    | '/_app/profile/security'
+    | '/_app/profile/security/fund-password'
+    | '/_app/profile/security/login-password'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -238,10 +276,18 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   AuthRoute: typeof AuthRouteWithChildren
   FaqRoute: typeof FaqRoute
+  SupportRoute: typeof SupportRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/support': {
+      id: '/support'
+      path: '/support'
+      fullPath: '/support'
+      preLoaderRoute: typeof SupportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/faq': {
       id: '/faq'
       path: '/faq'
@@ -298,13 +344,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTransactionsRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/support': {
-      id: '/_app/support'
-      path: '/support'
-      fullPath: '/support'
-      preLoaderRoute: typeof AppSupportRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/_app/security': {
       id: '/_app/security'
       path: '/security'
@@ -354,13 +393,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/admin': {
-      id: '/_app/admin'
-      path: '/admin'
-      fullPath: '/admin'
-      preLoaderRoute: typeof AppAdminRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/_app/admin-earnings': {
       id: '/_app/admin-earnings'
       path: '/admin-earnings'
@@ -368,35 +400,86 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminEarningsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/admin': {
+      id: '/_app/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AppAdminRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/profile/security': {
+      id: '/_app/profile/security'
+      path: '/security'
+      fullPath: '/profile/security'
+      preLoaderRoute: typeof AppProfileSecurityRouteImport
+      parentRoute: typeof AppProfileRoute
+    }
+    '/_app/profile/security/login-password': {
+      id: '/_app/profile/security/login-password'
+      path: '/login-password'
+      fullPath: '/profile/security/login-password'
+      preLoaderRoute: typeof AppProfileSecurityLoginPasswordRouteImport
+      parentRoute: typeof AppProfileSecurityRoute
+    }
+    '/_app/profile/security/fund-password': {
+      id: '/_app/profile/security/fund-password'
+      path: '/fund-password'
+      fullPath: '/profile/security/fund-password'
+      preLoaderRoute: typeof AppProfileSecurityFundPasswordRouteImport
+      parentRoute: typeof AppProfileSecurityRoute
+    }
   }
 }
 
+interface AppProfileSecurityRouteChildren {
+  AppProfileSecurityFundPasswordRoute: typeof AppProfileSecurityFundPasswordRoute
+  AppProfileSecurityLoginPasswordRoute: typeof AppProfileSecurityLoginPasswordRoute
+}
+
+const AppProfileSecurityRouteChildren: AppProfileSecurityRouteChildren = {
+  AppProfileSecurityFundPasswordRoute: AppProfileSecurityFundPasswordRoute,
+  AppProfileSecurityLoginPasswordRoute: AppProfileSecurityLoginPasswordRoute,
+}
+
+const AppProfileSecurityRouteWithChildren =
+  AppProfileSecurityRoute._addFileChildren(AppProfileSecurityRouteChildren)
+
+interface AppProfileRouteChildren {
+  AppProfileSecurityRoute: typeof AppProfileSecurityRouteWithChildren
+}
+
+const AppProfileRouteChildren: AppProfileRouteChildren = {
+  AppProfileSecurityRoute: AppProfileSecurityRouteWithChildren,
+}
+
+const AppProfileRouteWithChildren = AppProfileRoute._addFileChildren(
+  AppProfileRouteChildren,
+)
+
 interface AppRouteChildren {
-  AppAdminEarningsRoute: typeof AppAdminEarningsRoute
   AppAdminRoute: typeof AppAdminRoute
+  AppAdminEarningsRoute: typeof AppAdminEarningsRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppDepositRoute: typeof AppDepositRoute
   AppNotificationsRoute: typeof AppNotificationsRoute
   AppPlansRoute: typeof AppPlansRoute
-  AppProfileRoute: typeof AppProfileRoute
+  AppProfileRoute: typeof AppProfileRouteWithChildren
   AppReferralsRoute: typeof AppReferralsRoute
   AppSecurityRoute: typeof AppSecurityRoute
-  AppSupportRoute: typeof AppSupportRoute
   AppTransactionsRoute: typeof AppTransactionsRoute
   AppWithdrawRoute: typeof AppWithdrawRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
-  AppAdminEarningsRoute: AppAdminEarningsRoute,
   AppAdminRoute: AppAdminRoute,
+  AppAdminEarningsRoute: AppAdminEarningsRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppDepositRoute: AppDepositRoute,
   AppNotificationsRoute: AppNotificationsRoute,
   AppPlansRoute: AppPlansRoute,
-  AppProfileRoute: AppProfileRoute,
+  AppProfileRoute: AppProfileRouteWithChildren,
   AppReferralsRoute: AppReferralsRoute,
   AppSecurityRoute: AppSecurityRoute,
-  AppSupportRoute: AppSupportRoute,
   AppTransactionsRoute: AppTransactionsRoute,
   AppWithdrawRoute: AppWithdrawRoute,
 }
@@ -420,6 +503,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   AuthRoute: AuthRouteWithChildren,
   FaqRoute: FaqRoute,
+  SupportRoute: SupportRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

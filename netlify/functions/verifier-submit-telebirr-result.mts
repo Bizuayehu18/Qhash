@@ -95,7 +95,7 @@ function parseEthiopiaPaymentDate(raw: string): Date | null {
 }
 
 async function saveForManualReview(
-  admin: ReturnType<typeof createClient>,
+  admin: ReturnType<typeof createClient<any>>,
   depositId: string,
   reason: string,
 ) {

@@ -1,8 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getAdminClient } from "./supabase-admin.js";
 import { throwSafe } from "../errors.js";
+import type { TransactionType } from "../database.types.js";
 
-const REFERRAL_REWARD_TRANSACTION_TYPES = [
+const REFERRAL_REWARD_TRANSACTION_TYPES: readonly TransactionType[] = [
   "referral_investment_bonus",
   "referral_daily_bonus",
 ];

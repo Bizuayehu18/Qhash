@@ -1,0 +1,145 @@
+# Verification and generated artifacts
+
+Status: Active engineering contract
+
+## Purpose
+
+This document defines the reproducible Phase 1 baseline that must remain green
+before broad file reorganization or international-USDT behavior work begins.
+These checks validate source and isolated fixtures. They do not authorize or
+perform production database, endpoint, provider, deployment, or financial
+actions.
+
+## Pinned toolchain and clean install
+
+QHash uses exactly:
+
+- Node `22.23.1`;
+- npm `11.9.0`; and
+- the committed `package-lock.json` lockfile version 3 graph.
+
+The versions are declared consistently in `.nvmrc`, `.node-version`,
+`package.json`, `netlify.toml`, and the GitHub Actions workflow. Install from a
+clean checkout with:
+
+```bash
+npm ci --include=dev --no-audit --no-fund
+```
+
+Do not repair a failed clean install with an uncommitted `npm install`.
+Regenerate the lockfile only as a deliberate dependency change using the
+pinned toolchain.
+
+## Supported commands
+
+| Command | Contract |
+|---|---|
+| `npm run verify` | Clean-install-independent aggregate: toolchain and lock checks, portable and handler tests, both TypeScript scopes, generated/provenance checks, architecture checks, and production build |
+| `npm run test:portable` | Explicit manifest of every `tests/*.test.mjs` file with live-database access removed; native-only sections may skip |
+| `npm run test:handlers` | Focused Netlify handler authentication, validation, and response-contract tests |
+| `npm run typecheck` | Complete application TypeScript scope |
+| `npm run typecheck:netlify` | Every `netlify/functions/**/*.mts` server entry and library |
+| `npm run check:routes-generated` | Regenerates the TanStack route tree into a temporary sibling and compares exact bytes |
+| `npm run check:database-types` | Verifies the committed live-schema snapshot, compatibility debt, and exact Supabase migration inventory against the recorded provenance baseline |
+| `npm run check:boundaries` | Blocks new client/server leaks, reverse route dependencies, uncovered Function entrypoints, and growth in recorded server bridges |
+| `npm run check:complexity` | Reports existing size debt and blocks new or increased warnings |
+| `npm run check:docs` | Verifies required documents, relative links, code fences, ADR status, and ADR index coverage |
+| `npm run verify:native` | Runs the PostgreSQL-specific manifest against an explicitly local disposable database |
+
+The test manifest deliberately excludes `scripts/test-referral-chain.mts`.
+That file is a destructive live diagnostic helper, not a repository
+verification test.
+
+## Native PostgreSQL safety
+
+Native tests require `TEST_DATABASE_URL`. The runner refuses the URL unless:
+
+- the host is `localhost`, `127.0.0.1`, or `::1`; and
+- the database name begins with `qhash_test_`.
+
+Example:
+
+```bash
+TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/qhash_test_local \
+  npm run verify:native
+```
+
+Concurrency fixtures use separate connections where the invariant requires
+real cross-connection behavior. The runner serializes native test files so
+their schema setup cannot collide; concurrency inside each file remains real.
+Production Supabase is never a test fixture.
+
+## TanStack route tree
+
+`src/routeTree.gen.ts` is generated from `src/routes` with the pinned
+`@tanstack/router-generator`. The standalone generator configuration appends
+the same TanStack Start module-augmentation footer as the production Vite
+plugin, so both paths produce identical bytes:
+
+```bash
+npm run generate:routes
+npm run check:routes-generated
+```
+
+The file is committed because the application imports it. It must never be
+edited by hand. A build that silently changes it indicates repository drift.
+
+## Supabase database types and provenance
+
+Two files have different Phase 1 responsibilities:
+
+- `src/lib/database.generated.ts` is the exact read-only type snapshot
+  generated from live Supabase project `wsgxmvmkibliccsktiqj` on
+  2026-07-27; and
+- `src/lib/database.types.ts` is the existing application compatibility
+  surface and remains in use until a separately reviewed typed-client
+  migration.
+
+`scripts/database-types-baseline.json` records:
+
+- the generated snapshot hash and public table/function inventory;
+- the compatibility snapshot hash and known missing table/function types; and
+- every legacy `supabase/migrations/*.sql` and directory-based
+  `supabase/migrations/*/migration.sql` path and checksum.
+
+The default CI check is intentionally offline. It proves that neither the
+schema snapshot, compatibility surface, nor migration history changed without
+an explicit baseline update. It does not claim to query production on every
+build.
+
+When a reviewed schema change is made:
+
+1. apply it only to the authorized environment through the normal migration
+   workflow;
+2. regenerate `src/lib/database.generated.ts` from the intended Supabase
+   schema using official Supabase type generation or the read-only connector;
+3. review the generated diff and compatibility impact;
+4. run `npm run update:database-types-baseline`;
+5. run `npm run check:database-types`; and
+6. document the source environment and migration checksum in the PR.
+
+Do not replace `database.types.ts` wholesale during an unrelated schema PR.
+Its recorded gaps are migration debt, not permission for untyped casts.
+
+## Architecture baselines
+
+The boundary and complexity checks start from observed legacy debt:
+
+- 27 existing TanStack server-bridge imports; and
+- 38 current file-size warnings.
+
+Those findings are report-only at their recorded values. New boundary leaks,
+new warning files, or growth in an existing warning fail verification. This
+lets QHash reorganize incrementally without pretending the current flat
+repository is already the target architecture.
+
+## CI
+
+`.github/workflows/verify.yml` runs:
+
+- the portable aggregate on current Ubuntu and Windows runners with the exact
+  Node/npm versions; and
+- native database tests against an isolated PostgreSQL 17 service.
+
+CI also verifies that validation did not rewrite dependency or generated
+artifacts.

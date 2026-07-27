@@ -53,6 +53,10 @@ access and actions explicitly allowed for the task.
 
 - [Repository standards](engineering/repository-standards.md)
 - [Change policy](engineering/change-policy.md)
+- [Verification and generated artifacts](engineering/verification.md)
+- [CI verification workflow](../.github/workflows/verify.yml)
+- [Boundary and complexity baseline](../scripts/engineering-baseline.json)
+- [Database-type provenance baseline](../scripts/database-types-baseline.json)
 
 ## Historical evidence
 
