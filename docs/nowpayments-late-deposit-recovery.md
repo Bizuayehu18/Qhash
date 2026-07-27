@@ -1,5 +1,8 @@
 # NOWPayments late-deposit recovery
 
+Status: current operational runbook
+Scope: late provider payments for the deployed NOWPayments USDT-BEP20 deposit rail
+
 QHash cannot automatically discover a late NOWPayments child payment ID that
 NOWPayments has never sent. NOWPayments does not provide a supported API for
 searching an expired address or blockchain transaction hash to discover that
