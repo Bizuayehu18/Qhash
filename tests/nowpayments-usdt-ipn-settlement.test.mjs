@@ -429,9 +429,11 @@ async function createProductionLifecycleBaseline(t) {
   await db.exec(`
     update public.nowpayments_usdt_payments
     set provider_created_at = '2026-07-20T15:13:56Z',
-        provider_valid_until = '2026-07-27T15:13:56Z';
+        provider_valid_until = '2026-07-27T15:13:56Z',
+        credited_at = '2026-07-20T16:35:38Z';
     update public.nowpayments_usdt_provider_payments
-    set provider_verified_at = '2026-07-20T16:35:38Z'
+    set provider_verified_at = '2026-07-20T16:35:38Z',
+        credited_at = '2026-07-20T16:35:38Z'
     where payment_kind = 'original';
   `);
   return { db, session };
