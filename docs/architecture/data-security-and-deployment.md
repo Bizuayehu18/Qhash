@@ -39,8 +39,8 @@ NOWPayments is a payment-evidence/provider boundary, not QHash's customer ledger
 
 | Boundary | Current requirement |
 |---|---|
-| Browser to Supabase | anon client plus Auth session and RLS; no service-role secret |
-| Browser to TanStack/Netlify server | validate input and access token, derive caller identity from Auth, bind own-data access to that identity, and load/enforce the authoritative profile where eligibility, freeze state, role, or capability applies |
+| Browser to Supabase | Supabase Auth flows use the anon client; authenticated Data API access uses the Auth session and RLS; no service-role secret |
+| Browser to TanStack/Netlify server | Private operations validate input and access token, derive caller identity from Auth, bind own-data access to that identity, and load/enforce the authoritative profile where eligibility, freeze state, role, or capability applies. A deliberately public read endpoint must be narrowly classified, accept no caller-controlled ownership or financial authority, and return only a fixed sanitized projection. |
 | Administrator action | require active, non-frozen profile with `is_admin = TRUE`; UI visibility is insufficient |
 | Server to Supabase | service-role client exists only in server runtime |
 | Financial transition | protected database RPC with explicit locks and atomic mutation; stable action IDs and exact replay where the command contract supports them |
@@ -55,6 +55,7 @@ The client-provided user ID, amount, role, status, balance, provider result, or 
 The trust-boundary table states the required design. It must not be read as a
 claim that every legacy database function already satisfies that design.
 
+The live catalog and advisor snapshot below was observed on 2026-07-27 UTC.
 At the scoped revision:
 
 - `public.approve_deposit_tx(uuid, uuid, text, text, numeric)` is verified as
