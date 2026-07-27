@@ -1,0 +1,342 @@
+{
+  "projectRef": "wsgxmvmkibliccsktiqj",
+  "generatedAt": "2026-07-27T22:02:16.942Z",
+  "generatedSnapshot": {
+    "path": "src/lib/database.generated.ts",
+    "sha256": "8fbb15794c708cfab862f492fe712a180cdf13b911979bec78ca3cca44d7c4b5",
+    "tables": [
+      "_qhash_migrations",
+      "admin_security_reset_audit",
+      "app_settings",
+      "crypto_deposit_addresses",
+      "crypto_deposits",
+      "deposit_verification_logs",
+      "deposits",
+      "earning_run_logs",
+      "investments",
+      "notifications",
+      "nowpayments_usdt_config",
+      "nowpayments_usdt_ledger_entries",
+      "nowpayments_usdt_payments",
+      "nowpayments_usdt_provider_payments",
+      "nowpayments_usdt_wallets",
+      "nowpayments_usdt_withdrawal_broadcasts",
+      "nowpayments_usdt_withdrawal_events",
+      "nowpayments_usdt_withdrawal_verifications",
+      "nowpayments_usdt_withdrawals",
+      "payment_methods",
+      "plans",
+      "profiles",
+      "referral_reward_logs",
+      "referrals",
+      "transactions",
+      "user_security_settings",
+      "wallets",
+      "withdrawals"
+    ],
+    "functions": [
+      "approve_deposit_tx",
+      "approve_withdrawal_tx",
+      "assert_safe_nowpayments_usdt_withdrawal_destination",
+      "change_fund_password_tx",
+      "claim_nowpayments_usdt_deposit_session",
+      "claim_nowpayments_usdt_withdrawal_review",
+      "complete_nowpayments_usdt_deposit_session",
+      "complete_nowpayments_usdt_withdrawal",
+      "complete_nowpayments_usdt_withdrawal_manual",
+      "configure_nowpayments_usdt_deposit_session_amounts",
+      "credit_investment_referral_reward",
+      "credit_mining_referral_reward",
+      "get_current_nowpayments_usdt_deposit_session",
+      "get_fund_password_status_tx",
+      "get_nowpayments_usdt_deposit_overview_snapshot",
+      "increment_wallet_balance",
+      "is_admin",
+      "is_canonical_uuid_v4",
+      "lock_nowpayments_usdt_withdrawal_send",
+      "mark_nowpayments_usdt_deposit_session_manual_recovery",
+      "process_due_investment_earning",
+      "purchase_plan_tx",
+      "record_nowpayments_usdt_deposit_session_status",
+      "record_nowpayments_usdt_withdrawal_broadcast",
+      "reject_nowpayments_usdt_withdrawal",
+      "reject_nowpayments_usdt_withdrawal_manual",
+      "reject_withdrawal_tx",
+      "request_nowpayments_usdt_withdrawal",
+      "request_withdrawal_tx",
+      "reset_user_fund_password_tx",
+      "set_fund_password_tx",
+      "settle_verified_nowpayments_usdt_payment",
+      "settle_verified_nowpayments_usdt_payment_serialized_inner",
+      "take_over_nowpayments_usdt_withdrawal",
+      "verify_fund_password_tx"
+    ]
+  },
+  "compatibilitySnapshot": {
+    "path": "src/lib/database.types.ts",
+    "sha256": "6ad2d8b6e41118c91067fdc962cc156d4149ac217dd83d6079bf4f3133564727",
+    "tables": [
+      "app_settings",
+      "crypto_deposit_addresses",
+      "crypto_deposits",
+      "deposits",
+      "earning_run_logs",
+      "investments",
+      "notifications",
+      "nowpayments_usdt_config",
+      "nowpayments_usdt_ledger_entries",
+      "nowpayments_usdt_payments",
+      "nowpayments_usdt_provider_payments",
+      "nowpayments_usdt_wallets",
+      "nowpayments_usdt_withdrawal_broadcasts",
+      "nowpayments_usdt_withdrawal_events",
+      "nowpayments_usdt_withdrawal_verifications",
+      "nowpayments_usdt_withdrawals",
+      "payment_methods",
+      "plans",
+      "profiles",
+      "referral_reward_logs",
+      "referrals",
+      "transactions",
+      "user_security_settings",
+      "wallets",
+      "withdrawals"
+    ],
+    "functions": [
+      "approve_deposit_tx",
+      "change_fund_password_tx",
+      "claim_nowpayments_usdt_deposit_session",
+      "claim_nowpayments_usdt_withdrawal_review",
+      "complete_nowpayments_usdt_deposit_session",
+      "complete_nowpayments_usdt_withdrawal",
+      "complete_nowpayments_usdt_withdrawal_manual",
+      "configure_nowpayments_usdt_deposit_session_amounts",
+      "credit_investment_referral_reward",
+      "get_current_nowpayments_usdt_deposit_session",
+      "get_fund_password_status_tx",
+      "get_nowpayments_usdt_deposit_overview_snapshot",
+      "increment_wallet_balance",
+      "is_admin",
+      "lock_nowpayments_usdt_withdrawal_send",
+      "mark_nowpayments_usdt_deposit_session_manual_recovery",
+      "process_due_investment_earning",
+      "purchase_plan_tx",
+      "record_nowpayments_usdt_deposit_session_status",
+      "record_nowpayments_usdt_withdrawal_broadcast",
+      "reject_nowpayments_usdt_withdrawal",
+      "reject_nowpayments_usdt_withdrawal_manual",
+      "request_nowpayments_usdt_withdrawal",
+      "reset_user_fund_password_tx",
+      "set_fund_password_tx",
+      "settle_verified_nowpayments_usdt_payment",
+      "take_over_nowpayments_usdt_withdrawal",
+      "verify_fund_password_tx"
+    ]
+  },
+  "compatibilityGaps": {
+    "tables": [
+      "_qhash_migrations",
+      "admin_security_reset_audit",
+      "deposit_verification_logs"
+    ],
+    "functions": [
+      "approve_withdrawal_tx",
+      "assert_safe_nowpayments_usdt_withdrawal_destination",
+      "credit_mining_referral_reward",
+      "is_canonical_uuid_v4",
+      "reject_withdrawal_tx",
+      "request_withdrawal_tx",
+      "settle_verified_nowpayments_usdt_payment_serialized_inner"
+    ]
+  },
+  "migrations": [
+    {
+      "path": "supabase/migrations/20260512000000_qhash_schema.sql",
+      "sha256": "9d40087af05fda3846aaa67211976ede1f9343ba9f40c23c3256aaa9a0c2c17e"
+    },
+    {
+      "path": "supabase/migrations/20260512100000_deposits_phase4.sql",
+      "sha256": "37ea60cf8899b8c57fd810554eb2724863905d851377438bc909b4263f675ed8"
+    },
+    {
+      "path": "supabase/migrations/20260512200000_deposit_stabilization.sql",
+      "sha256": "197d2e770db17ee6425f194f980f67a337cd48e1387b5704785902ea0a90ebb5"
+    },
+    {
+      "path": "supabase/migrations/20260513000000_add_deposit_verification.sql",
+      "sha256": "5a379ff2153a90e5b9647acf1ecf076a0a765b8241470e5b83673fda2007a251"
+    },
+    {
+      "path": "supabase/migrations/20260513100000_fix_verification_rls_and_rpc.sql",
+      "sha256": "668e0abbe56e3184bff69f5707f3e8b5f1498679c2b10947b744cf54e07adb58"
+    },
+    {
+      "path": "supabase/migrations/20260514000000_remove_deposit_verification.sql",
+      "sha256": "18a37a3b60d64e01d5c60b7d96ff9c26fba64d1e6a98415b67ec84f45670078a"
+    },
+    {
+      "path": "supabase/migrations/20260514200000_add_account_last_8.sql",
+      "sha256": "d927652379b3359ea3b0ab94455937ed06ec4883d784ab6c7c6b6ad9ae219916"
+    },
+    {
+      "path": "supabase/migrations/20260514300000_approve_deposit_transaction.sql",
+      "sha256": "4b6d9cb04ff74f4e741143fdd0465ded660235340a5f712867f31643e9d50fdc"
+    },
+    {
+      "path": "supabase/migrations/20260515000000_fix_deposit_amount_and_approval.sql",
+      "sha256": "9083602dbf3b94d7ff2aab8f4e6ec135cb1fb69995b508ce06cf0f795cb35bde"
+    },
+    {
+      "path": "supabase/migrations/20260515100000_referral_normalization.sql",
+      "sha256": "a3bc270efc18a73cf8601451297392f8f8e19dd73e57fcf4cadcc6c6cd591ee8"
+    },
+    {
+      "path": "supabase/migrations/20260515200000_purchase_plan_transaction.sql",
+      "sha256": "0ba86b144962f05f8b2a388c405d1336b7ef696370a1f20755407952c9c1dc3e"
+    },
+    {
+      "path": "supabase/migrations/20260515300000_stabilize_approval_schema.sql",
+      "sha256": "04a49cf5fa17047713cc52e199fb584bf65930ddcc21425c2bc81eedade90f76"
+    },
+    {
+      "path": "supabase/migrations/20260515400000_grant_referral_engine_tables.sql",
+      "sha256": "ee7576780787070306460808b715a4e154034a0f8c5528a9402d6978bbf75d5f"
+    },
+    {
+      "path": "supabase/migrations/20260516000000_grant_referral_engine_remaining_tables.sql",
+      "sha256": "d008ffab2ab433c76387a2d46ea0448fb9f7d1e06e0ca23f21e90fb8b43ca31a"
+    },
+    {
+      "path": "supabase/migrations/20260516100000_harden_referral_chain_trigger.sql",
+      "sha256": "3d39697971970c10a76e89eade62b681e28a801d6db7652f9891ba5692d78cd3"
+    },
+    {
+      "path": "supabase/migrations/20260516200000_harden_referral_chain_exception.sql",
+      "sha256": "7784f4777bcacacd306ec545335c33ac0c1899f420ac2b82803b087490c8dad7"
+    },
+    {
+      "path": "supabase/migrations/20260517000000_grant_referral_reward_logs.sql",
+      "sha256": "8cc12a5410ddb0fe7fc93cad5ce19f5e246b2068cfd0efe53a34cbf5ca2f8efe"
+    },
+    {
+      "path": "supabase/migrations/20260518000000_remove_rpc_notification_inserts.sql",
+      "sha256": "09616834390bacba1f04568c79e229132c384dbcd905bf3164daeac912a72e71"
+    },
+    {
+      "path": "supabase/migrations/20260519000000_harden_approve_deposit_amount.sql",
+      "sha256": "f35abeee76ddf26a4fbb894e5cee01500fd21853a244b5c3a3a17af2be941851"
+    },
+    {
+      "path": "supabase/migrations/20260526000000_align_approve_deposit_tx_with_live_rpc.sql",
+      "sha256": "fd7beb9545be1d4608d6d5cbd96b158efe02f44e1c778e0d0ec5c3fd42f9c569"
+    },
+    {
+      "path": "supabase/migrations/20260604120000_add_deposit_verification_logs.sql",
+      "sha256": "c7859b11db06c4087bbe8446aa9437c0196db5ed8ac311e4655c3f285099cb0e"
+    },
+    {
+      "path": "supabase/migrations/20260605222402_add_payment_methods_is_archived.sql",
+      "sha256": "8be4fca69bbc802a380a8f4d5897db98004129dd4d461dc85f5beeb1e9ef1442"
+    },
+    {
+      "path": "supabase/migrations/20260622165000_atomic_mining_referral_rewards/migration.sql",
+      "sha256": "e6ca3178ec77ae91a49d467012a54e3da23c04b02b4ce23640576653656c7888"
+    },
+    {
+      "path": "supabase/migrations/20260623170000_atomic_plan_purchase/migration.sql",
+      "sha256": "d5116f445b5d68aabd4702085bce1eec84f8d8f865753a358cc3d5d5db6c0f31"
+    },
+    {
+      "path": "supabase/migrations/20260623210000_contract_plan_rules/migration.sql",
+      "sha256": "3203be030f83a925e6d7d021a37347da0764ab72309053e7f01bd070bb61cd2d"
+    },
+    {
+      "path": "supabase/migrations/20260710120000_crypto_deposit_foundation/migration.sql",
+      "sha256": "a2070ab0933d06417ae23d7a33620957af58c3e895e50978b1de7d0415ceee83"
+    },
+    {
+      "path": "supabase/migrations/20260716160000_bsc_confirmation_writer/migration.sql",
+      "sha256": "9b34e077d4f3809374b73f1c652fb3560c47aff712f8a32fc609d2fa2d0dd12c"
+    },
+    {
+      "path": "supabase/migrations/20260716185000_crypto_manual_crediting_uuid_preflight/migration.sql",
+      "sha256": "e12bcba1ccbe01a14363ac8cb70ab14effd94dfd273ab99d438ab722e8f5cc03"
+    },
+    {
+      "path": "supabase/migrations/20260716190000_crypto_manual_crediting/migration.sql",
+      "sha256": "365ebc810be3b02a0d255e8199b2c4ac02566c0521077bd87ebfebb768e60c60"
+    },
+    {
+      "path": "supabase/migrations/20260717030000_crypto_user_id_uuid_repair/migration.sql",
+      "sha256": "00f542b707ddaa0f2d39d4afd986daa768712106b3a65c42bae4e2a012ad0173"
+    },
+    {
+      "path": "supabase/migrations/20260717130000_crypto_reference_id_uuid_repair/migration.sql",
+      "sha256": "b52ab0141b5fd923c9534f02158b07c7097a340b98f85b0bde412c5430e79ab5"
+    },
+    {
+      "path": "supabase/migrations/20260717150000_crypto_schema_reconciliation/migration.sql",
+      "sha256": "335151426330fdc89ab466237a2847c45c4debbc17383a7af2735ed521bfdfdc"
+    },
+    {
+      "path": "supabase/migrations/20260717170000_bsc_user_deposit_exposure/migration.sql",
+      "sha256": "246775eb505713eb8389d3c0ec7a13063e4bc8e1805e31916f3516af96c633f4"
+    },
+    {
+      "path": "supabase/migrations/20260717221500_bsc_address_rotation/migration.sql",
+      "sha256": "11bb859d467f19171f39033eac55cfe5786d65fe462ccc48f7bc9be993d68a21"
+    },
+    {
+      "path": "supabase/migrations/20260718120000_native_crypto_database_retirement/migration.sql",
+      "sha256": "cc865de944ee381270beb504f7c5ee1b5db0b1f1e81edfbfae19f5e2efc19341"
+    },
+    {
+      "path": "supabase/migrations/20260718190000_nowpayments_usdt_bep20_foundation/migration.sql",
+      "sha256": "71d5dcf4ef7884c3f7a6265f44f172097fea5cb863436056836ef8cfe7943285"
+    },
+    {
+      "path": "supabase/migrations/20260718220000_nowpayments_active_deposit_session/migration.sql",
+      "sha256": "3ebe27c774ec0ae61936359fe996ebf8fd2bd4b7046be0d42e9a7d254d8e7ca8"
+    },
+    {
+      "path": "supabase/migrations/20260719120000_nowpayments_ipn_settlement/migration.sql",
+      "sha256": "7a23e0b260a070c9e93c406a2e3f362e4a3262d678d077c51bcd9a0d448987d3"
+    },
+    {
+      "path": "supabase/migrations/20260720213000_nowpayments_gross_deposit_credit/migration.sql",
+      "sha256": "83876949fd240f7550ef4705db2a4ed469c8ded01980543fc4969f323573280c"
+    },
+    {
+      "path": "supabase/migrations/20260721120000_nowpayments_permanent_deposit_address_lifecycle/migration.sql",
+      "sha256": "988bf37f00234123fd525290aff21acf339cc707fcd6c344f57ee0defa3073ed"
+    },
+    {
+      "path": "supabase/migrations/20260722120000_nowpayments_manual_usdt_withdrawal_database/migration.sql",
+      "sha256": "4d749343cdfa11e2aeed47a0984899174384be8de318cc8d9cbfd322c0caf257"
+    },
+    {
+      "path": "supabase/migrations/20260723120000_nowpayments_usdt_withdrawal_maximum_precision/migration.sql",
+      "sha256": "3b3fc6536b4b52249626b5ee8bffad03e8317079046aaa0f97e8a08698537c33"
+    },
+    {
+      "path": "supabase/migrations/20260724120000_nowpayments_simplified_manual_usdt_withdrawal/migration.sql",
+      "sha256": "cb4fa9986c9b50fc6ec7e2c0c8557cd18acaef4c5c7a2f367cc5230596b6cf32"
+    },
+    {
+      "path": "supabase/migrations/20260725120000_fund_pin_security_baseline/migration.sql",
+      "sha256": "964f169b563d74abd34c6d45b386df3de9b6ced12045c385a9f006aff2b2d384"
+    },
+    {
+      "path": "supabase/migrations/20260726120000_unified_cross_rail_withdrawal_policy/migration.sql",
+      "sha256": "4a1dcdd969d9da8f08f2a447c6828040fbc365393bfb138bad70124941548577"
+    },
+    {
+      "path": "supabase/migrations/20260727120000_nowpayments_shared_global_deposit_pause/migration.sql",
+      "sha256": "50ba90e6ce288a4edf6343712af94be5b39689b14529bef5d9d88ebed9ab3bcd"
+    },
+    {
+      "path": "supabase/migrations/20260727210000_harden_legacy_deposit_approval_rpc/migration.sql",
+      "sha256": "33a198046e306cce146860e4079abc881833c439b9303f833c73aa8768415633"
+    }
+  ]
+}

@@ -8,6 +8,14 @@ Reorganize QHash into understandable domain modules before the international
 USDT conversion, while preserving current production behavior and financial
 evidence. The reorganization is not a rewrite and is not the currency cutover.
 
+## Phase status
+
+| Phase | Status |
+|---|---|
+| Phase 0 — Architecture foundation | Complete |
+| Phase 1 — Deterministic engineering baseline | Implemented in repository; requires clean-checkout CI and merge before Phase 2 |
+| Phase 2 and later | Not started |
+
 ## Invariants throughout the roadmap
 
 - GitHub, deployed application, migration ledger, and live schema are compared
@@ -25,7 +33,7 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 
 ## Phase 0 — Architecture foundation
 
-Deliver:
+Delivered:
 
 - authoritative architecture and product-document indexes;
 - current-state and target-state descriptions;
@@ -43,29 +51,32 @@ Exit criteria:
 
 ## Phase 1 — Deterministic engineering baseline
 
-Add report-only or drift checks for:
+Implemented:
 
-- dependency-manifest and lockfile parity;
-- a reproducible clean `npm ci` installation;
-- portable tests;
-- native PostgreSQL tests;
-- Netlify handler tests;
-- application and Netlify TypeScript;
-- route-tree generation;
-- Supabase type generation;
-- import boundaries;
-- file/function complexity;
-- documentation links and ADR index.
+- exact Node `22.23.1` and npm `11.9.0` pins across local, CI, and Netlify
+  declarations;
+- dependency-manifest/lock parity and optional native-package closure;
+- a reproducible clean `npm ci --include=dev --no-audit --no-fund`;
+- explicit portable, native PostgreSQL, and Netlify handler test manifests;
+- complete application and all-Netlify-Function TypeScript scopes;
+- deterministic TanStack route generation and drift detection;
+- an authorized live Supabase type snapshot with offline hash, compatibility,
+  and migration-provenance checks;
+- import-boundary no-growth enforcement;
+- 38 report-only complexity warnings with no-growth enforcement;
+- documentation link, code-fence, required-document, ADR status, and ADR index
+  checks; and
+- Windows/Linux portable CI plus isolated PostgreSQL 17 native CI.
 
-First capture the current baseline. Complexity and legacy-boundary findings are
-warnings, not arbitrary blockers. New client/server leaks, generated drift,
-and undocumented architecture decisions may block once the checks are proven
-stable. Reproduce the reported `package.json`/`package-lock.json` mismatch from
-a clean checkout and repair it only if confirmed; if the report is stale,
-record the actual clean-install baseline instead of manufacturing a lockfile
-change. Record, then resolve, the existing broad-application TypeScript
-diagnostics before treating either clean installation or full-app
-type-checking as a merge gate.
+The confirmed failure was a platform-pruned lockfile with 83 missing optional
+dependency targets; it was regenerated with the pinned toolchain. Thirteen
+application TypeScript diagnostics were corrected at type boundaries without
+changing runtime or financial behavior.
+
+Complexity and the 27 existing TanStack server bridges remain recorded debt,
+not the target architecture. The generated live Supabase snapshot also records
+three table and seven function gaps in the existing compatibility types rather
+than hiding them behind casts.
 
 Exit criteria:
 
@@ -76,6 +87,9 @@ Exit criteria:
 - clean-checkout commands are reproducible;
 - native fixtures do not depend on production;
 - generated files do not change silently during build.
+
+Phase 2 begins only after these controls pass clean-checkout CI and this Phase
+1 change is merged.
 
 ## Phase 2 — Compatibility scaffolding
 

@@ -88,7 +88,7 @@ export default async (req: Request) => {
       message: rpcError.message,
       code: rpcError.code,
       details: rpcError.details,
-      hint: (rpcError as Record<string, unknown>).hint,
+      hint: rpcError.hint,
       depositId,
       action,
     });

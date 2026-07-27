@@ -1,7 +1,7 @@
 # QHash data, security, and deployment
 
 **Status:** Current controls and non-negotiable invariants, with target recommendations
-**Scope:** Repository revision `a1d1371fc35620dba9de911ae0f9c8561a98f5bb`
+**Scope:** Runtime baseline at repository revision `3e2fe504a0b60de84413bb595b6b21ce5b26a681`
 **Purpose:** Prevent file reorganization and the international USDT conversion from weakening financial, security, or deployment guarantees.
 
 See also:

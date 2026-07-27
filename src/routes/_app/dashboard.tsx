@@ -639,7 +639,7 @@ function QuickActionCard({
   }
 
   return (
-    <Link to={to} className="block min-w-0">
+    <Link to={to!} className="block min-w-0">
       {content}
     </Link>
   );

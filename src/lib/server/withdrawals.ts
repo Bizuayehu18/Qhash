@@ -49,7 +49,6 @@ type RequestWithdrawalRpcResult = {
   balance_after?: number;
   status?: WithdrawalStatus | string;
   processing_hours?: number;
-  [key: string]: unknown;
 };
 
 type SubmitWithdrawalFailureCode =
@@ -72,7 +71,9 @@ type SubmitWithdrawalFailureResult = {
   next_allowed_at?: string;
 };
 
-type SubmitWithdrawalResult = RequestWithdrawalRpcResult | SubmitWithdrawalFailureResult;
+type SubmitWithdrawalResult =
+  | (RequestWithdrawalRpcResult & { success: true })
+  | SubmitWithdrawalFailureResult;
 
 type RpcClient = {
   rpc(
@@ -378,7 +379,10 @@ export const submitWithdrawalFn = createServerFn({ method: "POST" })
         };
       }
 
-      return result;
+      return {
+        ...result,
+        success: true,
+      };
     } catch (err) {
       console.error(
         "[QHash] Withdrawal submit error:",
@@ -557,7 +561,6 @@ type WithdrawalActionRpcResult = {
   balance_before?: number;
   balance_after?: number;
   refunded_amount?: number;
-  [key: string]: unknown;
 };
 
 type ApproveWithdrawalRpcClient = {

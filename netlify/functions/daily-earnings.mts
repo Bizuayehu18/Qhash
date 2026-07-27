@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Config } from "@netlify/functions";
 import { processAllEarnings } from "./lib/process-all-earnings.mts";
 
-export default async (req: Request) => {
+export default async (_req: Request) => {
   const supabaseUrl =
     Netlify.env.get("VITE_SUPABASE_URL") ??
     Netlify.env.get("SUPABASE_URL") ??

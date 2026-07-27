@@ -1,16 +1,17 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getAdminClient } from "./supabase-admin.js";
 import { throwSafe } from "../errors.js";
+import type { TransactionType } from "../database.types.js";
 
 const INCOME_DAY_RESET_UTC_HOUR = 21;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const TEAM_REWARD_TRANSACTION_TYPES = [
+const TEAM_REWARD_TRANSACTION_TYPES: readonly TransactionType[] = [
   "referral_daily_bonus",
   "referral_investment_bonus",
 ];
 
-const TODAY_INCOME_TRANSACTION_TYPES = [
+const TODAY_INCOME_TRANSACTION_TYPES: readonly TransactionType[] = [
   "earning",
   ...TEAM_REWARD_TRANSACTION_TYPES,
 ];

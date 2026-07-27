@@ -56,6 +56,29 @@ type AdminSecurityResetRpcClient = {
   }>;
 };
 
+type AdminSecurityResetAuditInsert = {
+  admin_user_id: string;
+  target_user_id: string;
+  action: "login_password_reset";
+  reason: string;
+  old_had_fund_password: null;
+  metadata: {
+    target_username: string | null;
+    target_phone_present: boolean;
+    temporary_password_generated: false;
+    temporary_password_stored: false;
+    auth_password_update_pending: true;
+  };
+};
+
+type AdminSecurityResetAuditClient = {
+  from(table: "admin_security_reset_audit"): {
+    insert(row: AdminSecurityResetAuditInsert): Promise<{
+      error: DbError | null;
+    }>;
+  };
+};
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function safeDbMessage(error: DbError | null): string {
@@ -422,7 +445,7 @@ export const resetUserLoginPasswordFn = createServerFn({ method: "POST" })
       throwSafe("ADMIN", "Admin account security resets are not allowed from this panel.", "Admin target login password reset blocked");
     }
 
-    const { error: auditError } = await admin
+    const { error: auditError } = await (admin as unknown as AdminSecurityResetAuditClient)
       .from("admin_security_reset_audit")
       .insert({
         admin_user_id: adminUserId,

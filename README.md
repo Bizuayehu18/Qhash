@@ -16,6 +16,7 @@ yet deployed.
 - [Approved target architecture](docs/architecture/target-state.md)
 - [International USDT requirements](docs/product/international-usdt-requirements.md)
 - [Repository standards](docs/engineering/repository-standards.md)
+- [Verification and generated artifacts](docs/engineering/verification.md)
 - [Reorganization roadmap](docs/architecture/reorganization-roadmap.md)
 
 Historical checkpoint files at the repository root are evidence from earlier
@@ -41,38 +42,49 @@ credentials must never enter the browser bundle.
 
 ## Local development
 
-1. Install dependencies:
+1. Use the pinned toolchain:
+
+   - Node `22.23.1`
+   - npm `11.9.0`
+
+   `.nvmrc`, `.node-version`, `package.json`, Netlify, and CI all declare the
+   same versions.
+
+2. Install the exact dependency graph:
 
    ```bash
-   npm install
+   npm ci --include=dev --no-audit --no-fund
    ```
 
-2. Copy `.env.example` to `.env.local` and provide only the values needed for
+3. Copy `.env.example` to `.env.local` and provide only the values needed for
    the local task. Never commit local environment files or secret values.
 
-3. Start the application:
+4. Start the application:
 
    ```bash
    npm run dev
    ```
 
-4. Run the checks currently exposed by the repository:
+5. Run the supported aggregate verification:
 
    ```bash
-   npm run typecheck:netlify
-   npm run build
+   npm run verify
    ```
 
-The current script surface is incomplete. The architecture roadmap defines
-the required route-generation, application-typecheck, portable-test, native
-PostgreSQL-test, and documentation checks that must be added before large
-mechanical reorganization. A reproducible clean `npm ci` baseline is not yet
-established; recent task validation reported a package manifest/lockfile
-mismatch that Phase 1 must reproduce and resolve. The broad application command
-`tsc -p tsconfig.json` also reports known pre-existing diagnostics; the
-narrower `typecheck:netlify` command is the currently passing scoped TypeScript
-check. Repairing both baselines is Phase 1 work, not evidence that this
-documentation-only change altered runtime code.
+`npm run verify` is production-safe: it does not connect to production
+Supabase, invoke provider APIs, or mutate live data. PostgreSQL-native tests
+have a separate command that refuses non-local databases whose names do not
+begin with `qhash_test_`. See
+[Verification and generated artifacts](docs/engineering/verification.md) for
+the complete command and provenance contract.
+
+When adding or removing a file route, regenerate and verify the committed
+route tree:
+
+```bash
+npm run generate:routes
+npm run check:routes-generated
+```
 
 ## Current user-facing routes
 

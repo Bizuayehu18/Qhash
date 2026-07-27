@@ -493,7 +493,6 @@ function WithdrawPage() {
           />
         ) : (
           <WithdrawalDetailsForm
-            method={method}
             selectedMeta={selectedMeta}
             amount={amount}
             accountName={accountName}
@@ -700,7 +699,6 @@ function NoticeLine() {
 }
 
 function WithdrawalDetailsForm({
-  method,
   selectedMeta,
   amount,
   accountName,
@@ -715,7 +713,6 @@ function WithdrawalDetailsForm({
   onChangeMethod,
   onContinue,
 }: {
-  method: WithdrawalMethod;
   selectedMeta: MethodMeta | null;
   amount: string;
   accountName: string;

@@ -857,6 +857,5 @@ test("source boundaries contain no provider, signing, payout, client database, o
   assert.match(withdrawRoute, /CBE Withdrawal/);
   assert.match(withdrawRoute, /TeleBirr Withdrawal/);
   assert.match(depositRoute, /NowpaymentsUsdtDeposit/);
-  assert.match(typecheck, /nowpayments-usdt-withdrawal-overview\.mts/);
-  assert.match(typecheck, /nowpayments-usdt-withdrawal-request\.mts/);
+  assert.match(typecheck, /netlify\/functions\/\*\*\/\*\.mts/);
 });

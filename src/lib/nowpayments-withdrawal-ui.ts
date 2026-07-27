@@ -1,4 +1,4 @@
-import { normalizeWithdrawalNextAllowedAt } from "./withdrawal-policy.js";
+import { normalizeWithdrawalNextAllowedAt } from "./withdrawal-policy.ts";
 
 export const NOWPAYMENTS_WITHDRAWAL_STATUSES = [
   "pending",
