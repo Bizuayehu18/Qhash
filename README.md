@@ -1,62 +1,93 @@
-# QHash — Cloud Mining Platform
+# QHash
 
-QHash is a futuristic cloud-mining fintech platform built for Ethiopian users. It allows users to purchase mining plans, track daily earnings, deposit/withdraw funds, and manage referrals — all via a phone-number-first authentication flow.
+QHash is a cloud-mining fintech application with plans, earnings, referrals,
+deposits, withdrawals, administrative operations, authoritative financial
+state, and immutable ledger/audit evidence.
 
-## Tech Stack
+The deployed application is currently an Ethiopia-oriented ETB platform with
+USDT-BEP20 deposit and manual withdrawal rails. The approved target is an
+international, USDT-denominated platform. That target is documented but is not
+yet deployed.
 
-| Layer | Technology |
+## Start here
+
+- [Documentation index](docs/README.md)
+- [Current architecture](docs/architecture/current-state.md)
+- [Approved target architecture](docs/architecture/target-state.md)
+- [International USDT requirements](docs/product/international-usdt-requirements.md)
+- [Repository standards](docs/engineering/repository-standards.md)
+- [Reorganization roadmap](docs/architecture/reorganization-roadmap.md)
+
+Historical checkpoint files at the repository root are evidence from earlier
+work. They are not the current architecture specification. See
+[Historical documentation](docs/archive/README.md).
+
+## Technology
+
+| Layer | Current implementation |
 |---|---|
-| Framework | TanStack Start (SSR) |
-| Frontend | React 19, TanStack Router v1 |
-| Build | Vite 7 |
-| Styling | Tailwind CSS 4 |
-| Backend / Auth / DB | Supabase |
-| State | Zustand |
-| Notifications | Sonner |
+| Application | TanStack Start, React 19, TanStack Router |
+| Build and styling | Vite 7, Tailwind CSS 4 |
+| Authentication and primary data | Supabase Auth and PostgreSQL |
+| Provider/API adapters | TanStack server functions and Netlify Functions |
+| Client state | Zustand |
 | Deployment | Netlify |
+| Secondary data boundary | Netlify Database with Drizzle, currently quarantined pending a support-domain decision |
 
-## Running Locally
+Supabase is the source of truth for current identity and financial data.
+Financial mutations are server-owned and, where atomicity matters, implemented
+as restricted PostgreSQL functions. NOWPayments secrets and service-role
+credentials must never enter the browser bundle.
 
-**1. Install dependencies**
-```bash
-npm install
-```
+## Local development
 
-**2. Configure environment**
-```bash
-cp .env.example .env.local
-# Edit .env.local with your Supabase project URL and anon key
-```
+1. Install dependencies:
 
-**3. Start dev server**
-```bash
-npm run dev
-# App runs at http://localhost:3000 (Netlify CLI proxy on :8888)
-```
+   ```bash
+   npm install
+   ```
 
-## Environment Variables
+2. Copy `.env.example` to `.env.local` and provide only the values needed for
+   the local task. Never commit local environment files or secret values.
 
-| Variable | Description |
-|---|---|
-| `VITE_SUPABASE_URL` | Your Supabase project URL |
-| `VITE_SUPABASE_ANON_KEY` | Supabase anon/public key |
+3. Start the application:
 
-## Authentication
+   ```bash
+   npm run dev
+   ```
 
-Users register and log in with their Ethiopian phone number (`09XXXXXXXX` or `+2519XXXXXXXX`). Internally, the phone is converted to an email address (`2519XXXXXXXX@auth.qhash.app`) for Supabase email/password auth. This is transparent to the user.
+4. Run the checks currently exposed by the repository:
 
-## Pages
+   ```bash
+   npm run typecheck:netlify
+   npm run build
+   ```
 
-| Route | Description |
-|---|---|
-| `/` | Marketing landing page |
-| `/login` | Phone-number login |
-| `/register` | New account with optional referral code |
-| `/dashboard` | Earnings overview |
-| `/plans` | Available mining plans |
-| `/deposit` | Fund account |
-| `/withdraw` | Request withdrawal |
-| `/transactions` | Full transaction history |
-| `/referrals` | Referral code & commission tracking |
-| `/support` | Help ticket submission |
-| `/admin` | Admin-only management panel |
+The current script surface is incomplete. The architecture roadmap defines
+the required route-generation, application-typecheck, portable-test, native
+PostgreSQL-test, and documentation checks that must be added before large
+mechanical reorganization. A reproducible clean `npm ci` baseline is not yet
+established; recent task validation reported a package manifest/lockfile
+mismatch that Phase 1 must reproduce and resolve. The broad application command
+`tsc -p tsconfig.json` also reports known pre-existing diagnostics; the
+narrower `typecheck:netlify` command is the currently passing scoped TypeScript
+check. Repairing both baselines is Phase 1 work, not evidence that this
+documentation-only change altered runtime code.
+
+## Current user-facing routes
+
+The current application's primary routes include `/deposit`, `/withdraw`, and
+`/admin`. Approved target routes are structured by domain and rail, for example
+`/deposit/fiat/et/cbe` and `/deposit/crypto/usdt-bep20`. The current routes
+become compatibility entry points or redirects only as those structured routes
+are introduced, and they must continue to work throughout the migration.
+
+## Database changes
+
+Supabase migrations are forward-only. Never edit a migration that has been
+applied to any environment. For its configured migration range, the production
+runner records path and checksum, uses a runner-owned transaction, and applies
+migrations before the application build. Earlier migration files are
+pre-runner/manual history and remain immutable. Read
+[Data, security, and deployment](docs/architecture/data-security-and-deployment.md)
+before changing schema or financial behavior.
