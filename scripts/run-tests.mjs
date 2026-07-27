@@ -3,6 +3,59 @@ import path from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
 
+const expectedNativeDatabase = {
+  server_version_num: "170010",
+  encoding: "UTF8",
+  datlocprovider: "c",
+  datcollate: "C",
+  datctype: "C",
+};
+
+async function verifyNativeDatabase(databaseUrl) {
+  const { Client } = await import("pg");
+  const client = new Client({
+    connectionString: databaseUrl,
+    application_name: "qhash-native-environment-check",
+  });
+
+  try {
+    await client.connect();
+    const result = await client.query(`
+      select
+        current_setting('server_version_num') as server_version_num,
+        current_setting('server_version') as server_version,
+        pg_encoding_to_char(database_row.encoding) as encoding,
+        database_row.datlocprovider,
+        database_row.datcollate,
+        database_row.datctype
+      from pg_database database_row
+      where database_row.datname = current_database()
+    `);
+    const actual = result.rows[0];
+    if (!actual) {
+      throw new Error("Native PostgreSQL metadata query returned no database row.");
+    }
+
+    const mismatches = Object.entries(expectedNativeDatabase)
+      .filter(([key, expected]) => actual[key] !== expected)
+      .map(([key, expected]) => `${key}: expected ${expected}, received ${actual[key]}`);
+    if (mismatches.length > 0) {
+      throw new Error(
+        [
+          "Native PostgreSQL must match the deterministic CI fixture.",
+          ...mismatches,
+        ].join("\n"),
+      );
+    }
+
+    console.log(
+      `Native PostgreSQL verified: ${actual.server_version}, ${actual.encoding}, libc ${actual.datcollate}/${actual.datctype}.`,
+    );
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
 const allTests = [
   "bsc-address-rotation.test.mjs",
   "bsc-user-deposit-exposure.test.mjs",
@@ -76,6 +129,17 @@ if (mode === "native") {
   if (!databaseName.startsWith("qhash_test_") || !localHosts.has(parsedUrl.hostname)) {
     console.error(
       "Native tests refuse non-local or non-qhash_test_* PostgreSQL databases.",
+    );
+    process.exit(2);
+  }
+
+  try {
+    await verifyNativeDatabase(databaseUrl);
+  } catch (error) {
+    console.error(
+      error instanceof Error
+        ? error.message
+        : "Native PostgreSQL environment verification failed.",
     );
     process.exit(2);
   }

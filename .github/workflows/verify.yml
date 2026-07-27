@@ -39,11 +39,12 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17
+        image: postgres:17.10@sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d
         env:
           POSTGRES_DB: qhash_test_ci
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
+          POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C
         ports:
           - 5432:5432
         options: >-

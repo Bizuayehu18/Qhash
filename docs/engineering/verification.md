@@ -55,7 +55,9 @@ verification test.
 Native tests require `TEST_DATABASE_URL`. The runner refuses the URL unless:
 
 - the host is `localhost`, `127.0.0.1`, or `::1`; and
-- the database name begins with `qhash_test_`.
+- the database name begins with `qhash_test_`; and
+- the server is PostgreSQL `17.10` with UTF-8 encoding and the deterministic
+  libc `C` collation for both `LC_COLLATE` and `LC_CTYPE`.
 
 Example:
 
@@ -68,6 +70,14 @@ Concurrency fixtures use separate connections where the invariant requires
 real cross-connection behavior. The runner serializes native test files so
 their schema setup cannot collide; concurrency inside each file remains real.
 Production Supabase is never a test fixture.
+
+The exact CI image is digest-pinned and initialized with
+`--encoding=UTF8 --locale=C`. This binary ordering is required because some
+already-applied historical migration preflights contain text aggregates whose
+ordering predates the repository rule that all new catalog fingerprints must
+use explicit UTF-8 byte ordering. Applied migration files and checksums remain
+immutable; the deterministic disposable fixture makes historical replay
+stable without rewriting migration history.
 
 ## TanStack route tree
 
@@ -139,7 +149,8 @@ repository is already the target architecture.
 
 - the portable aggregate on current Ubuntu and Windows runners with the exact
   Node/npm versions; and
-- native database tests against an isolated PostgreSQL 17 service.
+- native database tests against the digest-pinned PostgreSQL `17.10`,
+  UTF-8/libc-`C` service verified by the test runner before schema setup.
 
 CI also verifies that validation did not rewrite dependency or generated
 artifacts.
