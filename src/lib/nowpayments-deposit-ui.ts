@@ -61,6 +61,31 @@ export type NowpaymentsDepositOverview = {
   history: NowpaymentsDepositHistoryView[];
 };
 
+function isCompletedDepositHistory(
+  entry: NowpaymentsDepositHistoryView,
+): boolean {
+  return entry.status === "finished"
+    && entry.credited_amount_usdt !== null
+    && entry.completed_at !== null;
+}
+
+export function sanitizeDisabledNowpaymentsDepositOverview(
+  overview: NowpaymentsDepositOverview,
+): NowpaymentsDepositOverview {
+  return {
+    ...overview,
+    feature_enabled: false,
+    session_state: "none",
+    active_session: null,
+    history: overview.history
+      .filter(isCompletedDepositHistory)
+      .map((entry) => ({
+        ...entry,
+        pay_address: null,
+      })),
+  };
+}
+
 const DECIMAL_PATTERN = /^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/;
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const ACTIVE_STATUS_SET = new Set<string>(NOWPAYMENTS_ACTIVE_STATUSES);
@@ -89,6 +114,49 @@ export function createSingleFlight<T>(operation: () => Promise<T>): () => Promis
     });
     return request;
   };
+}
+
+export type NowpaymentsOverviewRequestTicket = {
+  generation: number;
+  signal: AbortSignal;
+  abort: () => void;
+};
+
+export function createNowpaymentsOverviewRequestGate() {
+  let generation = 0;
+  let controller: AbortController | null = null;
+
+  return {
+    begin(): NowpaymentsOverviewRequestTicket {
+      controller?.abort();
+      const nextController = new AbortController();
+      controller = nextController;
+      const nextGeneration = ++generation;
+      return {
+        generation: nextGeneration,
+        signal: nextController.signal,
+        abort: () => nextController.abort(),
+      };
+    },
+    isCurrent(candidateGeneration: number): boolean {
+      return candidateGeneration === generation;
+    },
+    invalidate(): void {
+      generation += 1;
+      controller?.abort();
+      controller = null;
+    },
+  };
+}
+
+export function isNowpaymentsAuthGenerationCurrent(
+  currentAccessToken: string | null,
+  currentGeneration: number,
+  candidateAccessToken: string | null,
+  candidateGeneration: number,
+): boolean {
+  return currentAccessToken === candidateAccessToken
+    && currentGeneration === candidateGeneration;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -162,6 +230,7 @@ export function parseNowpaymentsDepositOverview(value: unknown): NowpaymentsDepo
     throw new NowpaymentsDepositUiError("unavailable");
   }
   const activeSession = parseSession(value.active_session);
+  const history = value.history.map(parseHistory);
   if (
     typeof value.feature_enabled !== "boolean"
     || value.asset !== "USDT"
@@ -183,6 +252,14 @@ export function parseNowpaymentsDepositOverview(value: unknown): NowpaymentsDepo
       String(value.session_state),
     )) !== Boolean(activeSession)
     || (activeSession !== null && value.session_state !== activeSession.address_lifecycle)
+    || (value.feature_enabled === false
+      && (
+        activeSession !== null
+        || value.session_state !== "none"
+        || history.some((entry) =>
+          !isCompletedDepositHistory(entry) || entry.pay_address !== null
+        )
+      ))
   ) {
     throw new NowpaymentsDepositUiError("unavailable");
   }
@@ -198,7 +275,7 @@ export function parseNowpaymentsDepositOverview(value: unknown): NowpaymentsDepo
     },
     session_state: value.session_state as NowpaymentsDepositOverview["session_state"],
     active_session: activeSession,
-    history: value.history.map(parseHistory),
+    history,
   };
 }
 
@@ -215,7 +292,7 @@ function throwForResponse(response: Response, body: unknown): never {
   if (
     response.status === 503
     && isObject(body)
-    && (body.error === "crypto_deposits_disabled" || body.error === "crypto_runtime_unavailable")
+    && body.error === "crypto_deposits_disabled"
   ) {
     throw new NowpaymentsDepositUiError("disabled");
   }
@@ -225,10 +302,12 @@ function throwForResponse(response: Response, body: unknown): never {
 export async function fetchNowpaymentsDepositOverview(
   accessToken: string,
   request: typeof fetch = fetch,
+  signal?: AbortSignal,
 ): Promise<NowpaymentsDepositOverview> {
   const response = await request("/api/crypto/nowpayments/deposit-overview", {
     method: "GET",
     headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" },
+    signal,
   });
   const body = await readJson(response);
   if (!response.ok) throwForResponse(response, body);
@@ -238,10 +317,12 @@ export async function fetchNowpaymentsDepositOverview(
 export async function requestNowpaymentsDepositSession(
   accessToken: string,
   request: typeof fetch = fetch,
+  signal?: AbortSignal,
 ): Promise<void> {
   const response = await request("/api/crypto/nowpayments/deposit-session", {
     method: "POST",
     headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" },
+    signal,
   });
   const body = await readJson(response);
   if (!response.ok) throwForResponse(response, body);

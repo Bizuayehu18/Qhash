@@ -39,7 +39,6 @@ type OverviewDiagnosticCode =
   | "authentication_required"
   | "invalid_session"
   | "account_unavailable"
-  | "crypto_config_unavailable"
   | "deposit_overview_unavailable"
   | "overview_success"
   | "unexpected_exception";
@@ -166,6 +165,10 @@ function createRequestId(requestIdFactory: RequestIdFactory): string {
 
 function isTimestamp(value: unknown): value is string {
   return typeof value === "string" && Number.isFinite(new Date(value).getTime());
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function isNullableTimestamp(value: unknown): value is string | null {
@@ -389,19 +392,19 @@ async function handleOverview(
 
   const userId = authData.user.id;
   invocation.currentStage = "profile_config_query";
-  const [{ data: profile, error: profileError }, { data: config, error: configError }] =
-    await Promise.all([
-      admin.from("profiles").select("is_frozen").eq("id", userId).maybeSingle(),
-      admin
-        .from("nowpayments_usdt_config")
-        .select(
-          "id,enabled,asset,network,provider_currency,deposit_minimum_usdt::text,withdrawal_minimum_usdt::text,withdrawal_fee_percent::text",
-        )
-        .eq("id", "USDT-BEP20")
-        .maybeSingle(),
-    ]);
+  const { data: profile, error: profileError } = await admin
+    .from("profiles")
+    .select("is_frozen")
+    .eq("id", userId)
+    .maybeSingle();
 
-  if (profileError || !profile || profile.is_frozen) {
+  const profileRow = profile as unknown;
+  if (
+    profileError
+    || !isRecord(profileRow)
+    || typeof profileRow.is_frozen !== "boolean"
+    || profileRow.is_frozen
+  ) {
     return terminalResponse(
       invocation,
       { error: "account_unavailable", message: "Account is unavailable." },
@@ -410,57 +413,27 @@ async function handleOverview(
       "account_unavailable",
     );
   }
-  const configRow = config as unknown as Record<string, unknown> | null;
-  if (
-    configError
-    || !configRow
-    || configRow.id !== "USDT-BEP20"
-    || configRow.asset !== "USDT"
-    || configRow.network !== "BEP20"
-    || configRow.provider_currency !== "usdtbsc"
-    || !isDecimal(configRow.deposit_minimum_usdt)
-    || canonicalDecimal(configRow.deposit_minimum_usdt) !== "1"
-    || !isDecimal(configRow.withdrawal_minimum_usdt)
-    || canonicalDecimal(configRow.withdrawal_minimum_usdt) !== "2"
-    || !isDecimal(configRow.withdrawal_fee_percent)
-    || canonicalDecimal(configRow.withdrawal_fee_percent) !== "5"
-    || typeof configRow.enabled !== "boolean"
-  ) {
-    return terminalResponse(
-      invocation,
-      { error: "crypto_config_unavailable", message: "Crypto deposits are unavailable." },
-      503,
-      "profile_config_query",
-      "crypto_config_unavailable",
-    );
-  }
 
   invocation.currentStage = "overview_queries";
-  const [walletResult, sessionsResult, providerPaymentsResult] = await Promise.all([
-    admin
-      .from("nowpayments_usdt_wallets")
-      .select("user_id,asset,available_balance_usdt::text,reserved_balance_usdt::text")
-      .eq("user_id", userId)
-      .maybeSingle(),
-    admin
-      .from("nowpayments_usdt_payments")
-      .select(
-        "id,user_id,provider_payment_id,provider_payment_status,session_status,pay_address,technical_reference_amount_usdt::text,provider_minimum_usdt::text,provider_created_at,provider_valid_until,address_activated_at,terminal_at,credited_amount_usdt::text,credited_at,created_at",
-      )
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .limit(HISTORY_LIMIT),
-    admin
-      .from("nowpayments_usdt_provider_payments")
-      .select(
-        "session_id,user_id,provider_payment_id,payment_kind,provider_payment_status,credited_amount_usdt::text,credited_at,created_at",
-      )
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .limit(HISTORY_LIMIT),
-  ]);
-
-  if (walletResult.error || sessionsResult.error || providerPaymentsResult.error) {
+  const snapshotResult = await admin.rpc(
+    "get_nowpayments_usdt_deposit_overview_snapshot",
+    { p_user_id: userId },
+  );
+  if (snapshotResult.error) {
+    const rpcErrorValue = snapshotResult.error as unknown;
+    const rpcFailure = isRecord(rpcErrorValue)
+      && typeof rpcErrorValue["message"] === "string"
+      ? rpcErrorValue["message"]
+      : "";
+    if (rpcFailure === "nowpayments_session_user_unavailable") {
+      return terminalResponse(
+        invocation,
+        { error: "account_unavailable", message: "Account is unavailable." },
+        403,
+        "overview_queries",
+        "account_unavailable",
+      );
+    }
     return terminalResponse(
       invocation,
       { error: "deposit_overview_unavailable", message: "Crypto deposits are unavailable." },
@@ -470,12 +443,34 @@ async function handleOverview(
     );
   }
 
-  invocation.currentStage = "wallet_validation";
-  const walletRow = walletResult.data as unknown as Record<string, unknown> | null;
+  const snapshot = snapshotResult.data as unknown;
   if (
-    walletRow
+    !isRecord(snapshot)
+    || typeof snapshot.feature_enabled !== "boolean"
+    || !isDecimal(snapshot.minimum_deposit_usdt)
+    || canonicalDecimal(snapshot.minimum_deposit_usdt) !== "1"
+    || !Array.isArray(snapshot.sessions)
+    || snapshot.sessions.length > HISTORY_LIMIT
+    || !Array.isArray(snapshot.provider_payments)
+    || snapshot.provider_payments.length > HISTORY_LIMIT
+  ) {
+    return terminalResponse(
+      invocation,
+      { error: "deposit_overview_unavailable", message: "Crypto deposits are unavailable." },
+      503,
+      "wallet_validation",
+      "deposit_overview_unavailable",
+    );
+  }
+
+  invocation.currentStage = "wallet_validation";
+  const walletValue = snapshot.wallet;
+  const walletRow = isRecord(walletValue) ? walletValue : null;
+  if (
+    walletValue !== null
     && (
-      walletRow.user_id !== userId
+      !walletRow
+      || walletRow.user_id !== userId
       || walletRow.asset !== "USDT"
       || !isDecimal(walletRow.available_balance_usdt)
       || !isDecimal(walletRow.reserved_balance_usdt)
@@ -492,38 +487,73 @@ async function handleOverview(
 
   invocation.currentStage = "response_validation";
   try {
-    const sessions = ((sessionsResult.data ?? []) as unknown[])
+    const featureEnabled = snapshot.feature_enabled;
+    const sessions = (snapshot.sessions as unknown[])
       .map((row) => validateSession(row, userId));
-    const providerPayments = ((providerPaymentsResult.data ?? []) as unknown[])
+    const providerPayments = (snapshot.provider_payments as unknown[])
       .map((row) => validateProviderPayment(row, userId));
+    if (!featureEnabled && sessions.some((session) => session.pay_address !== null)) {
+      throw new Error("invalid_disabled_snapshot");
+    }
     const nowMs = Date.now();
-    const activated = sessions.find((session) =>
-      session.address_activated_at !== null
-      && session.provider_payment_status === "finished"
-      && session.pay_address !== null
-      && session.provider_created_at !== null
-      && session.provider_valid_until !== null
-      && new Date(session.address_activated_at).getTime()
-        >= new Date(session.provider_created_at).getTime()
-      && new Date(session.address_activated_at).getTime()
-        < new Date(session.provider_valid_until).getTime()
-    ) ?? null;
-    const pending = sessions.find((session) =>
-      session.address_activated_at === null
-      && session.session_status === "ready"
-      && session.provider_payment_status !== null
-      && ACTIVE_STATUSES.has(session.provider_payment_status)
-      && session.pay_address !== null
-      && session.provider_created_at !== null
-      && session.provider_valid_until !== null
-      && new Date(session.provider_valid_until).getTime() > nowMs
-    ) ?? null;
-    const terminalAwaitingDeadline = sessions.find((session) =>
-      session.address_activated_at === null
-      && session.session_status === "terminal"
-      && session.provider_valid_until !== null
-      && new Date(session.provider_valid_until).getTime() > nowMs
-    ) ?? null;
+    const activatedCandidates = featureEnabled
+      ? sessions.filter((session) =>
+          session.address_activated_at !== null
+          && session.provider_payment_status === "finished"
+          && session.pay_address !== null
+          && session.provider_created_at !== null
+          && session.provider_valid_until !== null
+          && new Date(session.address_activated_at).getTime()
+            >= new Date(session.provider_created_at).getTime()
+          && new Date(session.address_activated_at).getTime()
+            < new Date(session.provider_valid_until).getTime()
+        )
+      : [];
+    const activationRows = featureEnabled
+      ? sessions.filter((session) => session.address_activated_at !== null)
+      : [];
+    const pendingCandidates = featureEnabled
+      ? sessions.filter((session) =>
+          session.address_activated_at === null
+          && session.session_status === "ready"
+          && session.provider_payment_status !== null
+          && ACTIVE_STATUSES.has(session.provider_payment_status)
+          && session.pay_address !== null
+          && session.provider_created_at !== null
+          && session.provider_valid_until !== null
+          && new Date(session.provider_valid_until).getTime() > nowMs
+        )
+      : [];
+    const existingCandidates = featureEnabled
+      ? sessions.filter((session) =>
+          session.address_activated_at === null
+          && (
+            session.session_status === "provisioning"
+            || session.session_status === "manual_recovery"
+            || (
+              session.session_status === "terminal"
+              && session.provider_valid_until !== null
+              && new Date(session.provider_valid_until).getTime() > nowMs
+            )
+          )
+        )
+      : [];
+    if (
+      activatedCandidates.length > 1
+      || pendingCandidates.length > 1
+      || existingCandidates.length > 1
+      || activationRows.length !== activatedCandidates.length
+      || (
+        activatedCandidates.length > 0
+        && (pendingCandidates.length > 0 || existingCandidates.length > 0)
+      )
+      || (pendingCandidates.length > 0 && existingCandidates.length > 0)
+    ) {
+      throw new Error("invalid_session_read");
+    }
+    const activated = activatedCandidates[0] ?? null;
+    const pending = pendingCandidates[0] ?? null;
+    const existing = existingCandidates[0] ?? null;
     const currentAddress = activated ?? pending;
     if (
       currentAddress
@@ -547,9 +577,6 @@ async function handleOverview(
           valid_until: activated ? null : currentAddress.provider_valid_until,
         }
       : null;
-    const operational = sessions.find((session) =>
-      session.session_status === "provisioning" || session.session_status === "manual_recovery"
-    ) ?? null;
     const hasExpiredUnactivated = sessions.some((session) =>
       session.address_activated_at === null
       && session.pay_address !== null
@@ -560,30 +587,44 @@ async function handleOverview(
       ? "permanently_activated"
       : pending
         ? "pending_activation"
-        : operational?.session_status === "provisioning"
+        : existing?.session_status === "provisioning"
           ? "provisioning"
-          : operational?.session_status === "manual_recovery"
+          : existing?.session_status === "manual_recovery"
             ? "manual_review"
-            : terminalAwaitingDeadline
+            : existing?.session_status === "terminal"
               ? "manual_review"
               : hasExpiredUnactivated
                 ? "expired_unactivated"
                 : "none";
 
+    const history = buildHistory(sessions, providerPayments, nowMs);
+    const publicHistory = featureEnabled
+      ? history
+      : history
+        .filter((entry) =>
+          entry.status === "finished"
+          && entry.credited_amount_usdt !== null
+          && entry.completed_at !== null
+        )
+        .map((entry) => ({
+          ...entry,
+          pay_address: null,
+        }));
+
     return terminalResponse(
       invocation,
       {
-        feature_enabled: configRow.enabled,
+        feature_enabled: featureEnabled,
         asset: "USDT",
         network: "BEP20",
-        minimum_deposit_usdt: configRow.deposit_minimum_usdt,
+        minimum_deposit_usdt: snapshot.minimum_deposit_usdt,
         wallet: {
           available_balance_usdt: walletRow?.available_balance_usdt ?? "0",
           reserved_balance_usdt: walletRow?.reserved_balance_usdt ?? "0",
         },
-        session_state: sessionState,
-        active_session: activeSession,
-        history: buildHistory(sessions, providerPayments, nowMs),
+        session_state: featureEnabled ? sessionState : "none",
+        active_session: featureEnabled ? activeSession : null,
+        history: publicHistory,
       },
       200,
       "complete",
