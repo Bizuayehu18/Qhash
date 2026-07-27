@@ -1645,8 +1645,22 @@ async function assertHardenedAppSettingsBoundary(client) {
   // The disposable schema is recreated during each native fixture and does
   // not inherit Supabase's role USAGE grants. Add only schema traversal so
   // the assertions below exercise the table boundary itself.
+  await client.query(`
+    do $role$
+    begin
+      if not exists (
+        select 1 from pg_catalog.pg_roles
+        where rolname = 'app_settings_public_probe'
+      ) then
+        create role app_settings_public_probe;
+      end if;
+    end
+    $role$;
+    alter role service_role bypassrls;
+  `);
   await client.query(
-    "grant usage on schema public to anon, authenticated, service_role",
+    `grant usage on schema public
+       to app_settings_public_probe, anon, authenticated, service_role`,
   );
   const catalog = (await client.query(`
     select
@@ -1714,11 +1728,22 @@ async function assertHardenedAppSettingsBoundary(client) {
     ["postgres", "postgres", "TRIGGER", false],
     ["postgres", "postgres", "TRUNCATE", false],
     ["postgres", "postgres", "UPDATE", false],
+    ["service_role", "postgres", "INSERT", false],
     ["service_role", "postgres", "SELECT", false],
+    ["service_role", "postgres", "UPDATE", false],
   ]);
   assert.equal(catalog.no_column_acl, true);
 
-  for (const role of ["anon", "authenticated"]) {
+  const beforeDeniedAttempts = (await client.query(`
+    select key, value, updated_at::text
+    from public.app_settings
+    order by key
+  `)).rows;
+  for (const role of [
+    "app_settings_public_probe",
+    "anon",
+    "authenticated",
+  ]) {
     await client.query(`set role ${role}`);
     try {
       await assert.rejects(
@@ -1729,7 +1754,20 @@ async function assertHardenedAppSettingsBoundary(client) {
       );
       await assert.rejects(
         client.query(
+          `insert into public.app_settings (key, value)
+           values ('forbidden_app_setting', 'forbidden')`,
+        ),
+        /permission denied for table app_settings/,
+      );
+      await assert.rejects(
+        client.query(
           "update public.app_settings set value = value where key = 'deposits_paused'",
+        ),
+        /permission denied for table app_settings/,
+      );
+      await assert.rejects(
+        client.query(
+          "delete from public.app_settings where key = 'deposits_paused'",
         ),
         /permission denied for table app_settings/,
       );
@@ -1737,6 +1775,60 @@ async function assertHardenedAppSettingsBoundary(client) {
       await client.query("reset role");
     }
   }
+  assert.deepEqual(
+    (await client.query(`
+      select key, value, updated_at::text
+      from public.app_settings
+      order by key
+    `)).rows,
+    beforeDeniedAttempts,
+  );
+
+  const supportTimestamp = "2026-07-27T12:34:56.000Z";
+  await client.query(
+    `insert into public.app_settings (key, value, updated_at)
+     values (
+       'support_telegram_username',
+       '@previous_support',
+       '2026-07-26T10:00:00.000Z'::timestamptz
+     )`,
+  );
+  const beforeSupportUpsert = (await client.query(`
+    select key, value, updated_at::text
+    from public.app_settings
+    order by key
+  `)).rows;
+
+  // A rolled-back missing-key insert proves the explicit INSERT capability
+  // without leaving any extra setting behind. The production upsert below
+  // conflicts with the seeded support row and separately exercises UPDATE.
+  await client.query("begin");
+  try {
+    await client.query("set local role service_role");
+    await client.query(
+      `insert into public.app_settings (key, value)
+       values ('support_telegram_insert_privilege_probe', 'temporary')`,
+    );
+    assert.deepEqual(
+      (await client.query(
+        `select value from public.app_settings
+         where key = 'support_telegram_insert_privilege_probe'`,
+      )).rows,
+      [{ value: "temporary" }],
+    );
+    await client.query("rollback");
+  } catch (error) {
+    await client.query("rollback").catch(() => {});
+    throw error;
+  }
+  assert.equal(
+    (await client.query(
+      `select count(*)::integer as count
+       from public.app_settings
+       where key = 'support_telegram_insert_privilege_probe'`,
+    )).rows[0].count,
+    0,
+  );
 
   await client.query("set role service_role");
   try {
@@ -1746,15 +1838,49 @@ async function assertHardenedAppSettingsBoundary(client) {
       )).rows,
       [{ key: "deposits_paused", value: "false" }],
     );
+    await client.query(
+      `insert into public.app_settings (key, value, updated_at)
+       values ('support_telegram_username', '@qhash_support', $1::timestamptz)
+       on conflict (key) do update
+         set value = excluded.value,
+             updated_at = excluded.updated_at`,
+      [supportTimestamp],
+    );
+    const supportRow = (await client.query(
+      `select key, value, updated_at::text
+       from public.app_settings
+       where key = 'support_telegram_username'`,
+    )).rows[0];
+    assert.equal(supportRow.key, "support_telegram_username");
+    assert.equal(supportRow.value, "@qhash_support");
+    assert.equal(new Date(supportRow.updated_at).toISOString(), supportTimestamp);
     await assert.rejects(
       client.query(
-        "update public.app_settings set value = value where key = 'deposits_paused'",
+        "delete from public.app_settings where key = 'support_telegram_username'",
       ),
       /permission denied for table app_settings/,
     );
   } finally {
     await client.query("reset role");
   }
+  const afterSupportUpsert = (await client.query(`
+    select key, value, updated_at::text
+    from public.app_settings
+    order by key
+  `)).rows;
+  assert.deepEqual(
+    afterSupportUpsert.filter((row) => row.key !== "support_telegram_username"),
+    beforeSupportUpsert.filter((row) => row.key !== "support_telegram_username"),
+  );
+  const finalSupportRows = afterSupportUpsert.filter(
+    (row) => row.key === "support_telegram_username",
+  );
+  assert.equal(finalSupportRows.length, 1);
+  assert.equal(finalSupportRows[0].value, "@qhash_support");
+  assert.equal(
+    new Date(finalSupportRows[0].updated_at).toISOString(),
+    supportTimestamp,
+  );
 }
 
 async function nativeLifecycleCounts(client) {
@@ -2215,7 +2341,10 @@ test("native global deposit-pause catalog drift fails before the first mutation"
     )).rows[0].present,
     true,
   );
-  await assertHardenedAppSettingsBoundary(client);
+  await t.test(
+    "service-role support setting upsert remains operational without client access",
+    async () => assertHardenedAppSettingsBoundary(client),
+  );
 
   const driftCases = [
     {

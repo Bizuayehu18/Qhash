@@ -525,8 +525,8 @@ $preflight$;
 
 -- The live catalog historically exposed app_settings through broad client
 -- table grants and permissive PUBLIC policies. All current runtime consumers
--- are server-owned. Preserve the service-role read boundary while removing
--- direct browser reads and every direct client mutation path.
+-- are server-owned. Preserve the service-role read and support-settings upsert
+-- boundary while removing direct browser access and every client mutation path.
 drop policy app_settings_insert_admin on public.app_settings;
 drop policy app_settings_select on public.app_settings;
 drop policy app_settings_update_admin on public.app_settings;
@@ -538,7 +538,7 @@ create policy app_settings_service_role_select
 
 revoke all on table public.app_settings
   from public, anon, authenticated, service_role;
-grant select on table public.app_settings to service_role;
+grant select, insert, update on table public.app_settings to service_role;
 
 create function public.get_nowpayments_usdt_deposit_overview_snapshot(
   p_user_id uuid
@@ -1410,7 +1410,9 @@ begin
     ["postgres","postgres","TRIGGER",false],
     ["postgres","postgres","TRUNCATE",false],
     ["postgres","postgres","UPDATE",false],
-    ["service_role","postgres","SELECT",false]
+    ["service_role","postgres","INSERT",false],
+    ["service_role","postgres","SELECT",false],
+    ["service_role","postgres","UPDATE",false]
   ]'::jsonb
   then
     raise exception 'unexpected app_settings table ACL catalog after migration';
