@@ -1,7 +1,7 @@
 # QHash data, security, and deployment
 
 **Status:** Current controls and non-negotiable invariants, with target recommendations
-**Scope:** Repository revision `2e20a774f76435a214c4de001dd8bda227d4451a`
+**Scope:** Repository revision `a1d1371fc35620dba9de911ae0f9c8561a98f5bb`
 **Purpose:** Prevent file reorganization and the international USDT conversion from weakening financial, security, or deployment guarantees.
 
 See also:
@@ -50,6 +50,33 @@ NOWPayments is a payment-evidence/provider boundary, not QHash's customer ledger
 
 The client-provided user ID, amount, role, status, balance, provider result, or route selection is never authoritative.
 
+### Verified live security qualification
+
+The trust-boundary table states the required design. It must not be read as a
+claim that every legacy database function already satisfies that design.
+
+At the scoped revision:
+
+- `public.approve_deposit_tx(uuid, uuid, text, text, numeric)` is verified as
+  postgres-owned, `SECURITY DEFINER`, locked to
+  `search_path=pg_catalog, public, pg_temp`, and executable only by `postgres`
+  and `service_role` through non-grantable ACLs;
+- Supabase's live security advisors still report mutable-search-path findings
+  for `update_updated_at_column`, `is_admin`, and
+  `create_wallet_for_new_user`;
+- the advisors still report client-role execution findings for
+  `create_wallet_for_new_user`, `is_admin`, and `rls_auto_enable`; and
+- leaked-password protection is not enabled in the current Auth
+  configuration.
+
+These remaining findings are documented security debt, not permission for
+ad hoc production edits and not, by themselves, proof that each function is
+exploitable. Its trigger use, intended callers, source, owner, ACL inheritance,
+and dependent application paths must be inspected before a separately reviewed
+forward correction. Likewise, an advisor's RLS-enabled-without-policy
+informational finding can describe an intentionally closed service-owned table;
+table ownership and grants must be checked before classifying it as a defect.
+
 ## Financial invariants
 
 These rules are non-negotiable during mechanical reorganization and remain the baseline for later conversion unless a separately reviewed product decision explicitly replaces one.
@@ -65,7 +92,9 @@ These rules are non-negotiable during mechanical reorganization and remain the b
    having exact replay unless their deployed boundary implements it.
 4. Locks use one documented order across competing operations.
 5. A failure before commit leaves balances, state, evidence, and idempotency records unchanged.
-6. RLS and grants are defense in depth; sensitive RPCs are server/service-role only and use locked search paths.
+6. New or migrated sensitive RPCs must be server/service-role only and use
+   locked search paths. Known legacy exceptions remain explicit security debt
+   until their callers and catalog are reviewed and hardened.
 7. Notifications and UI history are projections. They never substitute for the authoritative financial record.
 8. Existing audit rows and applied migration evidence are preserved.
 

@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Repository revision `2e20a774f76435a214c4de001dd8bda227d4451a`
+**Scope:** Repository revision `a1d1371fc35620dba9de911ae0f9c8561a98f5bb`
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
