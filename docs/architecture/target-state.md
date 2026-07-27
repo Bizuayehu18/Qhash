@@ -129,9 +129,16 @@ Neither email nor phone is a public identifier. Account and referral codes must 
 
 Users can log in with either their email or phone number plus password.
 
-Phone verification is not required. Email verification is required before a withdrawal, but is not required merely to register, log in, browse, deposit, or purchase a plan unless a later approved compliance rule explicitly changes that behavior.
+Phone verification is not required. Email verification is completed from
+Profile and establishes persistent account-level withdrawal eligibility until
+the email changes or verification is otherwise invalidated. It is not repeated
+for each withdrawal. Email verification is not required merely to register, log
+in, browse, deposit, or purchase a plan unless a later approved compliance rule
+explicitly changes that behavior.
 
-The existing four-digit numeric Fund PIN remains the transaction credential for withdrawals. It is separate from the login password.
+The existing four-digit numeric Fund PIN remains the transaction credential for
+each withdrawal. It is separate from the login password and remains required
+after the account's email has been verified.
 
 ### Identity changes
 

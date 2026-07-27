@@ -54,7 +54,12 @@ The exchange-rate provider, rate lock, conversion formula, rounding, display pre
 
 `REQ-ID-010` Users cannot change their registered phone or country. Corrections are support-only and audited.
 
-`REQ-ID-011` Email verification is required before withdrawal, but not for ordinary registration, login, deposit, or plan purchase.
+`REQ-ID-011` Email verification is completed from Profile and establishes
+persistent account-level withdrawal eligibility until the email changes or its
+verification is otherwise invalidated. QHash does not repeat email verification
+for every withdrawal. Verification is required before withdrawal, but not for
+ordinary registration, login, deposit, or plan purchase; each withdrawal still
+requires the four-digit Fund PIN under `REQ-SEC-002`.
 
 `REQ-ID-012` A verified-email change requires the current login password, the four-digit Fund PIN, verification of the new email, and a 24-hour withdrawal hold.
 
