@@ -28,10 +28,11 @@ test("withdrawal hub keeps fiat behavior and links USDT to the canonical route",
 });
 
 test("canonical USDT-BEP20 withdrawal route is thin, authenticated, and returns to the hub", async () => {
-  const [route, appLayout, publicSurface] = await Promise.all([
+  const [route, appLayout, publicSurface, legacyBridge] = await Promise.all([
     readRepositoryFile("src/routes/_app/withdraw_.crypto.usdt.bep20.tsx"),
     readRepositoryFile("src/routes/_app.tsx"),
     readRepositoryFile("src/domains/withdrawals/public.ts"),
+    readRepositoryFile("src/components/withdrawal/NowpaymentsUsdtWithdrawal.tsx"),
   ]);
 
   assert.match(
@@ -51,17 +52,23 @@ test("canonical USDT-BEP20 withdrawal route is thin, authenticated, and returns 
   assert.match(appLayout, /<Outlet \/>/);
 
   assert.match(publicSurface, /NowpaymentsUsdtWithdrawal/);
+  assert.match(publicSurface, /UsdtBep20Withdrawal/);
+  assert.match(publicSurface, /\.\/ui\/UsdtBep20Withdrawal\.js/);
   assert.match(publicSurface, /NowpaymentsWithdrawalOverview/);
   assert.match(publicSurface, /NowpaymentsWithdrawalHistoryView/);
+  assert.match(legacyBridge, /@\/domains\/withdrawals\/ui\/UsdtBep20Withdrawal\.js/);
+  assert.match(legacyBridge, /NowpaymentsUsdtWithdrawal/);
 });
 
 test("canonical withdrawal route is non-nested and exposes no sensitive or server-only state", async () => {
-  const [route, publicSurface, routeTree] = await Promise.all([
+  const [route, publicSurface, legacyBridge, canonicalEntry, routeTree] = await Promise.all([
     readRepositoryFile("src/routes/_app/withdraw_.crypto.usdt.bep20.tsx"),
     readRepositoryFile("src/domains/withdrawals/public.ts"),
+    readRepositoryFile("src/components/withdrawal/NowpaymentsUsdtWithdrawal.tsx"),
+    readRepositoryFile("src/domains/withdrawals/ui/UsdtBep20Withdrawal.tsx"),
     readRepositoryFile("src/routeTree.gen.ts"),
   ]);
-  const clientSurface = `${route}\n${publicSurface}`;
+  const clientSurface = `${route}\n${publicSurface}\n${legacyBridge}\n${canonicalEntry}`;
 
   assert.match(routeTree, /'\/withdraw\/crypto\/usdt\/bep20'/);
   assert.match(
@@ -77,4 +84,20 @@ test("canonical withdrawal route is non-nested and exposes no sensitive or serve
     /lib\/server|netlify\/functions|supabase-admin|service.role|NOWPAYMENTS_(?:API|IPN)_KEY|api\.nowpayments|transaction_hash|search:/i,
   );
   assert.doesNotMatch(clientSurface, /createClient|\.from\(|\.rpc\(|fetch\(/);
+});
+
+test("canonical withdrawal entry composes the controller and focused views", async () => {
+  const [entry, view, form, history] = await Promise.all([
+    readRepositoryFile("src/domains/withdrawals/ui/UsdtBep20Withdrawal.tsx"),
+    readRepositoryFile("src/domains/withdrawals/ui/UsdtBep20WithdrawalView.tsx"),
+    readRepositoryFile("src/domains/withdrawals/ui/UsdtBep20WithdrawalRequestForm.tsx"),
+    readRepositoryFile("src/domains/withdrawals/ui/UsdtBep20WithdrawalHistory.tsx"),
+  ]);
+  assert.match(entry, /useUsdtBep20Withdrawal/);
+  assert.match(entry, /<UsdtBep20WithdrawalView/);
+  assert.match(view, /<UsdtBep20WithdrawalRequestForm/);
+  assert.match(view, /<UsdtBep20WithdrawalHistory/);
+  assert.match(form, /Four-digit Fund PIN/);
+  assert.match(history, /Pending|nowpaymentsWithdrawalStatusLabel/);
+  assert.doesNotMatch(`${entry}\n${view}\n${form}\n${history}`, /transaction_hash|current_broadcast_id|confirmations|manual review/i);
 });

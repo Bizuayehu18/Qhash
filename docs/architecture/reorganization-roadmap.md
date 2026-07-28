@@ -16,7 +16,7 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 | Phase 1 — Deterministic engineering baseline | Complete |
 | Phase 2 — Compatibility scaffolding | In progress: client-safe route/facade slices and cross-system ownership enforcement implemented; server-only entry points remain |
 | Phase 3 — Extract shared primitives | Not started |
-| Phase 4 — Extract domains one at a time | In progress: crypto-deposit client extraction and UI decomposition implemented |
+| Phase 4 — Extract domains one at a time | In progress: crypto-deposit and ordinary-user USDT-withdrawal UI decompositions implemented |
 | Phase 5 and later | Not started |
 
 ## Invariants throughout the roadmap
@@ -66,7 +66,7 @@ Implemented:
 - an authorized live Supabase type snapshot with offline hash, compatibility,
   and migration-provenance checks;
 - import-boundary no-growth enforcement;
-- 37 report-only complexity warnings with no-growth enforcement;
+- 36 report-only complexity warnings with no-growth enforcement;
 - documentation link, code-fence, required-document, ADR status, and ADR index
   checks; and
 - Windows/Linux portable CI plus isolated PostgreSQL 17 native CI.
@@ -235,6 +235,22 @@ Second crypto-deposit extraction slice:
   new complexity warning; and
 - makes no schema, migration, Netlify Function, authorization, provider,
   accounting, flag, or financial behavior change.
+
+First ordinary-user USDT-withdrawal UI extraction slice:
+
+- moves the canonical USDT-BEP20 component into
+  `src/domains/withdrawals/ui` and decomposes it into a thin public entry,
+  authenticated request controller, state-selecting view, request form, and
+  withdrawal history;
+- preserves the client facade, legacy component import through a compatibility
+  bridge, canonical route, exact six-decimal calculation, four-digit Fund PIN,
+  stable idempotency keys, rolling 24-hour cross-rail policy, balances, fees,
+  and Pending/Completed/Rejected history;
+- removes the resolved 466-nonblank-line component warning without raising a
+  new complexity warning; and
+- deliberately leaves the browser transport, Netlify Functions, Supabase
+  functions and tables, administrator workflow, provider boundary, accounting,
+  flags, and financial behavior unchanged.
 
 ## Phase 5 — Decompose administration
 

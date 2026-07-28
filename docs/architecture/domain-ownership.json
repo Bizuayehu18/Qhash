@@ -625,6 +625,11 @@
         "sourceModules": [
           "src/components/admin/NowpaymentsUsdtWithdrawalAdmin.tsx",
           "src/components/withdrawal/NowpaymentsUsdtWithdrawal.tsx",
+          "src/domains/withdrawals/ui/UsdtBep20Withdrawal.tsx",
+          "src/domains/withdrawals/ui/UsdtBep20WithdrawalHistory.tsx",
+          "src/domains/withdrawals/ui/UsdtBep20WithdrawalRequestForm.tsx",
+          "src/domains/withdrawals/ui/UsdtBep20WithdrawalView.tsx",
+          "src/domains/withdrawals/ui/useUsdtBep20Withdrawal.ts",
           "src/lib/nowpayments-withdrawal-admin-ui.ts",
           "src/lib/nowpayments-withdrawal-ui.ts",
           "src/lib/server/withdrawals.ts",

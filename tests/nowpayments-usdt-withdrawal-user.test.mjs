@@ -799,7 +799,14 @@ test("source boundaries contain no provider, signing, payout, client database, o
     await Promise.all([
       readFile(new URL("netlify/functions/nowpayments-usdt-withdrawal-overview.mts", root), "utf8"),
       readFile(new URL("netlify/functions/nowpayments-usdt-withdrawal-request.mts", root), "utf8"),
-      readFile(new URL("src/components/withdrawal/NowpaymentsUsdtWithdrawal.tsx", root), "utf8"),
+      Promise.all([
+        "src/components/withdrawal/NowpaymentsUsdtWithdrawal.tsx",
+        "src/domains/withdrawals/ui/UsdtBep20Withdrawal.tsx",
+        "src/domains/withdrawals/ui/UsdtBep20WithdrawalHistory.tsx",
+        "src/domains/withdrawals/ui/UsdtBep20WithdrawalRequestForm.tsx",
+        "src/domains/withdrawals/ui/UsdtBep20WithdrawalView.tsx",
+        "src/domains/withdrawals/ui/useUsdtBep20Withdrawal.ts",
+      ].map((path) => readFile(new URL(path, root), "utf8"))).then((sources) => sources.join("\n")),
       readFile(new URL("src/lib/nowpayments-withdrawal-ui.ts", root), "utf8"),
       readFile(new URL("src/lib/withdrawal-policy.ts", root), "utf8"),
       readFile(new URL("src/lib/server/withdrawals.ts", root), "utf8"),
@@ -818,10 +825,7 @@ test("source boundaries contain no provider, signing, payout, client database, o
   assert.equal((requestSource.match(/verify_fund_password_tx/g) ?? []).length, 1);
   assert.match(requestSource, /parseWithdrawalCooldownDetail\(error\?\.details\)/);
   assert.match(etbWithdrawalServer, /parseWithdrawalCooldownDetail\(error\?\.details\)/);
-  assert.match(
-    withdrawalPolicySource,
-    /one withdrawal request in any rolling 24-hour period across CBE, TeleBirr, and USDT/,
-  );
+  assert.match(withdrawalPolicySource, /one withdrawal request in any rolling 24-hour period across CBE, TeleBirr, and USDT/);
   assert.match(withdrawalPolicySource, /request still counts if it is later rejected/);
   assert.match(withdrawalPolicySource, /Eligibility is measured from when QHash accepts the request/);
   assert.match(withdrawalPolicySource, /Next eligible: \$\{nextAllowedAtUtc\}/);
@@ -832,10 +836,7 @@ test("source boundaries contain no provider, signing, payout, client database, o
     withdrawRoute,
     /24h processing[\s\S]*?<p className="mt-1\.5 border-t[\s\S]*?CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE/,
   );
-  assert.doesNotMatch(
-    `${uiSource}\n${withdrawRoute}`,
-    /one request\/day|one per day|try again tomorrow|calendar day/i,
-  );
+  assert.doesNotMatch(`${uiSource}\n${withdrawRoute}`, /one request\/day|one per day|try again tomorrow|calendar day/i);
   assert.match(uiSource, /Four-digit Fund PIN/);
   assert.doesNotMatch(clientSource, /transaction_hash|current_broadcast_id|confirmations|manual review/i);
   assert.match(uiSource, /BigInt|formatUsdtMicros/);
@@ -844,14 +845,8 @@ test("source boundaries contain no provider, signing, payout, client database, o
   assert.match(uiSource, /\.begin\(authIdentity\)/);
   assert.match(uiSource, /fetchNowpaymentsWithdrawalOverview\([\s\S]*?request\.signal/);
   assert.ok((uiSource.match(/request\.isCurrent\(\)/g) ?? []).length >= 3);
-  assert.match(
-    uiSource,
-    /overviewRequestsRef\.current!\.invalidate\(\);[\s\S]*?setSubmitting\(true\)/,
-  );
-  assert.match(
-    uiSource,
-    /return \(\) => \{[\s\S]*?mountedRef\.current = false;[\s\S]*?\.invalidate\(\)/,
-  );
+  assert.match(uiSource, /overviewRequestsRef\.current!\.invalidate\(\);[\s\S]*?setSubmitting\(true\)/);
+  assert.match(uiSource, /return \(\) => \{[\s\S]*?mountedRef\.current = false;[\s\S]*?\.invalidate\(\)/);
   assert.match(withdrawRoute, /submitWithdrawalFn/);
   assert.match(withdrawRoute, /CBE Withdrawal/);
   assert.match(withdrawRoute, /TeleBirr Withdrawal/);

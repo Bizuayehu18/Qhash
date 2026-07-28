@@ -330,9 +330,13 @@ The first facades are `src/domains/crypto-deposits/public.ts` and
 its canonical domain-owned UI implementation. That implementation separates
 state, request orchestration, address presentation, and focused views while
 the old component and client-library paths remain compatibility bridges. The
-withdrawal facade still delegates to its legacy implementation. Server-only
-domain entry points remain a later bounded slice; client code must not infer a
-server boundary from these browser-safe surfaces.
+withdrawal facade now points to its canonical domain-owned ordinary-user UI,
+which separates request orchestration, state selection, the request form, and
+history. Its old component path is a compatibility bridge; its existing
+browser transport remains at the legacy client-library path for a later
+bounded extraction. Server-only domain entry points remain a later bounded
+slice; client code must not infer a server boundary from these browser-safe
+surfaces.
 
 ## Documentation ownership
 

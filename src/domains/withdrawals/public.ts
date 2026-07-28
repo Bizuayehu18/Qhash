@@ -1,11 +1,13 @@
 /**
  * Client-safe withdrawal surface.
  *
- * The USDT implementation remains at its legacy path during Phase 2. New
- * routes import this facade; the old path stays available until all consumers
- * move in a separately reviewed extraction.
+ * Server, database, administrator, provider, and migration internals are
+ * deliberately absent from this browser-facing contract.
  */
-export { NowpaymentsUsdtWithdrawal } from "@/components/withdrawal/NowpaymentsUsdtWithdrawal.js";
+export {
+  UsdtBep20Withdrawal,
+  UsdtBep20Withdrawal as NowpaymentsUsdtWithdrawal,
+} from "./ui/UsdtBep20Withdrawal.js";
 
 export type {
   NowpaymentsWithdrawalHistoryView,
