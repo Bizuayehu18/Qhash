@@ -1,7 +1,7 @@
 # QHash domain boundaries
 
 **Status:** Current boundary map with target recommendations
-**Scope:** Repository base `493ab700467a07a52f9e34a2e7d39ace60678876` plus this behavior-preserving crypto-deposit UI decomposition
+**Scope:** Repository base `64ff385e2c9d25bbb696686f1892e263e0260042` plus this behavior-preserving USDT-withdrawal UI decomposition
 **Purpose:** Define ownership before files are moved. Current facts and target recommendations are intentionally separated.
 
 The exact current assignment of repository, Netlify, Supabase, test, and
@@ -25,7 +25,7 @@ See also:
 | Fiat deposits | `/deposit`, `src/lib/server/deposits.ts`, CBE/TeleBirr verifiers | Supabase `deposits`, `payment_methods`, ETB wallet/transactions | verification and approval code is distributed across large modules and Functions |
 | Crypto deposits | `/deposit`, `/deposit/crypto/usdt/bep20`, `src/domains/crypto-deposits/public.ts`, `src/domains/crypto-deposits/ui`, NOWPayments deposit Functions | NOWPayments plus `nowpayments_usdt_*` deposit tables | the USDT-BEP20 browser component is decomposed into domain-owned state, orchestration, address-presentation, and view modules; old source paths are compatibility bridges, while provider communication and financial settlement remain distinct responsibilities |
 | Fiat withdrawals | `/withdraw`, `src/lib/server/withdrawals.ts` | Supabase `withdrawals`, ETB wallet/transactions | shares Fund PIN and cross-rail policy with USDT |
-| USDT withdrawals | `/withdraw`, `/withdraw/crypto/usdt/bep20`, `src/domains/withdrawals/public.ts`, NOWPayments withdrawal user/admin components and Functions | `nowpayments_usdt_withdrawals`, events, wallet, ledger | the Phase 2 client facade delegates to the legacy user implementation; manual Complete/Reject remains unchanged with no automatic payout/signing |
+| USDT withdrawals | `/withdraw`, `/withdraw/crypto/usdt/bep20`, `src/domains/withdrawals/public.ts`, `src/domains/withdrawals/ui`, NOWPayments withdrawal admin component and Functions | `nowpayments_usdt_withdrawals`, events, wallet, ledger | the ordinary-user USDT-BEP20 component is decomposed into domain-owned request orchestration, view, form, and history modules; the old component path is a compatibility bridge, while the legacy browser transport and manual administrator Complete/Reject flow remain unchanged with no automatic payout/signing |
 | Plans and investments | `/plans`, investment server functions | `plans`, `investments`, ETB wallet/transactions | values are currently part of the legacy ETB model |
 | Earnings and referrals | dashboard/referrals/admin-earnings, scheduled Functions | referrals, reward logs, earning logs, investments, ETB wallet/transactions | current visible identity and referral lookup use username |
 | Administration | `/admin`, `/admin-earnings` | profile role plus domain data | UI is concentrated; authorization must remain inside each server action |

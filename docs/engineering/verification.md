@@ -67,9 +67,12 @@ other domain, application, infrastructure, server, and UI modules use the
 route contract: `/withdraw` remains the CBE, TeleBirr, and USDT hub,
 `/withdraw/crypto/usdt/bep20` is a non-nested child of the protected
 application layout, Back returns to the hub, and the thin route/client facade
-contain no server-only or sensitive URL state. The established Fund PIN,
-rolling 24-hour cross-rail policy, and accounting remain in the existing
-withdrawal component and server/database boundaries.
+contain no server-only or sensitive URL state. It also pins the canonical
+domain component, focused view composition, and temporary legacy component
+bridge. Source-characterization tests aggregate the extracted controller,
+view, form, and history so the established Fund PIN, auth isolation,
+idempotency, rolling 24-hour cross-rail policy, fixed-point calculations, and
+accounting boundary remain unchanged.
 
 ## Native PostgreSQL safety
 
@@ -171,7 +174,7 @@ Netlify Database inventory.
 The boundary and complexity checks start from observed legacy debt:
 
 - 27 existing TanStack server-bridge imports; and
-- 37 current file-size warnings.
+- 36 current file-size warnings.
 
 Those findings are report-only at their recorded values. New boundary leaks,
 new warning files, or growth in an existing warning fail verification. This
