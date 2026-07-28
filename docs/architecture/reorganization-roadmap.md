@@ -16,7 +16,7 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 | Phase 1 — Deterministic engineering baseline | Complete |
 | Phase 2 — Compatibility scaffolding | In progress: client-safe route/facade slices and cross-system ownership enforcement implemented; server-only entry points remain |
 | Phase 3 — Extract shared primitives | Not started |
-| Phase 4 — Extract domains one at a time | In progress: first crypto-deposit client slice extracted |
+| Phase 4 — Extract domains one at a time | In progress: crypto-deposit client extraction and UI decomposition implemented |
 | Phase 5 and later | Not started |
 
 ## Invariants throughout the roadmap
@@ -66,7 +66,7 @@ Implemented:
 - an authorized live Supabase type snapshot with offline hash, compatibility,
   and migration-provenance checks;
 - import-boundary no-growth enforcement;
-- 38 report-only complexity warnings with no-growth enforcement;
+- 37 report-only complexity warnings with no-growth enforcement;
 - documentation link, code-fence, required-document, ADR status, and ADR index
   checks; and
 - Windows/Linux portable CI plus isolated PostgreSQL 17 native CI.
@@ -223,6 +223,18 @@ First crypto-deposit extraction slice:
 - deliberately leaves Netlify entrypoints, provider helpers, Supabase
   functions/tables, applied migrations, endpoints, and fiat behavior in place
   for separately characterized extraction slices.
+
+Second crypto-deposit extraction slice:
+
+- decomposes the canonical USDT-BEP20 UI into a thin public component,
+  request controller, address-presentation hook, pure state module, view
+  shell, active-address card, and deposit history;
+- preserves the public exports, compatibility bridges, canonical route,
+  response contracts, polling, copy and QR behavior, and provider boundary;
+- removes the resolved 852-nonblank-line component warning without raising a
+  new complexity warning; and
+- makes no schema, migration, Netlify Function, authorization, provider,
+  accounting, flag, or financial behavior change.
 
 ## Phase 5 — Decompose administration
 

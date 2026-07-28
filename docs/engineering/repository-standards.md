@@ -327,11 +327,12 @@ much risk. Such a facade:
 
 The first facades are `src/domains/crypto-deposits/public.ts` and
 `src/domains/withdrawals/public.ts`. The crypto-deposit facade now points to
-its canonical domain-owned UI implementation, with the old component and
-client-library paths retained as compatibility bridges. The withdrawal facade
-still delegates to its legacy implementation. Server-only domain entry points
-remain a later bounded slice; client code must not infer a server boundary
-from these browser-safe surfaces.
+its canonical domain-owned UI implementation. That implementation separates
+state, request orchestration, address presentation, and focused views while
+the old component and client-library paths remain compatibility bridges. The
+withdrawal facade still delegates to its legacy implementation. Server-only
+domain entry points remain a later bounded slice; client code must not infer a
+server boundary from these browser-safe surfaces.
 
 ## Documentation ownership
 

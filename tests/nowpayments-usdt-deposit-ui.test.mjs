@@ -68,6 +68,11 @@ const FORBIDDEN_TERMINAL_LOG_FRAGMENTS = [
   ADDRESS,
   "90071992547409931234",
 ];
+const DEPOSIT_UI_SOURCE_PATHS = [
+  "src/domains/crypto-deposits/ui/UsdtBep20Deposit.tsx", "src/domains/crypto-deposits/ui/useUsdtBep20Deposit.ts",
+  "src/domains/crypto-deposits/ui/useUsdtBep20AddressPresentation.ts", "src/domains/crypto-deposits/ui/UsdtBep20DepositView.tsx",
+  "src/domains/crypto-deposits/ui/UsdtBep20AddressCard.tsx", "src/domains/crypto-deposits/ui/UsdtBep20DepositHistory.tsx",
+  "src/domains/crypto-deposits/ui/usdt-bep20-deposit-state.ts"];
 const {
   IDLE_COPY_FEEDBACK,
   INITIAL_NOWPAYMENTS_DEPOSIT_UI_STATE,
@@ -80,16 +85,18 @@ const {
 const [
   overviewSource,
   deployContextSource,
-  uiSource,
+  uiSources,
   depositRouteSource,
   netlifyTypecheck,
 ] = await Promise.all([
   readFile(new URL("netlify/functions/nowpayments-usdt-deposit-overview.mts", repositoryRoot), "utf8"),
   readFile(new URL("netlify/functions/lib/nowpayments-deploy-context.mts", repositoryRoot), "utf8"),
-  readFile(new URL("src/domains/crypto-deposits/ui/UsdtBep20Deposit.tsx", repositoryRoot), "utf8"),
+  Promise.all(DEPOSIT_UI_SOURCE_PATHS.map((path) => readFile(new URL(path, repositoryRoot), "utf8"))),
   readFile(new URL("src/routes/_app/deposit.tsx", repositoryRoot), "utf8"),
   readFile(new URL("tsconfig.netlify.json", repositoryRoot), "utf8"),
 ]);
+const [uiComponentSource, uiControllerSource, addressPresentationSource, uiViewSource, uiAddressCardSource, uiHistorySource, uiStateSource] = uiSources;
+const uiSource = uiSources.join("\n");
 
 function validSession(overrides = {}) {
   return {
@@ -1460,29 +1467,29 @@ test("authentication generations deterministically reject old-token and same-use
 });
 
 test("generation source guards bind Generate lifecycle to the current token and pause polling", () => {
-  assert.match(uiSource, /const authGenerationRef = useRef\(0\)/);
-  assert.match(uiSource, /const accessTokenRef = useRef\(accessToken\)/);
-  assert.match(uiSource, /const submissionControllerRef = useRef<AbortController \| null>\(null\)/);
-  assert.match(uiSource, /const submissionBusyRef = useRef\(false\)/);
+  assert.match(uiControllerSource, /const authGenerationRef = useRef\(0\)/);
+  assert.match(uiControllerSource, /const accessTokenRef = useRef\(accessToken\)/);
+  assert.match(uiControllerSource, /const submissionControllerRef = useRef<AbortController \| null>\(null\)/);
+  assert.match(uiControllerSource, /const submissionBusyRef = useRef\(false\)/);
   assert.match(
-    uiSource,
+    uiControllerSource,
     /isNowpaymentsAuthGenerationCurrent\([\s\S]*accessTokenRef\.current,[\s\S]*authGenerationRef\.current,[\s\S]*accessToken,[\s\S]*authGeneration,[\s\S]*submissionBusyRef\.current && !allowDuringSubmission/,
   );
-  assert.match(uiSource, /overviewRequestGateRef\.current\?\.invalidate\(\)/);
-  assert.match(uiSource, /submissionControllerRef\.current\?\.abort\(\)/);
-  assert.match(uiSource, /requestNowpaymentsDepositSession\(token, fetch, controller\.signal\)/);
-  assert.match(uiSource, /if \(!isCurrentAuthGeneration\(\)\) return;/);
+  assert.match(uiControllerSource, /overviewRequestGateRef\.current\?\.invalidate\(\)/);
+  assert.match(uiControllerSource, /submissionControllerRef\.current\?\.abort\(\)/);
+  assert.match(uiControllerSource, /requestNowpaymentsDepositSession\(token, fetch, controller\.signal\)/);
+  assert.match(uiControllerSource, /if \(!isCurrentAuthGeneration\(\)\) return;/);
   assert.match(
-    uiSource,
+    uiControllerSource,
     /if \(!isCurrentAuthGeneration\(\) \|\| \(controller\.signal\.aborted && !timedOut\)\)/,
   );
   assert.match(
-    uiSource,
+    uiControllerSource,
     /if \(isCurrentAuthGeneration\(\)\) \{[\s\S]*submissionBusyRef\.current = false;[\s\S]*setGenerating\(false\);/,
   );
   assert.ok(
-    uiSource.indexOf("if (!isCurrentAuthGeneration() || !refreshed) return;")
-      < uiSource.indexOf('toast.success("Your USDT BEP20 deposit address is ready.");'),
+    uiControllerSource.indexOf("if (!isCurrentAuthGeneration() || !refreshed) return;")
+      < uiControllerSource.indexOf('toast.success("Your USDT BEP20 deposit address is ready.");'),
   );
 });
 
@@ -1506,7 +1513,6 @@ test("copy feedback announces success, updates its name, and resets to the actio
     copyButtonAccessibleName({ addressSendable: true, copied: feedback.copied }),
     "USDT BEP20 deposit address copied.",
   );
-  assert.match(uiSource, /role="status" aria-live="polite" aria-atomic="true"/);
   assert.deepEqual(IDLE_COPY_FEEDBACK, { copied: false, announcement: "" });
   assert.equal(
     copyButtonAccessibleName({
@@ -1516,7 +1522,7 @@ test("copy feedback announces success, updates its name, and resets to the actio
     "Copy USDT BEP20 deposit address.",
   );
   assert.match(
-    uiSource,
+    addressPresentationSource,
     /setTimeout\([\s\S]*type: "set_copy_feedback"[\s\S]*copyFeedback: IDLE_COPY_FEEDBACK[\s\S]*COPY_FEEDBACK_TIMEOUT_MS/,
   );
 });
@@ -1538,9 +1544,8 @@ test("copy failure announces only a generic failure and keeps the action availab
     copyButtonAccessibleName({ addressSendable: true, copied: feedback.copied }),
     "Copy USDT BEP20 deposit address.",
   );
-  assert.match(uiSource, /toast\.error\("Unable to copy\. Please copy the address manually\."\)/);
-  assert.doesNotMatch(uiSource, /clipboard detail|error\.message|String\(error\)/i);
-  assert.match(uiSource, /disabled=\{!addressSendable\}/);
+  assert.match(addressPresentationSource, /toast\.error\("Unable to copy\. Please copy the address manually\."\)/);
+  assert.doesNotMatch(addressPresentationSource, /clipboard detail|error\.message|String\(error\)/i);
 });
 
 test("expired addresses keep copy disabled without invoking clipboard or provider actions", () => {
@@ -1549,55 +1554,50 @@ test("expired addresses keep copy disabled without invoking clipboard or provide
     "Copy disabled for expired address.",
   );
   assert.match(
-    uiSource,
-    /if \(!overview\?\.feature_enabled \|\| !activeSession \|\| !addressSendable\) return;/,
+    addressPresentationSource,
+    /if \(!featureEnabled \|\| !activeSession \|\| !addressSendable\) return;/,
   );
-  assert.match(uiSource, /disabled=\{!addressSendable\}/);
-  assert.equal((uiSource.match(/navigator\.clipboard\.writeText/g) ?? []).length, 1);
-  assert.match(uiSource, /createSingleFlight\(performGenerate\)/);
+  assert.match(uiAddressCardSource, /disabled=\{!addressSendable\}/);
+  assert.equal((addressPresentationSource.match(/navigator\.clipboard\.writeText/g) ?? []).length, 1);
   assert.doesNotMatch(uiSource, /NOWPAYMENTS_API_KEY|api\.nowpayments\.io/);
 });
 
 test("UI is backend-gated, duplicate-click guarded, local-QR-only, responsive, and accessible", () => {
-  assert.match(uiSource, /createSingleFlight\(performGenerate\)/);
-  assert.match(uiSource, /disabled=\{generating\}/);
-  assert.match(uiSource, /QRCode\.toDataURL/);
+  assert.match(uiControllerSource, /createSingleFlight\(performGenerate\)/);
+  assert.match(uiViewSource, /disabled=\{generating\}/);
+  assert.match(addressPresentationSource, /QRCode\.toDataURL/);
   assert.doesNotMatch(uiSource, /api\.qrserver|chart\.google|NOWPAYMENTS_API_KEY/);
   assert.doesNotMatch(uiSource, /<Input|network selector/i);
-  assert.match(uiSource, /role="status" aria-live="polite" aria-atomic="true"/);
-  assert.match(uiSource, /USDT BEP20 deposit address copied to clipboard\./);
-  assert.match(uiSource, /Copy USDT BEP20 deposit address\./);
-  assert.match(uiSource, /alt="QR code for the USDT BEP20 deposit address"/);
-  assert.match(uiSource, /sm:grid-cols/);
+  assert.match(uiViewSource, /role="status" aria-live="polite" aria-atomic="true"/);
+  assert.match(uiAddressCardSource, /alt="QR code for the USDT BEP20 deposit address"/);
+  assert.match(uiAddressCardSource, /sm:grid-cols/);
   assert.match(uiSource, /Expired — do not send/);
-  assert.match(uiSource, /available_balance_usdt/);
-  assert.match(uiSource, /reserved_balance_usdt/);
-  const disabledState = uiSource.slice(
-    uiSource.indexOf("function DisabledCryptoState"),
-    uiSource.indexOf("function ActiveDepositCard"),
+  assert.match(uiViewSource, /available_balance_usdt/);
+  assert.match(uiViewSource, /reserved_balance_usdt/);
+  const disabledState = uiViewSource.slice(
+    uiViewSource.indexOf("function DisabledCryptoState"),
+    uiViewSource.indexOf("function ProcessingState"),
   );
   assert.doesNotMatch(disabledState, /Generate Deposit Address|Retry|QRCode\.toDataURL|navigator\.clipboard/);
   assert.ok(
-    uiSource.indexOf("!overview.feature_enabled ?")
-      < uiSource.indexOf("activeSession ?"),
+    uiViewSource.indexOf("!overview.feature_enabled ?")
+      < uiViewSource.indexOf("activeSession ?"),
   );
-  assert.match(uiSource, /error && overview\.feature_enabled && <InlineRetry/);
+  assert.match(uiViewSource, /error && overview\.feature_enabled && <InlineRetry/);
   assert.ok(
-    (uiSource.match(/sanitizeDisabledNowpaymentsDepositOverview\(state\.overview\)/g) ?? []).length >= 1,
+    (uiStateSource.match(/sanitizeDisabledNowpaymentsDepositOverview\(state\.overview\)/g) ?? []).length >= 1,
   );
-  assert.match(uiSource, /createNowpaymentsOverviewRequestGate/);
-  assert.match(uiSource, /new AbortController|ticket\.signal/);
-  assert.match(uiSource, /isCurrent\(ticket\.generation\)/);
-  assert.match(uiSource, /setInterval\(refresh, OVERVIEW_REFRESH_INTERVAL_MS\)/);
-  assert.match(uiSource, /document\.visibilityState === "visible"/);
+  assert.match(uiControllerSource, /createNowpaymentsOverviewRequestGate/);
+  assert.match(uiControllerSource, /new AbortController|ticket\.signal/);
+  assert.match(uiControllerSource, /isCurrent\(ticket\.generation\)/);
+  assert.match(uiControllerSource, /setInterval\(refresh, OVERVIEW_REFRESH_INTERVAL_MS\)/);
+  assert.match(uiControllerSource, /document\.visibilityState === "visible"/);
   assert.match(
-    uiSource,
+    uiControllerSource,
     /catch \{[\s\S]*clearAddressPresentation\(\);[\s\S]*type: "overview_failure"/,
   );
-  assert.ok(
-    uiSource.indexOf("!overview.feature_enabled ?")
-      < uiSource.indexOf("activeSession ?"),
-  );
+  assert.match(uiComponentSource, /useUsdtBep20Deposit\(accessToken\)/);
+  assert.match(uiHistorySource, /USDT Deposit History/);
 });
 
 test("CBE and TeleBirr deposit paths remain present and crypto is a parallel option", () => {

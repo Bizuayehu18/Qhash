@@ -1,7 +1,7 @@
 # QHash domain boundaries
 
 **Status:** Current boundary map with target recommendations
-**Scope:** Repository base `580e8c9882351f861e77800fedf8a1ac5b548447` plus this behavior-preserving crypto-deposit client extraction
+**Scope:** Repository base `493ab700467a07a52f9e34a2e7d39ace60678876` plus this behavior-preserving crypto-deposit UI decomposition
 **Purpose:** Define ownership before files are moved. Current facts and target recommendations are intentionally separated.
 
 The exact current assignment of repository, Netlify, Supabase, test, and
@@ -23,7 +23,7 @@ See also:
 | Identity and access | auth routes, `authStore`, `src/lib/server/auth.ts` | Supabase Auth and `profiles` | username and Ethiopian phone are currently coupled to Auth and referrals |
 | Profile and security | profile/security routes, `src/lib/server/security.ts` | `profiles`, `user_security_settings`, Supabase Auth | Fund PIN is a protected server/database workflow |
 | Fiat deposits | `/deposit`, `src/lib/server/deposits.ts`, CBE/TeleBirr verifiers | Supabase `deposits`, `payment_methods`, ETB wallet/transactions | verification and approval code is distributed across large modules and Functions |
-| Crypto deposits | `/deposit`, `/deposit/crypto/usdt/bep20`, `src/domains/crypto-deposits/public.ts`, `src/domains/crypto-deposits/ui`, NOWPayments deposit Functions | NOWPayments plus `nowpayments_usdt_*` deposit tables | the USDT-BEP20 browser component and client view model are domain-owned; old source paths are compatibility bridges, while provider communication and financial settlement remain distinct responsibilities |
+| Crypto deposits | `/deposit`, `/deposit/crypto/usdt/bep20`, `src/domains/crypto-deposits/public.ts`, `src/domains/crypto-deposits/ui`, NOWPayments deposit Functions | NOWPayments plus `nowpayments_usdt_*` deposit tables | the USDT-BEP20 browser component is decomposed into domain-owned state, orchestration, address-presentation, and view modules; old source paths are compatibility bridges, while provider communication and financial settlement remain distinct responsibilities |
 | Fiat withdrawals | `/withdraw`, `src/lib/server/withdrawals.ts` | Supabase `withdrawals`, ETB wallet/transactions | shares Fund PIN and cross-rail policy with USDT |
 | USDT withdrawals | `/withdraw`, `/withdraw/crypto/usdt/bep20`, `src/domains/withdrawals/public.ts`, NOWPayments withdrawal user/admin components and Functions | `nowpayments_usdt_withdrawals`, events, wallet, ledger | the Phase 2 client facade delegates to the legacy user implementation; manual Complete/Reject remains unchanged with no automatic payout/signing |
 | Plans and investments | `/plans`, investment server functions | `plans`, `investments`, ETB wallet/transactions | values are currently part of the legacy ETB model |

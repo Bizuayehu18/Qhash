@@ -132,7 +132,13 @@
         "sourceModules": [
           "src/components/deposit/NowpaymentsUsdtDeposit.tsx",
           "src/domains/crypto-deposits/ui/nowpayments-deposit-ui.ts",
+          "src/domains/crypto-deposits/ui/usdt-bep20-deposit-state.ts",
+          "src/domains/crypto-deposits/ui/UsdtBep20AddressCard.tsx",
           "src/domains/crypto-deposits/ui/UsdtBep20Deposit.tsx",
+          "src/domains/crypto-deposits/ui/UsdtBep20DepositHistory.tsx",
+          "src/domains/crypto-deposits/ui/UsdtBep20DepositView.tsx",
+          "src/domains/crypto-deposits/ui/useUsdtBep20AddressPresentation.ts",
+          "src/domains/crypto-deposits/ui/useUsdtBep20Deposit.ts",
           "src/lib/nowpayments-deposit-ui.ts"
         ],
         "supabaseFunctions": [

@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository base `580e8c9882351f861e77800fedf8a1ac5b548447`, plus this behavior-preserving crypto-deposit client extraction
+**Scope:** Runtime baseline through repository base `493ab700467a07a52f9e34a2e7d39ace60678876`, plus this behavior-preserving crypto-deposit UI decomposition
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -59,7 +59,7 @@ The repository is organized mainly by technical layer, with several business dom
 | Area | Current role | Observed concentration |
 |---|---|---|
 | `src/routes` | TanStack route entry points and substantial page logic | Phase 1 records 13 route files over the 150-nonblank-line warning, including `admin.tsx`, `withdraw.tsx`, and `deposit.tsx` |
-| `src/components` | Shared UI plus a few extracted crypto flows | Phase 1 records three NOWPayments components over the 300-nonblank-line warning |
+| `src/components` | Shared UI plus a few extracted crypto flows | Two remaining NOWPayments components exceed the 300-nonblank-line warning after the deposit UI decomposition |
 | `src/lib/server` | TanStack server functions for many domains in one flat folder | Large deposit, verification, withdrawal, earning, security, and admin modules |
 | `netlify/functions` | provider-facing, scheduled, verification, and admin Functions | NOWPayments handlers are partly decomposed through `netlify/functions/lib` |
 | `supabase/migrations` | forward-only Supabase schema history | authoritative production schema history; large applied files are immutable |
@@ -87,13 +87,14 @@ are still selected inside their broad pages.
 The canonical crypto routes are non-nested TanStack routes beneath the
 protected `_app` layout. They import the client-safe
 `src/domains/crypto-deposits/public.ts` and
-`src/domains/withdrawals/public.ts` facades. The USDT-BEP20 deposit component
-and browser transport/view model now live under
-`src/domains/crypto-deposits/ui`; the previous component and library paths are
-small compatibility re-exports. The withdrawal facade still delegates to its
-legacy implementation. No provider, database, accounting, Fund PIN,
-cross-rail policy, authorization logic, endpoint, or route URL moved in these
-slices.
+`src/domains/withdrawals/public.ts` facades. The USDT-BEP20 deposit UI now
+separates its public component, request controller, address presentation,
+state transitions, view shell, active-address card, and history inside
+`src/domains/crypto-deposits/ui`. Its browser transport/view model remains in
+the same domain, and the previous component and library paths remain small
+compatibility re-exports. The withdrawal facade still delegates to its legacy
+implementation. No provider, database, accounting, Fund PIN, cross-rail
+policy, authorization logic, endpoint, or route URL moved in these slices.
 
 `src/components/layout/AppLayout.tsx` also hard-codes the navigation and route labels. The admin experience is a single large route rather than grouped Users, Deposits, Withdrawals, Plans, and Settings sections.
 
@@ -198,7 +199,7 @@ At the pinned revision:
 5. Twenty-seven existing route/component-to-server bridge imports remain as
    frozen legacy coupling; Phase 1 blocks growth but does not misclassify them
    as a completed domain architecture.
-6. Thirty-eight existing file-size warnings identify decomposition debt; they
+6. Thirty-seven existing file-size warnings identify decomposition debt; they
    remain report-only at or below the recorded baseline.
 7. The compatibility Supabase type surface lacks three live tables and seven
    live functions, although the authoritative generated snapshot and
