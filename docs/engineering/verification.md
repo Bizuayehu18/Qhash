@@ -38,9 +38,10 @@ pinned toolchain.
 | `npm run test:portable` | Explicit manifest of every `tests/*.test.mjs` file with live-database access removed, including route-compatibility characterization; native-only sections may skip |
 | `npm run test:handlers` | Focused Netlify handler authentication, validation, and response-contract tests |
 | `npm run typecheck` | Complete application TypeScript scope |
-| `npm run typecheck:netlify` | Every `netlify/functions/**/*.mts` server entry and library |
+| `npm run typecheck:netlify` | Every supported JavaScript/TypeScript source under `netlify/functions`, including nested entries and support modules |
 | `npm run check:routes-generated` | Regenerates the TanStack route tree into a temporary sibling and compares exact bytes |
 | `npm run check:database-types` | Verifies the committed live-schema snapshot, compatibility debt, and exact Supabase migration inventory against the recorded provenance baseline |
+| `npm run check:ownership` | Requires one accountable domain for every covered source, Netlify, Supabase, migration, test, documentation, governance, and quarantined database artifact |
 | `npm run check:boundaries` | Blocks new client/server leaks, reverse route dependencies, uncovered Function entrypoints, and growth in recorded server bridges |
 | `npm run check:complexity` | Reports existing size debt and blocks new or increased warnings |
 | `npm run check:docs` | Verifies required documents, relative links, code fences, ADR status, and ADR index coverage |
@@ -145,6 +146,20 @@ Do not replace `database.types.ts` wholesale during an unrelated schema PR.
 Its recorded gaps are migration debt, not permission for untyped casts.
 
 ## Architecture baselines
+
+`docs/architecture/domain-ownership.json` is the machine-readable
+cross-system ownership contract. Discovery lives in the checker, so editing the
+registry cannot narrow coverage. Git supplies the exact tracked/unignored file
+inventory; files form one disjoint ownership partition, and ignored local
+state is excluded. The check composes with database provenance:
+`check:database-types` proves exact migration paths and checksums, while
+`check:ownership` proves that every immutable path and generated Supabase object
+has exactly one accountable domain. Eleven live internal Supabase functions
+and nine incomplete-provenance resources are separately pinned from the
+2026-07-28 read-only catalog audit. The check also validates authored Netlify
+Function paths, methods or schedules, source-backed trust classifications,
+direct support imports, handler coverage or named waivers, and the quarantined
+Netlify Database inventory.
 
 The boundary and complexity checks start from observed legacy debt:
 

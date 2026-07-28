@@ -32,6 +32,8 @@ access and actions explicitly allowed for the task.
 
 - [Current architecture](architecture/current-state.md)
 - [Domain boundaries](architecture/domain-boundaries.md)
+- [Cross-system ownership](architecture/system-ownership.md)
+- [Machine ownership registry](architecture/domain-ownership.json)
 - [Data, security, and deployment](architecture/data-security-and-deployment.md)
 - [NOWPayments late-deposit recovery](nowpayments-late-deposit-recovery.md)
 
@@ -57,6 +59,7 @@ access and actions explicitly allowed for the task.
 - [CI verification workflow](../.github/workflows/verify.yml)
 - [Boundary and complexity baseline](../scripts/engineering-baseline.json)
 - [Database-type provenance baseline](../scripts/database-types-baseline.json)
+- [Cross-system ownership registry](architecture/domain-ownership.json)
 
 ## Historical evidence
 

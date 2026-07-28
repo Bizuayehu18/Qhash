@@ -1,12 +1,13 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository revision `530e6cc9d0f6e000f151120f5aa7f07aced49fa8`, plus the Phase 2 compatibility scaffolds documented below
+**Scope:** Runtime baseline through repository base `bce562a1ba17ec9d12b9b16869b8db6abdf327de`, plus this Phase 2 ownership-governance slice
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
 
 - [Domain boundaries](./domain-boundaries.md)
+- [Cross-system domain ownership](./system-ownership.md)
 - [Data, security, and deployment](./data-security-and-deployment.md)
 - [Approved target architecture](./target-state.md)
 
@@ -69,6 +70,12 @@ The exact report-only file measurements are machine recorded in
 `scripts/engineering-baseline.json`; they are orientation measurements, not
 permanent limits.
 
+The repository remains physically layer-oriented, but every covered source,
+Netlify, Supabase, test, documentation, governance, and quarantined database
+artifact now has one accountable domain in
+`docs/architecture/domain-ownership.json`. This is a governance map, not a
+claim that mixed legacy adapters have already been decomposed.
+
 ### Route concentration
 
 Most current user URLs remain broad pages such as `/deposit`, `/withdraw`, and
@@ -111,8 +118,8 @@ The dependency and TypeScript baselines are now deterministic:
 - the repaired lockfile supports a clean
   `npm ci --include=dev --no-audit --no-fund`;
 - complete application TypeScript passes; and
-- `tsconfig.netlify.json` covers every `netlify/functions/**/*.mts` file
-  instead of a manual allowlist.
+- `tsconfig.netlify.json` covers every supported JavaScript/TypeScript source
+  under `netlify/functions` instead of a manual extension-specific allowlist.
 
 The compatibility type debt is deliberately frozen for later migration. Phase
 1 does not replace application types wholesale.

@@ -2,6 +2,94 @@
   "boundaries": {
     "serverBridgeImports": 27
   },
+  "ownership": {
+    "knownLiveOnlyResources": [
+      "public.admin_security_reset_audit",
+      "public.approve_withdrawal_tx",
+      "public.create_wallet_for_new_user",
+      "public.earning_run_logs",
+      "public.referral_reward_logs",
+      "public.reject_withdrawal_tx",
+      "public.rls_auto_enable",
+      "public.update_updated_at_column",
+      "public.user_security_settings"
+    ],
+    "netlifyTrustContracts": {
+      "netlify/functions/admin-approve-deposit.mts": {
+        "authentication": "supabase-bearer",
+        "authorization": "database-authoritative-admin-rpc",
+        "productionGate": "none"
+      },
+      "netlify/functions/daily-earnings.mts": {
+        "authentication": "netlify-scheduled-invocation",
+        "authorization": "none",
+        "productionGate": "none"
+      },
+      "netlify/functions/nowpayments-usdt-deposit-overview.mts": {
+        "authentication": "supabase-bearer",
+        "authorization": "active-profile",
+        "productionGate": "published-netlify-context"
+      },
+      "netlify/functions/nowpayments-usdt-deposit-session.mts": {
+        "authentication": "supabase-bearer",
+        "authorization": "active-profile-and-deposit-enablement",
+        "productionGate": "published-netlify-context"
+      },
+      "netlify/functions/nowpayments-usdt-ipn.mts": {
+        "authentication": "nowpayments-hmac",
+        "authorization": "provider-payment-refetch",
+        "productionGate": "published-netlify-context"
+      },
+      "netlify/functions/nowpayments-usdt-reconcile-payment.mts": {
+        "authentication": "supabase-bearer",
+        "authorization": "active-admin-profile",
+        "productionGate": "published-netlify-context"
+      },
+      "netlify/functions/nowpayments-usdt-withdrawal-admin.mts": {
+        "authentication": "supabase-bearer",
+        "authorization": "active-admin-profile",
+        "productionGate": "published-netlify-context"
+      },
+      "netlify/functions/nowpayments-usdt-withdrawal-overview.mts": {
+        "authentication": "supabase-bearer",
+        "authorization": "active-non-admin-profile",
+        "productionGate": "published-netlify-context"
+      },
+      "netlify/functions/nowpayments-usdt-withdrawal-request.mts": {
+        "authentication": "supabase-bearer",
+        "authorization": "active-non-admin-profile-and-fund-pin",
+        "productionGate": "published-netlify-context"
+      },
+      "netlify/functions/trigger-daily-earnings.mts": {
+        "authentication": "supabase-bearer",
+        "authorization": "active-admin-profile",
+        "productionGate": "none"
+      },
+      "netlify/functions/verifier-pending-telebirr.mts": {
+        "authentication": "external-verifier-api-key",
+        "authorization": "verifier-key-holder",
+        "productionGate": "none"
+      },
+      "netlify/functions/verifier-submit-telebirr-result.mts": {
+        "authentication": "external-verifier-api-key",
+        "authorization": "verifier-key-holder",
+        "productionGate": "none"
+      }
+    },
+    "supabaseInternalFunctions": [
+      "public.activate_qualified_nowpayments_usdt_address",
+      "public.create_wallet_for_new_user",
+      "public.enforce_nowpayments_usdt_address_lifecycle_immutability",
+      "public.enforce_nowpayments_usdt_withdrawal_immutability",
+      "public.reject_nowpayments_usdt_ledger_mutation",
+      "public.reject_nowpayments_usdt_payment_deletion",
+      "public.reject_nowpayments_usdt_withdrawal_audit_mutation",
+      "public.reject_retired_native_crypto_evidence_mutation",
+      "public.rls_auto_enable",
+      "public.set_nowpayments_usdt_updated_at",
+      "public.update_updated_at_column"
+    ]
+  },
   "complexity": {
     "warnings": {
       "src/components/admin/NowpaymentsUsdtWithdrawalAdmin.tsx": 517,
@@ -52,6 +140,7 @@
       "docs/architecture/domain-boundaries.md",
       "docs/architecture/reorganization-roadmap.md",
       "docs/architecture/routing-and-country-rails.md",
+      "docs/architecture/system-ownership.md",
       "docs/architecture/target-state.md",
       "docs/architecture/decisions/README.md",
       "docs/engineering/change-policy.md",

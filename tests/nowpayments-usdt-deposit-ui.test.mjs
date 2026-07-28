@@ -1606,7 +1606,7 @@ test("CBE and TeleBirr deposit paths remain present and crypto is a parallel opt
   assert.match(depositRouteSource, /submitDepositFn/);
   assert.match(depositRouteSource, /Crypto Deposit/);
   assert.match(depositRouteSource, /\/deposit\/crypto\/usdt\/bep20/);
-  assert.match(netlifyTypecheck, /netlify\/functions\/\*\*\/\*\.mts/);
+  assert.match(netlifyTypecheck, /(?=[\s\S]*netlify\/functions\/\*\*\/\*)(?=[\s\S]*"allowJs": true)(?=[\s\S]*"checkJs": true)/);
 });
 
 test("overview source keeps production and authentication gates before database reads", () => {

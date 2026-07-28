@@ -14,7 +14,7 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 |---|---|
 | Phase 0 — Architecture foundation | Complete |
 | Phase 1 — Deterministic engineering baseline | Complete |
-| Phase 2 — Compatibility scaffolding | In progress: crypto deposit and withdrawal route/facade slices implemented |
+| Phase 2 — Compatibility scaffolding | In progress: route/facade slices and cross-system ownership enforcement implemented |
 | Phase 3 and later | Not started |
 
 ## Invariants throughout the roadmap
@@ -122,6 +122,17 @@ Second bounded slice:
   Complete/Reject behavior; and
 - deliberately defers fiat country/provider routes until country-aware rail
   authorization exists.
+
+Governance slice:
+
+- assigns one accountable domain to every covered application source file,
+  authored Netlify Function and support module, generated Supabase table and
+  Data API function, immutable Supabase migration, test, document, governance
+  artifact, and quarantined Netlify Database artifact;
+- records current Function trust boundaries, direct handler coverage gaps, and
+  mixed-adapter remediation without claiming legacy files are already thin; and
+- makes missing, duplicate, stale, invented, unsafe, or unsorted ownership a
+  verification failure.
 
 Target visible route families include:
 
