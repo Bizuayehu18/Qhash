@@ -1,7 +1,7 @@
 # QHash domain boundaries
 
 **Status:** Current boundary map with target recommendations
-**Scope:** Repository revision `ebca234bd7bb40fbddcfce29e13bd6612f2f9aae` plus the first Phase 2 crypto-deposit compatibility scaffold
+**Scope:** Repository revision `530e6cc9d0f6e000f151120f5aa7f07aced49fa8` plus the Phase 2 crypto deposit and withdrawal compatibility scaffolds
 **Purpose:** Define ownership before files are moved. Current facts and target recommendations are intentionally separated.
 
 See also:
@@ -19,7 +19,7 @@ See also:
 | Fiat deposits | `/deposit`, `src/lib/server/deposits.ts`, CBE/TeleBirr verifiers | Supabase `deposits`, `payment_methods`, ETB wallet/transactions | verification and approval code is distributed across large modules and Functions |
 | Crypto deposits | `/deposit`, `/deposit/crypto/usdt/bep20`, `src/domains/crypto-deposits/public.ts`, `NowpaymentsUsdtDeposit`, NOWPayments deposit Functions | NOWPayments plus `nowpayments_usdt_*` deposit tables | the Phase 2 client facade delegates to the legacy implementation; provider communication and financial settlement remain distinct responsibilities |
 | Fiat withdrawals | `/withdraw`, `src/lib/server/withdrawals.ts` | Supabase `withdrawals`, ETB wallet/transactions | shares Fund PIN and cross-rail policy with USDT |
-| USDT withdrawals | `/withdraw`, NOWPayments withdrawal user/admin components and Functions | `nowpayments_usdt_withdrawals`, events, wallet, ledger | manual Complete/Reject workflow; no automatic payout/signing |
+| USDT withdrawals | `/withdraw`, `/withdraw/crypto/usdt/bep20`, `src/domains/withdrawals/public.ts`, NOWPayments withdrawal user/admin components and Functions | `nowpayments_usdt_withdrawals`, events, wallet, ledger | the Phase 2 client facade delegates to the legacy user implementation; manual Complete/Reject remains unchanged with no automatic payout/signing |
 | Plans and investments | `/plans`, investment server functions | `plans`, `investments`, ETB wallet/transactions | values are currently part of the legacy ETB model |
 | Earnings and referrals | dashboard/referrals/admin-earnings, scheduled Functions | referrals, reward logs, earning logs, investments, ETB wallet/transactions | current visible identity and referral lookup use username |
 | Administration | `/admin`, `/admin-earnings` | profile role plus domain data | UI is concentrated; authorization must remain inside each server action |
@@ -141,10 +141,11 @@ Routes should become thin composition points. Approved route direction includes:
 
 Legacy `/deposit`, `/withdraw`, `/admin`, and bookmarked subflows need deliberate compatibility redirects or index routes. Country-unsupported fiat routes must fail closed even when entered directly; hiding navigation alone is insufficient.
 
-The first implemented route scaffold is `/deposit/crypto/usdt/bep20`.
-`/deposit` remains the stable hub, and its Crypto Deposit option navigates to
-the canonical route. Fiat country/provider routes remain deferred until an
-authoritative registered-country rail policy exists at the server boundary.
+The first implemented route scaffolds are `/deposit/crypto/usdt/bep20` and
+`/withdraw/crypto/usdt/bep20`. `/deposit` and `/withdraw` remain stable hubs,
+and their USDT options navigate to the matching canonical route. Fiat
+country/provider routes remain deferred until an authoritative
+registered-country rail policy exists at the server boundary.
 
 ## Import and mutation rules
 

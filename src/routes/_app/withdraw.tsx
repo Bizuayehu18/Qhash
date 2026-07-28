@@ -31,7 +31,6 @@ import {
 import { submitWithdrawalFn, getUserWithdrawalsFn } from "@/lib/server/withdrawals.js";
 import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
-import { NowpaymentsUsdtWithdrawal } from "@/components/withdrawal/NowpaymentsUsdtWithdrawal.js";
 
 export const Route = createFileRoute("/_app/withdraw")({ component: WithdrawPage });
 
@@ -157,7 +156,6 @@ function WithdrawPage() {
 
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<WithdrawalMethod | null>(null);
-  const [usdtSelected, setUsdtSelected] = useState(false);
   const [withdrawalStep, setWithdrawalStep] = useState<WithdrawalStep>("details");
   const [accountName, setAccountName] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
@@ -186,7 +184,7 @@ function WithdrawPage() {
   const netAmount = useMemo(() => Math.max(parsedAmount - feeAmount, 0), [parsedAmount, feeAmount]);
   const hasEnoughBalance = walletBalance === null || parsedAmount <= walletBalance;
   const selectedMeta = method ? METHOD_META[method] : null;
-  const isFormView = method !== null || usdtSelected;
+  const isFormView = method !== null;
 
   const clearRetryTimer = useCallback(() => {
     if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
@@ -316,7 +314,6 @@ function WithdrawPage() {
   const resetForm = () => {
     setAmount("");
     setMethod(null);
-    setUsdtSelected(false);
     setWithdrawalStep("details");
     setAccountName("");
     setAccountNumber("");
@@ -455,19 +452,15 @@ function WithdrawPage() {
     >
       <div className={isFormView ? "space-y-3" : "space-y-3 lg:col-span-7 xl:col-span-8"}>
         <WithdrawalPageHeader />
-        {!usdtSelected && <BalanceStrip walletBalance={walletBalance} />}
+        <BalanceStrip walletBalance={walletBalance} />
 
-        {usdtSelected ? (
-          <NowpaymentsUsdtWithdrawal
-            accessToken={accessToken}
-            userId={user?.id ?? null}
-            onBack={() => setUsdtSelected(false)}
-          />
-        ) : !method ? (
+        {!method ? (
           <>
             <MethodPicker
               onSelect={handleMethodSelect}
-              onSelectUsdt={() => setUsdtSelected(true)}
+              onSelectUsdt={() => {
+                void navigate({ to: "/withdraw/crypto/usdt/bep20" });
+              }}
             />
             <FundPasswordStatusLine
               securityStatus={securityStatus}

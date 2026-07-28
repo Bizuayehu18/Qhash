@@ -852,10 +852,10 @@ test("source boundaries contain no provider, signing, payout, client database, o
     uiSource,
     /return \(\) => \{[\s\S]*?mountedRef\.current = false;[\s\S]*?\.invalidate\(\)/,
   );
-  assert.match(withdrawRoute, /userId=\{user\?\.id \?\? null\}/);
   assert.match(withdrawRoute, /submitWithdrawalFn/);
   assert.match(withdrawRoute, /CBE Withdrawal/);
   assert.match(withdrawRoute, /TeleBirr Withdrawal/);
+  assert.match(withdrawRoute, /\/withdraw\/crypto\/usdt\/bep20/);
   assert.match(depositRoute, /\/deposit\/crypto\/usdt\/bep20/);
   assert.match(typecheck, /netlify\/functions\/\*\*\/\*\.mts/);
 });
