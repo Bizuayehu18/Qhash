@@ -857,5 +857,5 @@ test("source boundaries contain no provider, signing, payout, client database, o
   assert.match(withdrawRoute, /TeleBirr Withdrawal/);
   assert.match(withdrawRoute, /\/withdraw\/crypto\/usdt\/bep20/);
   assert.match(depositRoute, /\/deposit\/crypto\/usdt\/bep20/);
-  assert.match(typecheck, /netlify\/functions\/\*\*\/\*\.mts/);
+  assert.match(typecheck, /(?=[\s\S]*netlify\/functions\/\*\*\/\*)(?=[\s\S]*"allowJs": true)(?=[\s\S]*"checkJs": true)/);
 });

@@ -1,7 +1,9 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["netlify/functions/**/*.mts"],
+  "include": ["netlify/functions/**/*"],
   "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
     "types": ["node", "@netlify/functions"]
   }
 }

@@ -63,6 +63,7 @@ const allTests = [
   "crypto-user-id-uuid-repair.test.mjs",
   "deposit-route-compatibility.test.mjs",
   "deposit-approval-rpc-security.test.mjs",
+  "domain-ownership-registry.test.mjs",
   "fund-pin-security-database.test.mjs",
   "native-crypto-database-retirement.test.mjs",
   "native-crypto-runtime-decommission.test.mjs",

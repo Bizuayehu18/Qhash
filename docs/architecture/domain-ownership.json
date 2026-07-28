@@ -1,0 +1,1028 @@
+{
+  "schemaVersion": 1,
+  "scope": "current-cross-system-domain-ownership",
+  "domains": [
+    {
+      "id": "accounts",
+      "kind": "product",
+      "description": "Owns wallet presentation, transaction history, dashboard accounting views, and the shared USDT ledger contract.",
+      "assets": {
+        "routes": [
+          "src/routes/_app/dashboard.tsx",
+          "src/routes/_app/transactions.tsx"
+        ],
+        "sourceModules": [
+          "src/hooks/useWalletSync.ts",
+          "src/lib/server/dashboard.ts",
+          "src/lib/server/transactions.ts",
+          "src/lib/server/wallet.ts",
+          "src/store/walletStore.ts"
+        ],
+        "supabaseFunctions": [
+          "public.increment_wallet_balance"
+        ],
+        "supabaseInternalFunctions": [
+          "public.create_wallet_for_new_user",
+          "public.reject_nowpayments_usdt_ledger_mutation"
+        ],
+        "supabaseTables": [
+          "public.nowpayments_usdt_ledger_entries",
+          "public.nowpayments_usdt_wallets",
+          "public.transactions",
+          "public.wallets"
+        ],
+        "documents": [
+          "docs/architecture/decisions/0002-canonical-usdt-ledger.md"
+        ]
+      }
+    },
+    {
+      "id": "admin",
+      "kind": "product",
+      "description": "Owns the administrator shell and cross-domain composition; each financial action remains owned by its product domain.",
+      "assets": {
+        "routes": [
+          "src/routes/_app/admin.tsx"
+        ],
+        "sourceModules": [
+          "src/lib/server/admin.ts"
+        ]
+      }
+    },
+    {
+      "id": "app-shell",
+      "kind": "platform",
+      "description": "Owns routing bootstrap, layouts, shared visual primitives, global UI state, and generated route integration.",
+      "assets": {
+        "publicAssets": [
+          "public/favicon.ico"
+        ],
+        "repositoryFiles": [
+          "LOADING_HARDENING_CHECKPOINT.md",
+          "TANSTACK_404_LOG_NOISE_CHECKPOINT.md"
+        ],
+        "routes": [
+          "src/routes/__root.tsx",
+          "src/routes/_app.tsx",
+          "src/routes/_auth.tsx",
+          "src/routes/faq.tsx",
+          "src/routes/index.tsx"
+        ],
+        "sourceModules": [
+          "src/components/layout/AppLayout.tsx",
+          "src/components/layout/AuthLayout.tsx",
+          "src/components/ui/ActivityFeed.tsx",
+          "src/components/ui/AmountText.tsx",
+          "src/components/ui/Badge.tsx",
+          "src/components/ui/Button.tsx",
+          "src/components/ui/Card.tsx",
+          "src/components/ui/EmptyState.tsx",
+          "src/components/ui/InlineNotice.tsx",
+          "src/components/ui/Input.tsx",
+          "src/components/ui/ListPanel.tsx",
+          "src/components/ui/ListRow.tsx",
+          "src/components/ui/MiningAnimation.tsx",
+          "src/components/ui/MiningStatus.tsx",
+          "src/components/ui/OnlineUsers.tsx",
+          "src/components/ui/PageHeader.tsx",
+          "src/components/ui/PillTabs.tsx",
+          "src/components/ui/SectionHeader.tsx",
+          "src/components/ui/Spinner.tsx",
+          "src/components/ui/StatTile.tsx",
+          "src/components/ui/TransactionHelpers.tsx",
+          "src/lib/async.ts",
+          "src/lib/errors.ts",
+          "src/lib/format.ts",
+          "src/router.tsx",
+          "src/routeTree.gen.ts",
+          "src/store/uiStore.ts",
+          "src/styles.css"
+        ]
+      }
+    },
+    {
+      "id": "crypto-deposits",
+      "kind": "product",
+      "description": "Owns USDT deposit admission, permanent-address lifecycle, provider evidence, settlement, and retired native-crypto evidence.",
+      "assets": {
+        "documents": [
+          "docs/nowpayments-late-deposit-recovery.md"
+        ],
+        "netlifySupportModules": [
+          "netlify/functions/lib/nowpayments-client.mts",
+          "netlify/functions/lib/nowpayments-deposit-session.mts",
+          "netlify/functions/lib/nowpayments-ipn.mts",
+          "netlify/functions/lib/nowpayments-settlement.mts"
+        ],
+        "publicSurfaces": [
+          "src/domains/crypto-deposits/public.ts"
+        ],
+        "repositoryFiles": [
+          "CRYPTO_AUDIT_DISPLAY_HARDENING_CHECKLIST.md",
+          "CRYPTO_BSC_DRY_RUN_DETECTOR_CHECKPOINT.md",
+          "CRYPTO_CONFIRMATION_AND_CREDITING_GUARDRAILS.md",
+          "CRYPTO_DEPOSIT_DETECTION_STORAGE_DESIGN.md",
+          "CRYPTO_DEPOSIT_FOUNDATION_CHECKPOINT.md",
+          "CRYPTO_DEPOSIT_IDEMPOTENCY_SCHEMA_CHECK.md",
+          "CRYPTO_DEPOSIT_WATCHER_DESIGN.md"
+        ],
+        "routes": [
+          "src/routes/_app/deposit_.crypto.usdt.bep20.tsx"
+        ],
+        "sourceModules": [
+          "src/components/deposit/NowpaymentsUsdtDeposit.tsx",
+          "src/lib/nowpayments-deposit-ui.ts"
+        ],
+        "supabaseFunctions": [
+          "public.claim_nowpayments_usdt_deposit_session",
+          "public.complete_nowpayments_usdt_deposit_session",
+          "public.configure_nowpayments_usdt_deposit_session_amounts",
+          "public.get_current_nowpayments_usdt_deposit_session",
+          "public.get_nowpayments_usdt_deposit_overview_snapshot",
+          "public.mark_nowpayments_usdt_deposit_session_manual_recovery",
+          "public.record_nowpayments_usdt_deposit_session_status",
+          "public.settle_verified_nowpayments_usdt_payment",
+          "public.settle_verified_nowpayments_usdt_payment_serialized_inner"
+        ],
+        "supabaseInternalFunctions": [
+          "public.activate_qualified_nowpayments_usdt_address",
+          "public.enforce_nowpayments_usdt_address_lifecycle_immutability",
+          "public.reject_nowpayments_usdt_payment_deletion",
+          "public.reject_retired_native_crypto_evidence_mutation",
+          "public.set_nowpayments_usdt_updated_at"
+        ],
+        "supabaseMigrations": [
+          "supabase/migrations/20260710120000_crypto_deposit_foundation/migration.sql",
+          "supabase/migrations/20260716160000_bsc_confirmation_writer/migration.sql",
+          "supabase/migrations/20260716185000_crypto_manual_crediting_uuid_preflight/migration.sql",
+          "supabase/migrations/20260716190000_crypto_manual_crediting/migration.sql",
+          "supabase/migrations/20260717030000_crypto_user_id_uuid_repair/migration.sql",
+          "supabase/migrations/20260717130000_crypto_reference_id_uuid_repair/migration.sql",
+          "supabase/migrations/20260717150000_crypto_schema_reconciliation/migration.sql",
+          "supabase/migrations/20260717170000_bsc_user_deposit_exposure/migration.sql",
+          "supabase/migrations/20260717221500_bsc_address_rotation/migration.sql",
+          "supabase/migrations/20260718120000_native_crypto_database_retirement/migration.sql",
+          "supabase/migrations/20260718190000_nowpayments_usdt_bep20_foundation/migration.sql",
+          "supabase/migrations/20260718220000_nowpayments_active_deposit_session/migration.sql",
+          "supabase/migrations/20260719120000_nowpayments_ipn_settlement/migration.sql",
+          "supabase/migrations/20260720213000_nowpayments_gross_deposit_credit/migration.sql",
+          "supabase/migrations/20260721120000_nowpayments_permanent_deposit_address_lifecycle/migration.sql",
+          "supabase/migrations/20260727120000_nowpayments_shared_global_deposit_pause/migration.sql"
+        ],
+        "supabaseTables": [
+          "public.crypto_deposit_addresses",
+          "public.crypto_deposits",
+          "public.nowpayments_usdt_config",
+          "public.nowpayments_usdt_payments",
+          "public.nowpayments_usdt_provider_payments"
+        ],
+        "tests": [
+          "tests/bsc-address-rotation.test.mjs",
+          "tests/bsc-user-deposit-exposure.test.mjs",
+          "tests/crypto-schema-reconciliation.test.mjs",
+          "tests/crypto-user-id-uuid-repair.test.mjs",
+          "tests/native-crypto-database-retirement.test.mjs",
+          "tests/native-crypto-runtime-decommission.test.mjs",
+          "tests/nowpayments-usdt-active-deposit-session.test.mjs",
+          "tests/nowpayments-usdt-bep20-foundation.test.mjs",
+          "tests/nowpayments-usdt-deposit-ui.test.mjs",
+          "tests/nowpayments-usdt-ipn-settlement.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "earnings",
+      "kind": "product",
+      "description": "Owns scheduled and administrator-triggered investment earnings processing and its run audit.",
+      "assets": {
+        "governanceFiles": [
+          "supabase/create-earning-run-logs.sql"
+        ],
+        "netlifySupportModules": [
+          "netlify/functions/lib/process-all-earnings.mts"
+        ],
+        "routes": [
+          "src/routes/_app/admin-earnings.tsx"
+        ],
+        "sourceModules": [
+          "src/lib/server/earning-engine.ts",
+          "src/lib/server/earnings.ts"
+        ],
+        "supabaseFunctions": [
+          "public.process_due_investment_earning"
+        ],
+        "supabaseTables": [
+          "public.earning_run_logs"
+        ]
+      }
+    },
+    {
+      "id": "fiat-deposits",
+      "kind": "product",
+      "description": "Owns country-specific fiat deposit methods, CBE and TeleBirr verification, approval, and the current deposit-hub composition.",
+      "assets": {
+        "netlifySupportModules": [
+          "netlify/functions/lib/verifier-auth.mts"
+        ],
+        "repositoryFiles": [
+          "ADMIN_VERIFICATION_AUDIT_UI_CHECKPOINT.md",
+          "ANDROID_TELEBIRR_VERIFIER_APP_PLAN.md",
+          "android/telebirr-receipt-test/.gitignore",
+          "android/telebirr-receipt-test/app/build.gradle.kts",
+          "android/telebirr-receipt-test/app/src/main/AndroidManifest.xml",
+          "android/telebirr-receipt-test/app/src/main/java/com/qhash/telebirrtest/MainActivity.kt",
+          "android/telebirr-receipt-test/app/src/main/java/com/qhash/telebirrtest/MainViewModel.kt",
+          "android/telebirr-receipt-test/app/src/main/java/com/qhash/telebirrtest/ReceiptParser.kt",
+          "android/telebirr-receipt-test/app/src/main/java/com/qhash/telebirrtest/TeleBirrTestApp.kt",
+          "android/telebirr-receipt-test/app/src/main/res/drawable/ic_launcher_background.xml",
+          "android/telebirr-receipt-test/app/src/main/res/drawable/ic_launcher_foreground.xml",
+          "android/telebirr-receipt-test/app/src/main/res/mipmap-hdpi/ic_launcher.xml",
+          "android/telebirr-receipt-test/app/src/main/res/values/strings.xml",
+          "android/telebirr-receipt-test/app/src/main/res/values/themes.xml",
+          "android/telebirr-receipt-test/build.gradle.kts",
+          "android/telebirr-receipt-test/gradle.properties",
+          "android/telebirr-receipt-test/gradle/wrapper/gradle-wrapper.jar",
+          "android/telebirr-receipt-test/gradle/wrapper/gradle-wrapper.properties",
+          "android/telebirr-receipt-test/gradlew",
+          "android/telebirr-receipt-test/gradlew.bat",
+          "android/telebirr-receipt-test/README.md",
+          "android/telebirr-receipt-test/settings.gradle.kts",
+          "CBE_ATOMIC_APPROVAL_CHECKPOINT.md",
+          "CBE_FRESHNESS_CHECKPOINT.md",
+          "CBE_PRODUCTION_STABLE_CHECKPOINT.md",
+          "CBE_RECEIPT_ID_MIGRATION_PAUSED.md",
+          "CBE_TELEBIRR_DEPOSIT_FINAL_STABLE_CHECKPOINT.md",
+          "DEPOSIT_CHECKPOINT.md",
+          "DEPOSIT_SAFETY_CHECKPOINT.md",
+          "DEPOSIT_SECURITY_PHASE_4A_GET_USER_DEPOSITS_CHECKPOINT.md",
+          "DEPOSIT_SECURITY_PHASE_4B_SUBMIT_DEPOSIT_CHECKPOINT.md",
+          "DEPOSIT_VERIFICATION_AUDIT_TABLE_DESIGN.md",
+          "PAYMENT_METHODS_ADMIN_SECURITY_ARCHIVE_CHECKPOINT.md",
+          "TELEBIRR_ANDROID_VERIFIER_DESIGN.md",
+          "TELEBIRR_ANDROID_VERIFIER_STABLE_CHECKPOINT.md",
+          "TELEBIRR_AUTO_MODE_CHECKPOINT.md",
+          "TELEBIRR_AUTOMATION_CHECKPOINT.md",
+          "TELEBIRR_VERIFIER_KEY_ROTATION_RUNBOOK.md"
+        ],
+        "routes": [
+          "src/routes/_app/deposit.tsx"
+        ],
+        "sourceModules": [
+          "src/lib/server/cbe-verify.ts",
+          "src/lib/server/deposit-audit-logs.ts",
+          "src/lib/server/deposit-verification-audit.ts",
+          "src/lib/server/deposits.ts",
+          "src/lib/server/payment-methods.ts",
+          "src/lib/server/telebirr-verify.ts"
+        ],
+        "supabaseFunctions": [
+          "public.approve_deposit_tx"
+        ],
+        "supabaseMigrations": [
+          "supabase/migrations/20260512100000_deposits_phase4.sql",
+          "supabase/migrations/20260512200000_deposit_stabilization.sql",
+          "supabase/migrations/20260513000000_add_deposit_verification.sql",
+          "supabase/migrations/20260513100000_fix_verification_rls_and_rpc.sql",
+          "supabase/migrations/20260514000000_remove_deposit_verification.sql",
+          "supabase/migrations/20260514200000_add_account_last_8.sql",
+          "supabase/migrations/20260514300000_approve_deposit_transaction.sql",
+          "supabase/migrations/20260515000000_fix_deposit_amount_and_approval.sql",
+          "supabase/migrations/20260515300000_stabilize_approval_schema.sql",
+          "supabase/migrations/20260519000000_harden_approve_deposit_amount.sql",
+          "supabase/migrations/20260526000000_align_approve_deposit_tx_with_live_rpc.sql",
+          "supabase/migrations/20260604120000_add_deposit_verification_logs.sql",
+          "supabase/migrations/20260605222402_add_payment_methods_is_archived.sql",
+          "supabase/migrations/20260727210000_harden_legacy_deposit_approval_rpc/migration.sql"
+        ],
+        "supabaseTables": [
+          "public.deposit_verification_logs",
+          "public.deposits",
+          "public.payment_methods"
+        ],
+        "tests": [
+          "tests/deposit-approval-rpc-security.test.mjs",
+          "tests/deposit-route-compatibility.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "identity",
+      "kind": "product",
+      "description": "Owns registration, login, immutable profile identity, account security, and four-digit Fund PIN controls.",
+      "assets": {
+        "repositoryFiles": [
+          "PASSWORD_SECURITY_CHECKPOINT.md",
+          "SECURITY_HARDENING_CHECKPOINT.md"
+        ],
+        "routes": [
+          "src/routes/_app/profile.tsx",
+          "src/routes/_app/profile/security.tsx",
+          "src/routes/_app/profile/security/fund-password.tsx",
+          "src/routes/_app/profile/security/login-password.tsx",
+          "src/routes/_app/security.tsx",
+          "src/routes/_auth/login.tsx",
+          "src/routes/_auth/register.tsx"
+        ],
+        "sourceModules": [
+          "src/lib/profileDisplay.ts",
+          "src/lib/server/admin-security-resets.ts",
+          "src/lib/server/auth.ts",
+          "src/lib/server/security.ts",
+          "src/lib/supabase.ts",
+          "src/store/authStore.ts"
+        ],
+        "supabaseFunctions": [
+          "public.change_fund_password_tx",
+          "public.get_fund_password_status_tx",
+          "public.is_admin",
+          "public.reset_user_fund_password_tx",
+          "public.set_fund_password_tx",
+          "public.verify_fund_password_tx"
+        ],
+        "supabaseMigrations": [
+          "supabase/migrations/20260725120000_fund_pin_security_baseline/migration.sql"
+        ],
+        "supabaseTables": [
+          "public.admin_security_reset_audit",
+          "public.profiles",
+          "public.user_security_settings"
+        ],
+        "tests": [
+          "tests/fund-pin-security-database.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "legacy-netlify-database",
+      "kind": "quarantine",
+      "description": "Owns the source-controlled but non-authoritative Netlify Database history until each artifact is retired or reconciled; it must never be treated as Supabase migration provenance.",
+      "assets": {
+        "netlifyDatabaseArtifacts": [
+          "netlify/database/migrations/20260511200542_create_investments_transactions_wallets/migration.sql",
+          "netlify/database/migrations/20260511200542_create_investments_transactions_wallets/snapshot.json",
+          "netlify/database/migrations/20260511215939_add_investment_status_cancelled_and_indexes/migration.sql",
+          "netlify/database/migrations/20260511215939_add_investment_status_cancelled_and_indexes/snapshot.json",
+          "netlify/database/migrations/20260511223329_create_support_tickets_table/migration.sql",
+          "netlify/database/migrations/20260511223329_create_support_tickets_table/snapshot.json",
+          "netlify/database/migrations/20260515202209_alter_transaction_type_add_referral_values/migration.sql",
+          "netlify/database/migrations/20260515202209_alter_transaction_type_add_referral_values/snapshot.json",
+          "netlify/database/migrations/20260516100000_add_transactions_columns_create_tables_indexes/migration.sql",
+          "netlify/database/migrations/20260517202318_alter_transactions_type_enum/migration.sql",
+          "netlify/database/migrations/20260517202318_alter_transactions_type_enum/snapshot.json",
+          "netlify/database/migrations/20260517205632_create_profiles_and_referrals_tables/migration.sql",
+          "netlify/database/migrations/20260517205632_create_profiles_and_referrals_tables/snapshot.json",
+          "netlify/database/migrations/20260517400000_add_referrals_constraints.sql",
+          "netlify/database/migrations/20260517500000_add_transaction_type_values_and_referral_reward/migration.sql",
+          "netlify/database/migrations/20260517600000_drop_referral_reward_logs/migration.sql",
+          "netlify/database/migrations/20260517700000_create_referral_reward_logs_table/migration.sql",
+          "netlify/database/migrations/20260517800000_drop_referral_reward_logs/migration.sql",
+          "netlify/database/migrations/20260608170000_create_withdrawal_rpc_functions/migration.sql",
+          "netlify/database/migrations/20260622010000_add_investment_timing_foundation/migration.sql",
+          "netlify/database/migrations/20260622030000_withdrawal_rolling_cooldown/migration.sql",
+          "netlify/database/migrations/20260622143000_process_due_investment_earning/migration.sql",
+          "netlify/database/migrations/20260622165000_atomic_mining_referral_rewards/migration.sql",
+          "netlify/database/migrations/20260623170000_atomic_plan_purchase/migration.sql",
+          "netlify/database/migrations/20260623210000_contract_plan_rules/migration.sql",
+          "netlify/database/migrations/20260710120000_crypto_deposit_foundation/migration.sql",
+          "netlify/database/migrations/20260716160000_bsc_confirmation_writer/migration.sql",
+          "netlify/database/migrations/20260716185000_crypto_manual_crediting_uuid_preflight/migration.sql",
+          "netlify/database/migrations/20260716193000_restore_netlify_crypto_admin_id_text/migration.sql"
+        ],
+        "repositoryFiles": [
+          "db/index.ts",
+          "db/schema.ts",
+          "drizzle.config.ts"
+        ]
+      }
+    },
+    {
+      "id": "notifications",
+      "kind": "product",
+      "description": "Owns user notification storage, rendering, and lifecycle.",
+      "assets": {
+        "routes": [
+          "src/routes/_app/notifications.tsx"
+        ],
+        "sourceModules": [
+          "src/lib/server/notifications.ts"
+        ],
+        "supabaseMigrations": [
+          "supabase/migrations/20260518000000_remove_rpc_notification_inserts.sql"
+        ],
+        "supabaseTables": [
+          "public.notifications"
+        ]
+      }
+    },
+    {
+      "id": "plans",
+      "kind": "product",
+      "description": "Owns plan catalog, investment purchase, contract rules, and investment records.",
+      "assets": {
+        "routes": [
+          "src/routes/_app/plans.tsx"
+        ],
+        "sourceModules": [
+          "src/lib/server/investments.ts",
+          "src/lib/server/plans.ts"
+        ],
+        "supabaseFunctions": [
+          "public.purchase_plan_tx"
+        ],
+        "supabaseMigrations": [
+          "supabase/migrations/20260515200000_purchase_plan_transaction.sql",
+          "supabase/migrations/20260623170000_atomic_plan_purchase/migration.sql",
+          "supabase/migrations/20260623210000_contract_plan_rules/migration.sql"
+        ],
+        "supabaseTables": [
+          "public.investments",
+          "public.plans"
+        ]
+      }
+    },
+    {
+      "id": "platform",
+      "kind": "platform",
+      "description": "Owns repository governance, generated database contracts, deployment context, migration runner provenance, shared settings, and architecture documentation.",
+      "assets": {
+        "documents": [
+          "docs/architecture/current-state.md",
+          "docs/architecture/data-security-and-deployment.md",
+          "docs/architecture/decisions/0001-domain-oriented-modules.md",
+          "docs/architecture/decisions/0003-forward-only-database-evolution.md",
+          "docs/architecture/decisions/README.md",
+          "docs/architecture/domain-boundaries.md",
+          "docs/architecture/reorganization-roadmap.md",
+          "docs/architecture/routing-and-country-rails.md",
+          "docs/architecture/system-ownership.md",
+          "docs/architecture/target-state.md",
+          "docs/archive/README.md",
+          "docs/engineering/change-policy.md",
+          "docs/engineering/repository-standards.md",
+          "docs/engineering/verification.md",
+          "docs/product/international-usdt-requirements.md",
+          "docs/README.md"
+        ],
+        "governanceFiles": [
+          ".github/workflows/verify.yml",
+          "docs/architecture/domain-ownership.json",
+          "netlify.toml",
+          "package-lock.json",
+          "package.json",
+          "scripts/apply-migrations.mjs",
+          "scripts/check-database-types.mjs",
+          "scripts/check-dependency-lock.mjs",
+          "scripts/check-engineering-baseline.mjs",
+          "scripts/check-route-tree.mjs",
+          "scripts/check-toolchain.mjs",
+          "scripts/database-types-baseline-lib.mjs",
+          "scripts/database-types-baseline.json",
+          "scripts/engineering-baseline.json",
+          "scripts/generate-route-tree.mjs",
+          "scripts/route-tree-generator-config.mjs",
+          "scripts/run-tests.mjs",
+          "scripts/update-database-types-baseline.mjs",
+          "tsconfig.json",
+          "tsconfig.netlify.json",
+          "vite.config.ts"
+        ],
+        "netlifySupportModules": [
+          "netlify/functions/lib/nowpayments-deploy-context.mts"
+        ],
+        "repositoryFiles": [
+          ".agents/skills/content-collections/SKILL.md",
+          ".agents/skills/netlify-forms-tanstack/SKILL.md",
+          ".agents/skills/tanstack-start-api-routes/SKILL.md",
+          ".agents/skills/tanstack-start-identity/SKILL.md",
+          ".agents/skills/tanstack-start-loaders/SKILL.md",
+          ".agents/skills/tanstack-start-project-setup/SKILL.md",
+          ".agents/skills/tanstack-start-routes/SKILL.md",
+          ".agents/skills/tanstack-start-server-functions/SKILL.md",
+          ".agents/skills/tanstack-start-typesafe-routing/SKILL.md",
+          ".claude/skills/content-collections/SKILL.md",
+          ".claude/skills/netlify-forms-tanstack/SKILL.md",
+          ".claude/skills/tanstack-start-api-routes/SKILL.md",
+          ".claude/skills/tanstack-start-identity/SKILL.md",
+          ".claude/skills/tanstack-start-loaders/SKILL.md",
+          ".claude/skills/tanstack-start-project-setup/SKILL.md",
+          ".claude/skills/tanstack-start-routes/SKILL.md",
+          ".claude/skills/tanstack-start-server-functions/SKILL.md",
+          ".claude/skills/tanstack-start-typesafe-routing/SKILL.md",
+          ".env.example",
+          ".gitattributes",
+          ".gitignore",
+          ".node-version",
+          ".nvmrc",
+          "AGENTS.md",
+          "CLAUDE.local.md",
+          "GITHUB_NETLIFY_DEPLOYMENT_CHECKPOINT.md",
+          "NETLIFY_LOGGING_CHECKPOINT.md",
+          "README.md",
+          "scripts/certs/supabase-ca.crt",
+          "supabase/migrations/README.md",
+          "UNFINISHED_FEATURES_COMING_SOON_CHECKPOINT.md"
+        ],
+        "sourceModules": [
+          "src/lib/database.generated.ts",
+          "src/lib/database.types.ts",
+          "src/lib/server/supabase-admin.ts"
+        ],
+        "supabaseFunctions": [
+          "public.is_canonical_uuid_v4"
+        ],
+        "supabaseInternalFunctions": [
+          "public.rls_auto_enable",
+          "public.update_updated_at_column"
+        ],
+        "supabaseMigrations": [
+          "supabase/migrations/20260512000000_qhash_schema.sql"
+        ],
+        "supabaseTables": [
+          "public._qhash_migrations",
+          "public.app_settings"
+        ],
+        "tests": [
+          "tests/domain-ownership-registry.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "referrals",
+      "kind": "product",
+      "description": "Owns referral relationships, referral reward posting, and referral audit records.",
+      "assets": {
+        "netlifySupportModules": [
+          "netlify/functions/lib/process-mining-referral-rewards.mts"
+        ],
+        "repositoryFiles": [
+          "REFERRAL_CHECKPOINT.md",
+          "REFERRAL_PHASE_2B_DAILY_MINING_REWARDS_CHECKPOINT.md",
+          "scripts/test-referral-chain.mts"
+        ],
+        "routes": [
+          "src/routes/_app/referrals.tsx"
+        ],
+        "sourceModules": [
+          "src/lib/server/referral-rewards.ts",
+          "src/lib/server/referrals.ts"
+        ],
+        "supabaseFunctions": [
+          "public.credit_investment_referral_reward",
+          "public.credit_mining_referral_reward"
+        ],
+        "supabaseMigrations": [
+          "supabase/migrations/20260515100000_referral_normalization.sql",
+          "supabase/migrations/20260515400000_grant_referral_engine_tables.sql",
+          "supabase/migrations/20260516000000_grant_referral_engine_remaining_tables.sql",
+          "supabase/migrations/20260516100000_harden_referral_chain_trigger.sql",
+          "supabase/migrations/20260516200000_harden_referral_chain_exception.sql",
+          "supabase/migrations/20260517000000_grant_referral_reward_logs.sql",
+          "supabase/migrations/20260622165000_atomic_mining_referral_rewards/migration.sql"
+        ],
+        "supabaseTables": [
+          "public.referral_reward_logs",
+          "public.referrals"
+        ]
+      }
+    },
+    {
+      "id": "support",
+      "kind": "product",
+      "description": "Owns user support presentation and server-owned support configuration reads.",
+      "assets": {
+        "routes": [
+          "src/routes/support.tsx"
+        ],
+        "sourceModules": [
+          "src/lib/server/support-settings.ts",
+          "src/lib/server/support.ts"
+        ]
+      }
+    },
+    {
+      "id": "withdrawals",
+      "kind": "product",
+      "description": "Owns fiat and USDT withdrawal admission, Fund PIN-gated reservation, manual administrator completion or rejection, and the shared cross-rail policy.",
+      "assets": {
+        "publicSurfaces": [
+          "src/domains/withdrawals/public.ts"
+        ],
+        "repositoryFiles": [
+          "WITHDRAWAL_LAUNCH_HARDENING_CHECKPOINT.md"
+        ],
+        "routes": [
+          "src/routes/_app/withdraw_.crypto.usdt.bep20.tsx",
+          "src/routes/_app/withdraw.tsx"
+        ],
+        "sourceModules": [
+          "src/components/admin/NowpaymentsUsdtWithdrawalAdmin.tsx",
+          "src/components/withdrawal/NowpaymentsUsdtWithdrawal.tsx",
+          "src/lib/nowpayments-withdrawal-admin-ui.ts",
+          "src/lib/nowpayments-withdrawal-ui.ts",
+          "src/lib/server/withdrawals.ts",
+          "src/lib/withdrawal-policy.ts"
+        ],
+        "supabaseFunctions": [
+          "public.approve_withdrawal_tx",
+          "public.assert_safe_nowpayments_usdt_withdrawal_destination",
+          "public.claim_nowpayments_usdt_withdrawal_review",
+          "public.complete_nowpayments_usdt_withdrawal",
+          "public.complete_nowpayments_usdt_withdrawal_manual",
+          "public.lock_nowpayments_usdt_withdrawal_send",
+          "public.record_nowpayments_usdt_withdrawal_broadcast",
+          "public.reject_nowpayments_usdt_withdrawal",
+          "public.reject_nowpayments_usdt_withdrawal_manual",
+          "public.reject_withdrawal_tx",
+          "public.request_nowpayments_usdt_withdrawal",
+          "public.request_withdrawal_tx",
+          "public.take_over_nowpayments_usdt_withdrawal"
+        ],
+        "supabaseInternalFunctions": [
+          "public.enforce_nowpayments_usdt_withdrawal_immutability",
+          "public.reject_nowpayments_usdt_withdrawal_audit_mutation"
+        ],
+        "supabaseMigrations": [
+          "supabase/migrations/20260722120000_nowpayments_manual_usdt_withdrawal_database/migration.sql",
+          "supabase/migrations/20260723120000_nowpayments_usdt_withdrawal_maximum_precision/migration.sql",
+          "supabase/migrations/20260724120000_nowpayments_simplified_manual_usdt_withdrawal/migration.sql",
+          "supabase/migrations/20260726120000_unified_cross_rail_withdrawal_policy/migration.sql"
+        ],
+        "supabaseTables": [
+          "public.nowpayments_usdt_withdrawal_broadcasts",
+          "public.nowpayments_usdt_withdrawal_events",
+          "public.nowpayments_usdt_withdrawal_verifications",
+          "public.nowpayments_usdt_withdrawals",
+          "public.withdrawals"
+        ],
+        "tests": [
+          "tests/nowpayments-usdt-manual-withdrawal-database.test.mjs",
+          "tests/nowpayments-usdt-withdrawal-admin.test.mjs",
+          "tests/nowpayments-usdt-withdrawal-user.test.mjs",
+          "tests/unified-cross-rail-withdrawal-database.test.mjs",
+          "tests/withdrawal-route-compatibility.test.mjs"
+        ]
+      }
+    }
+  ],
+  "netlifyFunctions": [
+    {
+      "file": "netlify/functions/admin-approve-deposit.mts",
+      "domain": "fiat-deposits",
+      "capability": "administrator deposit approval",
+      "runtime": {
+        "kind": "http",
+        "methodEnforcement": "both",
+        "methods": [
+          "POST"
+        ],
+        "path": "/api/admin/approve-deposit"
+      },
+      "trust": {
+        "authentication": "supabase-bearer",
+        "authorization": "database-authoritative-admin-rpc",
+        "productionGate": "none"
+      },
+      "supportModules": [],
+      "handlerTests": [],
+      "coverageWaiver": "Database authorization is covered, but this adapter still needs a focused handler contract test.",
+      "ownershipStatus": "mixed",
+      "remediation": "Extract fiat-deposit approval orchestration and notification composition behind a thin adapter."
+    },
+    {
+      "file": "netlify/functions/daily-earnings.mts",
+      "domain": "earnings",
+      "capability": "scheduled earnings processing",
+      "runtime": {
+        "kind": "schedule",
+        "schedule": "* * * * *"
+      },
+      "trust": {
+        "authentication": "netlify-scheduled-invocation",
+        "authorization": "none",
+        "productionGate": "none"
+      },
+      "supportModules": [
+        "netlify/functions/lib/process-all-earnings.mts"
+      ],
+      "handlerTests": [],
+      "coverageWaiver": "The scheduler adapter has no direct handler test and requires a focused trust-boundary test.",
+      "ownershipStatus": "mixed",
+      "remediation": "Separate earnings orchestration from referral reward posting, add a published-production invocation gate, and test manual scheduler invocation."
+    },
+    {
+      "file": "netlify/functions/nowpayments-usdt-deposit-overview.mts",
+      "domain": "crypto-deposits",
+      "capability": "authenticated deposit overview",
+      "runtime": {
+        "kind": "http",
+        "methodEnforcement": "handler",
+        "methods": [
+          "GET"
+        ],
+        "path": "/api/crypto/nowpayments/deposit-overview"
+      },
+      "trust": {
+        "authentication": "supabase-bearer",
+        "authorization": "active-profile",
+        "productionGate": "published-netlify-context"
+      },
+      "supportModules": [
+        "netlify/functions/lib/nowpayments-deploy-context.mts"
+      ],
+      "handlerTests": [
+        "tests/nowpayments-usdt-deposit-ui.test.mjs"
+      ],
+      "ownershipStatus": "clear"
+    },
+    {
+      "file": "netlify/functions/nowpayments-usdt-deposit-session.mts",
+      "domain": "crypto-deposits",
+      "capability": "deposit address provisioning",
+      "runtime": {
+        "kind": "http",
+        "methodEnforcement": "handler",
+        "methods": [
+          "POST"
+        ],
+        "path": "/api/crypto/nowpayments/deposit-session"
+      },
+      "trust": {
+        "authentication": "supabase-bearer",
+        "authorization": "active-profile-and-deposit-enablement",
+        "productionGate": "published-netlify-context"
+      },
+      "supportModules": [
+        "netlify/functions/lib/nowpayments-client.mts",
+        "netlify/functions/lib/nowpayments-deploy-context.mts",
+        "netlify/functions/lib/nowpayments-deposit-session.mts"
+      ],
+      "handlerTests": [
+        "tests/nowpayments-usdt-active-deposit-session.test.mjs"
+      ],
+      "ownershipStatus": "clear"
+    },
+    {
+      "file": "netlify/functions/nowpayments-usdt-ipn.mts",
+      "domain": "crypto-deposits",
+      "capability": "provider settlement webhook",
+      "runtime": {
+        "kind": "http",
+        "methodEnforcement": "handler",
+        "methods": [
+          "POST"
+        ],
+        "path": "/api/crypto/nowpayments/ipn"
+      },
+      "trust": {
+        "authentication": "nowpayments-hmac",
+        "authorization": "provider-payment-refetch",
+        "productionGate": "published-netlify-context"
+      },
+      "supportModules": [
+        "netlify/functions/lib/nowpayments-client.mts",
+        "netlify/functions/lib/nowpayments-deploy-context.mts",
+        "netlify/functions/lib/nowpayments-ipn.mts",
+        "netlify/functions/lib/nowpayments-settlement.mts"
+      ],
+      "handlerTests": [
+        "tests/nowpayments-usdt-ipn-settlement.test.mjs"
+      ],
+      "ownershipStatus": "clear"
+    },
+    {
+      "file": "netlify/functions/nowpayments-usdt-reconcile-payment.mts",
+      "domain": "crypto-deposits",
+      "capability": "administrator payment recovery",
+      "runtime": {
+        "kind": "http",
+        "methodEnforcement": "handler",
+        "methods": [
+          "POST"
+        ],
+        "path": "/api/admin/crypto/nowpayments/reconcile-payment"
+      },
+      "trust": {
+        "authentication": "supabase-bearer",
+        "authorization": "active-admin-profile",
+        "productionGate": "published-netlify-context"
+      },
+      "supportModules": [
+        "netlify/functions/lib/nowpayments-client.mts",
+        "netlify/functions/lib/nowpayments-deploy-context.mts",
+        "netlify/functions/lib/nowpayments-ipn.mts",
+        "netlify/functions/lib/nowpayments-settlement.mts"
+      ],
+      "handlerTests": [
+        "tests/nowpayments-usdt-ipn-settlement.test.mjs"
+      ],
+      "ownershipStatus": "clear"
+    },
+    {
+      "file": "netlify/functions/nowpayments-usdt-withdrawal-admin.mts",
+      "domain": "withdrawals",
+      "capability": "administrator withdrawal review",
+      "runtime": {
+        "kind": "http",
+        "methodEnforcement": "handler",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "path": "/api/admin/crypto/nowpayments/withdrawals"
+      },
+      "trust": {
+        "authentication": "supabase-bearer",
+        "authorization": "active-admin-profile",
+        "productionGate": "published-netlify-context"
+      },
+      "supportModules": [
+        "netlify/functions/lib/nowpayments-deploy-context.mts"
+      ],
+      "handlerTests": [
+        "tests/nowpayments-usdt-withdrawal-admin.test.mjs"
+      ],
+      "ownershipStatus": "clear"
+    },
+    {
+      "file": "netlify/functions/nowpayments-usdt-withdrawal-overview.mts",
+      "domain": "withdrawals",
+      "capability": "authenticated withdrawal overview",
+      "runtime": {
+        "kind": "http",
+        "methodEnforcement": "handler",
+        "methods": [
+          "GET"
+        ],
+        "path": "/api/crypto/nowpayments/withdrawal-overview"
+      },
+      "trust": {
+        "authentication": "supabase-bearer",
+        "authorization": "active-non-admin-profile",
+        "productionGate": "published-netlify-context"
+      },
+      "supportModules": [
+        "netlify/functions/lib/nowpayments-deploy-context.mts"
+      ],
+      "handlerTests": [
+        "tests/nowpayments-usdt-withdrawal-user.test.mjs"
+      ],
+      "ownershipStatus": "clear"
+    },
+    {
+      "file": "netlify/functions/nowpayments-usdt-withdrawal-request.mts",
+      "domain": "withdrawals",
+      "capability": "Fund PIN-gated withdrawal request",
+      "runtime": {
+        "kind": "http",
+        "methodEnforcement": "handler",
+        "methods": [
+          "POST"
+        ],
+        "path": "/api/crypto/nowpayments/withdrawal-request"
+      },
+      "trust": {
+        "authentication": "supabase-bearer",
+        "authorization": "active-non-admin-profile-and-fund-pin",
+        "productionGate": "published-netlify-context"
+      },
+      "supportModules": [
+        "netlify/functions/lib/nowpayments-deploy-context.mts"
+      ],
+      "handlerTests": [
+        "tests/nowpayments-usdt-withdrawal-user.test.mjs"
+      ],
+      "ownershipStatus": "clear"
+    },
+    {
+      "file": "netlify/functions/trigger-daily-earnings.mts",
+      "domain": "earnings",
+      "capability": "administrator earnings trigger",
+      "runtime": {
+        "kind": "http",
+        "methodEnforcement": "handler",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "path": "/api/admin/trigger-daily-earnings"
+      },
+      "trust": {
+        "authentication": "supabase-bearer",
+        "authorization": "active-admin-profile",
+        "productionGate": "none"
+      },
+      "supportModules": [
+        "netlify/functions/lib/process-all-earnings.mts"
+      ],
+      "handlerTests": [],
+      "coverageWaiver": "The administrator trigger has no focused handler test.",
+      "ownershipStatus": "mixed",
+      "remediation": "Move history, earnings, and referral coordination behind one earnings application service."
+    },
+    {
+      "file": "netlify/functions/verifier-pending-telebirr.mts",
+      "domain": "fiat-deposits",
+      "capability": "TeleBirr verifier queue",
+      "runtime": {
+        "kind": "http",
+        "methodEnforcement": "config",
+        "methods": [
+          "GET"
+        ],
+        "path": "/api/verifier/pending-telebirr"
+      },
+      "trust": {
+        "authentication": "external-verifier-api-key",
+        "authorization": "verifier-key-holder",
+        "productionGate": "none"
+      },
+      "supportModules": [
+        "netlify/functions/lib/verifier-auth.mts"
+      ],
+      "handlerTests": [],
+      "coverageWaiver": "The external verifier queue contract needs a focused adapter test.",
+      "ownershipStatus": "clear"
+    },
+    {
+      "file": "netlify/functions/verifier-submit-telebirr-result.mts",
+      "domain": "fiat-deposits",
+      "capability": "TeleBirr verification result",
+      "runtime": {
+        "kind": "http",
+        "methodEnforcement": "config",
+        "methods": [
+          "POST"
+        ],
+        "path": "/api/verifier/submit-telebirr-result"
+      },
+      "trust": {
+        "authentication": "external-verifier-api-key",
+        "authorization": "verifier-key-holder",
+        "productionGate": "none"
+      },
+      "supportModules": [
+        "netlify/functions/lib/verifier-auth.mts"
+      ],
+      "handlerTests": [],
+      "coverageWaiver": "The external verifier result contract needs a focused adapter test.",
+      "ownershipStatus": "mixed",
+      "remediation": "Split receipt normalization, approval or rejection, audit, and notification work behind a fiat-deposit application service."
+    }
+  ],
+  "knownLiveOnlyResources": [
+    {
+      "resource": "public.admin_security_reset_audit",
+      "owner": "identity",
+      "status": "live-create-source-missing",
+      "remediation": "Capture the exact live catalog and reconcile its creation provenance through a forward migration."
+    },
+    {
+      "resource": "public.approve_withdrawal_tx",
+      "owner": "withdrawals",
+      "status": "live-function-body-source-missing",
+      "remediation": "Capture the exact live body and security catalog before a forward provenance migration."
+    },
+    {
+      "resource": "public.create_wallet_for_new_user",
+      "owner": "accounts",
+      "status": "live-trigger-helper-source-missing",
+      "remediation": "Inspect all trigger dependents, then lock search path and execution through a separately reviewed migration."
+    },
+    {
+      "resource": "public.earning_run_logs",
+      "owner": "earnings",
+      "status": "manual-standalone-sql-drift",
+      "remediation": "Replace stale standalone SQL provenance with a forward catalog-reconciliation migration."
+    },
+    {
+      "resource": "public.referral_reward_logs",
+      "owner": "referrals",
+      "status": "live-create-source-missing",
+      "remediation": "Capture the exact live catalog and add forward creation provenance."
+    },
+    {
+      "resource": "public.reject_withdrawal_tx",
+      "owner": "withdrawals",
+      "status": "live-function-body-source-missing",
+      "remediation": "Capture the exact live body and security catalog before a forward provenance migration."
+    },
+    {
+      "resource": "public.rls_auto_enable",
+      "owner": "platform",
+      "status": "live-event-trigger-helper-source-missing",
+      "remediation": "Inspect event-trigger ownership and dependents before forward hardening."
+    },
+    {
+      "resource": "public.update_updated_at_column",
+      "owner": "platform",
+      "status": "live-trigger-helper-source-missing",
+      "remediation": "Inspect every dependent trigger before locking the helper search path in a forward migration."
+    },
+    {
+      "resource": "public.user_security_settings",
+      "owner": "identity",
+      "status": "live-create-source-missing",
+      "remediation": "Capture the exact live catalog and reconcile its creation provenance through a forward migration."
+    }
+  ]
+}

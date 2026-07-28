@@ -1,6 +1,6 @@
 # Repository standards
 
-Status: Adopted incrementally; Phase 1 checks active
+Status: Adopted incrementally; Phase 1 checks and cross-system ownership active
 Applies to: application code, server code, Netlify Functions, tests, documentation, and future generated artifacts
 
 ## Purpose
@@ -26,6 +26,8 @@ repository already follows it. Adoption is phased in
 6. File moves are separated from behavior changes whenever practical.
 7. Generated artifacts are reproducible and checked for drift.
 8. Documentation changes with the architecture it describes.
+9. Every runtime, deployment, data-contract, test, and documentation asset has
+   exactly one accountable domain owner.
 
 ## Target repository shape
 
@@ -274,6 +276,7 @@ available in `package.json` and are documented in
 | `typecheck:netlify` | Netlify/server TypeScript |
 | `check:routes-generated` | deterministic route-tree generation |
 | `check:database-types` | committed Supabase type snapshot and migration-provenance drift |
+| `check:ownership` | exhaustive source, Netlify, Supabase, test, documentation, and quarantined-artifact ownership |
 | `check:boundaries` | import direction and client/server boundaries |
 | `check:complexity` | initially report-only file/function warnings |
 | `check:docs` | links, required documents, ADR index, and formatting |
@@ -332,6 +335,15 @@ minimum:
 - schema changes update data ownership and migration notes;
 - security changes update the trust-boundary documentation;
 - operational changes update the relevant runbook.
+
+The authoritative current assignment is
+[Cross-system domain ownership](../architecture/system-ownership.md), backed by
+the machine-readable
+[domain ownership registry](../architecture/domain-ownership.json). Ownership
+means single accountability, not exclusive consumption. New covered files,
+Functions, Supabase objects, migrations, tests, or documents must be registered
+in the same PR. Legacy or mixed ownership must be recorded with a named
+remediation instead of being silently exempted.
 
 Historical checkpoint documents are evidence, not current architecture. They
 must not override the indexed architecture documentation.

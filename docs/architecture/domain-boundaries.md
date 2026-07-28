@@ -1,8 +1,14 @@
 # QHash domain boundaries
 
 **Status:** Current boundary map with target recommendations
-**Scope:** Repository revision `530e6cc9d0f6e000f151120f5aa7f07aced49fa8` plus the Phase 2 crypto deposit and withdrawal compatibility scaffolds
+**Scope:** Repository base `bce562a1ba17ec9d12b9b16869b8db6abdf327de` plus this Phase 2 ownership-governance slice
 **Purpose:** Define ownership before files are moved. Current facts and target recommendations are intentionally separated.
+
+The exact current assignment of repository, Netlify, Supabase, test, and
+documentation assets is maintained in
+[Cross-system domain ownership](./system-ownership.md) and enforced from
+[domain-ownership.json](./domain-ownership.json). This document explains
+boundary meaning; the registry supplies exhaustive accountable ownership.
 
 See also:
 
