@@ -35,7 +35,7 @@ pinned toolchain.
 | Command | Contract |
 |---|---|
 | `npm run verify` | Clean-install-independent aggregate: toolchain and lock checks, portable and handler tests, both TypeScript scopes, generated/provenance checks, architecture checks, and production build |
-| `npm run test:portable` | Explicit manifest of every `tests/*.test.mjs` file with live-database access removed; native-only sections may skip |
+| `npm run test:portable` | Explicit manifest of every `tests/*.test.mjs` file with live-database access removed, including route-compatibility characterization; native-only sections may skip |
 | `npm run test:handlers` | Focused Netlify handler authentication, validation, and response-contract tests |
 | `npm run typecheck` | Complete application TypeScript scope |
 | `npm run typecheck:netlify` | Every `netlify/functions/**/*.mts` server entry and library |
@@ -49,6 +49,11 @@ pinned toolchain.
 The test manifest deliberately excludes `scripts/test-referral-chain.mts`.
 That file is a destructive live diagnostic helper, not a repository
 verification test.
+
+`tests/deposit-route-compatibility.test.mjs` freezes the first Phase 2 route
+contract: `/deposit` remains the hub, `/deposit/crypto/usdt-bep20` is a
+non-nested child of the protected application layout, Back returns to the hub,
+and the thin route/client facade contain no server-only or sensitive URL state.
 
 ## Native PostgreSQL safety
 

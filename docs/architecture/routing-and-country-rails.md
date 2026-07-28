@@ -1,6 +1,6 @@
 # Routing and Country-Rail Architecture
 
-Status: approved target routing contract; most routes described here are not yet live.
+Status: approved target routing contract; the USDT-BEP20 deposit route is implemented, while most routes described here remain future work.
 
 This document defines stable public URLs and how a user's registered country controls fiat-rail visibility. It must be implemented incrementally with compatibility redirects and no behavior change during the initial mechanical reorganization.
 
@@ -33,6 +33,14 @@ Initial Ethiopian examples:
 - `/deposit/fiat/et/cbe`
 - `/deposit/fiat/et/telebirr`
 - `/deposit/crypto/usdt-bep20`
+
+Implementation status:
+
+- `/deposit` remains the live deposit hub.
+- `/deposit/crypto/usdt-bep20` is the first canonical rail route.
+- The hub's Crypto Deposit option navigates to that route.
+- Fiat country and provider routes are not live because the current payment
+  method boundary is not yet country-authoritative.
 
 ### Withdrawals
 
@@ -89,7 +97,7 @@ At minimum:
 | `/deposit` | Remains the deposit hub |
 | Existing in-page CBE flow | Navigate or redirect to `/deposit/fiat/et/cbe` when equivalent |
 | Existing in-page TeleBirr flow | Navigate or redirect to `/deposit/fiat/et/telebirr` when equivalent |
-| Existing in-page Crypto Deposit flow | Navigate or redirect to `/deposit/crypto/usdt-bep20` when equivalent |
+| Existing in-page Crypto Deposit flow | Navigates to `/deposit/crypto/usdt-bep20`; `/deposit` remains the return hub |
 | `/withdraw` | Remains the withdrawal hub |
 | Existing in-page fiat withdrawal flow | Navigate or redirect to the matching country/provider route |
 | Existing in-page USDT withdrawal flow | Navigate or redirect to `/withdraw/crypto/usdt-bep20` |

@@ -1605,7 +1605,7 @@ test("CBE and TeleBirr deposit paths remain present and crypto is a parallel opt
   assert.match(depositRouteSource, /METHOD_META[\s\S]*telebirr:/);
   assert.match(depositRouteSource, /submitDepositFn/);
   assert.match(depositRouteSource, /Crypto Deposit/);
-  assert.match(depositRouteSource, /NowpaymentsUsdtDeposit/);
+  assert.match(depositRouteSource, /\/deposit\/crypto\/usdt-bep20/);
   assert.match(netlifyTypecheck, /netlify\/functions\/\*\*\/\*\.mts/);
 });
 

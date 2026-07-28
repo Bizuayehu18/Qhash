@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline at repository revision `3e2fe504a0b60de84413bb595b6b21ce5b26a681`, plus the Phase 1 engineering controls documented below
+**Scope:** Runtime baseline at repository revision `ebca234bd7bb40fbddcfce29e13bd6612f2f9aae`, plus the Phase 1 engineering controls and first Phase 2 compatibility scaffold documented below
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -71,7 +71,17 @@ permanent limits.
 
 ### Route concentration
 
-The current user URLs are broad pages such as `/deposit`, `/withdraw`, and `/admin`. Fiat and crypto subflows are selected inside those pages rather than represented as domain routes.
+Most current user URLs remain broad pages such as `/deposit`, `/withdraw`, and
+`/admin`. The first Phase 2 compatibility slice adds the canonical
+`/deposit/crypto/usdt-bep20` route while preserving `/deposit` as the hub.
+Fiat deposit, withdrawal, and administrator subflows are still selected inside
+their broad pages.
+
+The canonical crypto route is a non-nested TanStack route beneath the protected
+`_app` layout. It imports the client-safe
+`src/domains/crypto-deposits/public.ts` facade, which temporarily re-exports the
+existing implementation. No provider, database, accounting, or authorization
+logic moved in this slice.
 
 `src/components/layout/AppLayout.tsx` also hard-codes the navigation and route labels. The admin experience is a single large route rather than grouped Users, Deposits, Withdrawals, Plans, and Settings sections.
 

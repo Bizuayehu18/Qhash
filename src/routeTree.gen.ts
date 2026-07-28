@@ -30,6 +30,7 @@ import { Route as AppAdminRouteImport } from './routes/_app/admin'
 import { Route as AppProfileSecurityRouteImport } from './routes/_app/profile/security'
 import { Route as AppProfileSecurityLoginPasswordRouteImport } from './routes/_app/profile/security/login-password'
 import { Route as AppProfileSecurityFundPasswordRouteImport } from './routes/_app/profile/security/fund-password'
+import { Route as AppDepositCryptoUsdtBep20RouteImport } from './routes/_app/deposit_.crypto.usdt-bep20'
 
 const SupportRoute = SupportRouteImport.update({
   id: '/support',
@@ -136,6 +137,12 @@ const AppProfileSecurityFundPasswordRoute =
     path: '/fund-password',
     getParentRoute: () => AppProfileSecurityRoute,
   } as any)
+const AppDepositCryptoUsdtBep20Route =
+  AppDepositCryptoUsdtBep20RouteImport.update({
+    id: '/deposit_/crypto/usdt-bep20',
+    path: '/deposit/crypto/usdt-bep20',
+    getParentRoute: () => AppRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -155,6 +162,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof AuthLoginRoute
   '/register': typeof AuthRegisterRoute
   '/profile/security': typeof AppProfileSecurityRouteWithChildren
+  '/deposit/crypto/usdt-bep20': typeof AppDepositCryptoUsdtBep20Route
   '/profile/security/fund-password': typeof AppProfileSecurityFundPasswordRoute
   '/profile/security/login-password': typeof AppProfileSecurityLoginPasswordRoute
 }
@@ -176,6 +184,7 @@ export interface FileRoutesByTo {
   '/login': typeof AuthLoginRoute
   '/register': typeof AuthRegisterRoute
   '/profile/security': typeof AppProfileSecurityRouteWithChildren
+  '/deposit/crypto/usdt-bep20': typeof AppDepositCryptoUsdtBep20Route
   '/profile/security/fund-password': typeof AppProfileSecurityFundPasswordRoute
   '/profile/security/login-password': typeof AppProfileSecurityLoginPasswordRoute
 }
@@ -200,6 +209,7 @@ export interface FileRoutesById {
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/register': typeof AuthRegisterRoute
   '/_app/profile/security': typeof AppProfileSecurityRouteWithChildren
+  '/_app/deposit_/crypto/usdt-bep20': typeof AppDepositCryptoUsdtBep20Route
   '/_app/profile/security/fund-password': typeof AppProfileSecurityFundPasswordRoute
   '/_app/profile/security/login-password': typeof AppProfileSecurityLoginPasswordRoute
 }
@@ -223,6 +233,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/register'
     | '/profile/security'
+    | '/deposit/crypto/usdt-bep20'
     | '/profile/security/fund-password'
     | '/profile/security/login-password'
   fileRoutesByTo: FileRoutesByTo
@@ -244,6 +255,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/register'
     | '/profile/security'
+    | '/deposit/crypto/usdt-bep20'
     | '/profile/security/fund-password'
     | '/profile/security/login-password'
   id:
@@ -267,6 +279,7 @@ export interface FileRouteTypes {
     | '/_auth/login'
     | '/_auth/register'
     | '/_app/profile/security'
+    | '/_app/deposit_/crypto/usdt-bep20'
     | '/_app/profile/security/fund-password'
     | '/_app/profile/security/login-password'
   fileRoutesById: FileRoutesById
@@ -428,6 +441,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProfileSecurityFundPasswordRouteImport
       parentRoute: typeof AppProfileSecurityRoute
     }
+    '/_app/deposit_/crypto/usdt-bep20': {
+      id: '/_app/deposit_/crypto/usdt-bep20'
+      path: '/deposit/crypto/usdt-bep20'
+      fullPath: '/deposit/crypto/usdt-bep20'
+      preLoaderRoute: typeof AppDepositCryptoUsdtBep20RouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -468,6 +488,7 @@ interface AppRouteChildren {
   AppSecurityRoute: typeof AppSecurityRoute
   AppTransactionsRoute: typeof AppTransactionsRoute
   AppWithdrawRoute: typeof AppWithdrawRoute
+  AppDepositCryptoUsdtBep20Route: typeof AppDepositCryptoUsdtBep20Route
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -482,6 +503,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSecurityRoute: AppSecurityRoute,
   AppTransactionsRoute: AppTransactionsRoute,
   AppWithdrawRoute: AppWithdrawRoute,
+  AppDepositCryptoUsdtBep20Route: AppDepositCryptoUsdtBep20Route,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
