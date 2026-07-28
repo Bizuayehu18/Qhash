@@ -13,8 +13,9 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 | Phase | Status |
 |---|---|
 | Phase 0 — Architecture foundation | Complete |
-| Phase 1 — Deterministic engineering baseline | Implemented in repository; requires clean-checkout CI and merge before Phase 2 |
-| Phase 2 and later | Not started |
+| Phase 1 — Deterministic engineering baseline | Complete |
+| Phase 2 — Compatibility scaffolding | In progress: first crypto-deposit route/facade slice implemented |
+| Phase 3 and later | Not started |
 
 ## Invariants throughout the roadmap
 
@@ -101,13 +102,23 @@ Introduce, without moving major implementations yet:
 - structured route shells and old-route redirects;
 - characterization tests for current responses and financial behavior.
 
+First bounded slice:
+
+- adds the client-safe `src/domains/crypto-deposits/public.ts` facade;
+- adds `/deposit/crypto/usdt/bep20` as a thin authenticated route;
+- keeps `/deposit` as the hub and all existing external deposit links valid;
+- preserves the existing crypto component, handler endpoints, response
+  contracts, pause behavior, and financial boundaries; and
+- deliberately defers fiat country/provider routes until country-aware rail
+  authorization exists.
+
 Target visible route families include:
 
 ```text
 /deposit/fiat/:country/:provider
-/deposit/crypto/usdt-bep20
+/deposit/crypto/usdt/bep20
 /withdraw/fiat/:country/:provider
-/withdraw/crypto/usdt-bep20
+/withdraw/crypto/usdt/bep20
 /admin/users
 /admin/deposits/fiat
 /admin/deposits/crypto

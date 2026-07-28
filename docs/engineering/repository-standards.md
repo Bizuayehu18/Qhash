@@ -304,6 +304,22 @@ Every compatibility layer has an owner, a removal condition, and preferably a
 target release. New code imports the new path; only existing consumers use the
 bridge.
 
+During Phase 2, a domain `public.ts` may be a client-safe facade over an
+existing implementation when moving that implementation would combine too
+much risk. Such a facade:
+
+- exports only reviewed browser-safe names;
+- must not export server adapters, privileged clients, provider secrets, or
+  migration internals;
+- is the import path for new routes and new cross-domain consumers;
+- documents the legacy implementation it delegates to; and
+- remains until direct-import scans, characterization tests, and a separately
+  reviewed extraction allow the old path to become a compatibility bridge.
+
+The first facade is `src/domains/crypto-deposits/public.ts`. Server-only domain
+entry points remain a later bounded Phase 2 slice; client code must not infer a
+server boundary from this browser-safe surface.
+
 ## Documentation ownership
 
 Every architectural PR updates the documents affected by its change. At

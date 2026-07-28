@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowDownCircle,
@@ -22,10 +22,7 @@ import { ListPanel } from "@/components/ui/ListPanel.js";
 import { ListRow } from "@/components/ui/ListRow.js";
 import { SectionHeader } from "@/components/ui/SectionHeader.js";
 import { CurrencyUnit } from "@/components/ui/AmountText.js";
-import {
-  CryptoDepositMethodIcon,
-  NowpaymentsUsdtDeposit,
-} from "@/components/deposit/NowpaymentsUsdtDeposit.js";
+import { CryptoDepositMethodIcon } from "@/domains/crypto-deposits/public.js";
 import { useAuthStore } from "@/store/authStore.js";
 import { useWalletStore } from "@/store/walletStore.js";
 import { getPaymentMethodsFn } from "@/lib/server/payment-methods.js";
@@ -49,7 +46,7 @@ type PaymentMethod = {
 };
 
 type UserDeposit = Awaited<ReturnType<typeof getUserDepositsFn>>[number];
-type DepositStep = "select" | "form" | "crypto";
+type DepositStep = "select" | "form";
 type MethodType = Extract<PaymentMethodType, "cbe" | "telebirr">;
 
 type MethodMeta = {
@@ -150,6 +147,7 @@ function DepositPage() {
   const user = useAuthStore((s) => s.user);
   const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const fetchWallet = useWalletStore((s) => s.fetchWallet);
+  const navigate = useNavigate();
 
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
   const [methodsLoaded, setMethodsLoaded] = useState(false);
@@ -403,7 +401,7 @@ function DepositPage() {
     [methods],
   );
 
-  const isFormView = step === "crypto" || (step === "form" && selectedMethod !== null);
+  const isFormView = step === "form" && selectedMethod !== null;
 
   return (
     <div
@@ -426,12 +424,9 @@ function DepositPage() {
               setStep("form");
             }}
             onSelectCrypto={() => {
-              setSelectedMethod(null);
-              setStep("crypto");
+              void navigate({ to: "/deposit/crypto/usdt/bep20" });
             }}
           />
-        ) : step === "crypto" ? (
-          <NowpaymentsUsdtDeposit accessToken={accessToken} onBack={resetForm} />
         ) : selectedMethod ? (
           <MethodDepositSection
             method={selectedMethod}

@@ -173,10 +173,10 @@ requires a separate accepted product decision.
 
 - `/deposit/fiat/et/cbe`
 - `/deposit/fiat/et/telebirr`
-- `/deposit/crypto/usdt-bep20`
+- `/deposit/crypto/usdt/bep20`
 - `/withdraw/fiat/et/cbe`
 - `/withdraw/fiat/et/telebirr`
-- `/withdraw/crypto/usdt-bep20`
+- `/withdraw/crypto/usdt/bep20`
 
 `REQ-UX-003` Existing URLs and entrypoints retain compatibility redirects while canonical routes are introduced.
 

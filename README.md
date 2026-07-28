@@ -90,7 +90,7 @@ npm run check:routes-generated
 
 The current application's primary routes include `/deposit`, `/withdraw`, and
 `/admin`. Approved target routes are structured by domain and rail, for example
-`/deposit/fiat/et/cbe` and `/deposit/crypto/usdt-bep20`. The current routes
+`/deposit/fiat/et/cbe` and `/deposit/crypto/usdt/bep20`. The current routes
 become compatibility entry points or redirects only as those structured routes
 are introduced, and they must continue to work throughout the migration.
 
