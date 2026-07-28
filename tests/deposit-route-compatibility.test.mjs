@@ -22,10 +22,18 @@ test("deposit hub keeps fiat behavior and links crypto to the canonical route", 
 });
 
 test("canonical USDT-BEP20 route is thin, authenticated, and returns to the hub", async () => {
-  const [route, appLayout, publicSurface] = await Promise.all([
+  const [
+    route,
+    appLayout,
+    publicSurface,
+    legacyComponentBridge,
+    legacyClientBridge,
+  ] = await Promise.all([
     readRepositoryFile("src/routes/_app/deposit_.crypto.usdt.bep20.tsx"),
     readRepositoryFile("src/routes/_app.tsx"),
     readRepositoryFile("src/domains/crypto-deposits/public.ts"),
+    readRepositoryFile("src/components/deposit/NowpaymentsUsdtDeposit.tsx"),
+    readRepositoryFile("src/lib/nowpayments-deposit-ui.ts"),
   ]);
 
   assert.match(
@@ -34,16 +42,31 @@ test("canonical USDT-BEP20 route is thin, authenticated, and returns to the hub"
   );
   assert.match(route, /@\/domains\/crypto-deposits\/public\.js/);
   assert.match(route, /state\.session\?\.access_token \?\? null/);
-  assert.match(route, /<NowpaymentsUsdtDeposit/);
+  assert.match(route, /<UsdtBep20Deposit/);
   assert.match(route, /navigate\(\{ to: "\/deposit", replace: true \}\)/);
 
   assert.match(appLayout, /if \(initialized && !loading && !session\)/);
   assert.match(appLayout, /navigate\(\{ to: '\/login', replace: true \}\)/);
   assert.match(appLayout, /<Outlet \/>/);
 
-  assert.match(publicSurface, /NowpaymentsUsdtDeposit/);
+  assert.match(publicSurface, /\.\/ui\/UsdtBep20Deposit\.js/);
+  assert.match(publicSurface, /UsdtBep20Deposit/);
+  assert.match(publicSurface, /UsdtBep20Deposit as NowpaymentsUsdtDeposit/);
   assert.match(publicSurface, /CryptoDepositMethodIcon/);
   assert.match(publicSurface, /NowpaymentsDepositOverview/);
+  assert.doesNotMatch(
+    publicSurface,
+    /@\/components\/deposit|@\/lib\/nowpayments-deposit-ui/,
+  );
+
+  assert.match(
+    legacyComponentBridge,
+    /@\/domains\/crypto-deposits\/ui\/UsdtBep20Deposit\.js/,
+  );
+  assert.match(
+    legacyClientBridge,
+    /@\/domains\/crypto-deposits\/ui\/nowpayments-deposit-ui\.js/,
+  );
 });
 
 test("canonical route is non-nested and exposes no sensitive or server-only state", async () => {

@@ -1,17 +1,17 @@
 /**
  * Client-safe crypto-deposit surface.
  *
- * The implementation remains at its legacy path during Phase 2. New routes
- * import this facade; the old path stays available until all consumers move
- * in a separately reviewed extraction.
+ * Provider, server, database, and migration internals are deliberately absent
+ * from this browser-facing contract.
  */
 export {
   CryptoDepositMethodIcon,
-  NowpaymentsUsdtDeposit,
-} from "@/components/deposit/NowpaymentsUsdtDeposit.js";
+  UsdtBep20Deposit,
+  UsdtBep20Deposit as NowpaymentsUsdtDeposit,
+} from "./ui/UsdtBep20Deposit.js";
 
 export type {
   NowpaymentsDepositHistoryView,
   NowpaymentsDepositOverview,
   NowpaymentsDepositSessionView,
-} from "@/lib/nowpayments-deposit-ui.js";
+} from "./ui/nowpayments-deposit-ui.js";

@@ -45,6 +45,9 @@ test("traditional deposit flows remain while retired native-crypto UI stays remo
     "src/domains/crypto-deposits/public.ts",
   );
   const nowpaymentsDepositUi = await readRepositoryFile(
+    "src/domains/crypto-deposits/ui/UsdtBep20Deposit.tsx",
+  );
+  const legacyDepositBridge = await readRepositoryFile(
     "src/components/deposit/NowpaymentsUsdtDeposit.tsx",
   );
   const adminRoute = await readRepositoryFile("src/routes/_app/admin.tsx");
@@ -57,10 +60,14 @@ test("traditional deposit flows remain while retired native-crypto UI stays remo
   assert.match(depositRoute, /label: "TeleBirr"/);
   assert.match(depositRoute, /refPrefix: "D"/);
   assert.match(depositRoute, /\/deposit\/crypto\/usdt\/bep20/);
-  assert.match(cryptoDepositRoute, /NowpaymentsUsdtDeposit/);
-  assert.match(cryptoDepositSurface, /NowpaymentsUsdtDeposit/);
+  assert.match(cryptoDepositRoute, /UsdtBep20Deposit/);
+  assert.match(cryptoDepositSurface, /UsdtBep20Deposit/);
   assert.match(nowpaymentsDepositUi, /USDT/);
   assert.match(nowpaymentsDepositUi, /BEP20/);
+  assert.match(
+    legacyDepositBridge,
+    /@\/domains\/crypto-deposits\/ui\/UsdtBep20Deposit\.js/,
+  );
   assert.doesNotMatch(depositRoute, /TRC20|crypto_deposit_addresses|crypto_deposits/);
   assert.doesNotMatch(cryptoDepositRoute, /TRC20|crypto_deposit_addresses|crypto_deposits/);
   assert.doesNotMatch(nowpaymentsDepositUi, /TRC20|crypto_deposit_addresses|crypto_deposits/);

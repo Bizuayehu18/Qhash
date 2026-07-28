@@ -55,6 +55,13 @@ verification test.
 contract: `/deposit` remains the hub, `/deposit/crypto/usdt/bep20` is a
 non-nested child of the protected application layout, Back returns to the hub,
 and the thin route/client facade contain no server-only or sensitive URL state.
+It also pins the canonical domain UI paths and both temporary legacy import
+bridges so a mechanical extraction cannot silently break existing consumers.
+
+The complexity check covers extracted domain layers as well as legacy
+technical folders. Domain UI TSX files and hooks retain the 300-line warning;
+other domain, application, infrastructure, server, and UI modules use the
+400-line warning unless a more specific rule applies.
 
 `tests/withdrawal-route-compatibility.test.mjs` freezes the matching withdrawal
 route contract: `/withdraw` remains the CBE, TeleBirr, and USDT hub,

@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository base `bce562a1ba17ec9d12b9b16869b8db6abdf327de`, plus this Phase 2 ownership-governance slice
+**Scope:** Runtime baseline through repository base `580e8c9882351f861e77800fedf8a1ac5b548447`, plus this behavior-preserving crypto-deposit client extraction
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -87,9 +87,13 @@ are still selected inside their broad pages.
 The canonical crypto routes are non-nested TanStack routes beneath the
 protected `_app` layout. They import the client-safe
 `src/domains/crypto-deposits/public.ts` and
-`src/domains/withdrawals/public.ts` facades, which temporarily re-export the
-existing implementations. No provider, database, accounting, Fund PIN,
-cross-rail policy, or authorization logic moved in these slices.
+`src/domains/withdrawals/public.ts` facades. The USDT-BEP20 deposit component
+and browser transport/view model now live under
+`src/domains/crypto-deposits/ui`; the previous component and library paths are
+small compatibility re-exports. The withdrawal facade still delegates to its
+legacy implementation. No provider, database, accounting, Fund PIN,
+cross-rail policy, authorization logic, endpoint, or route URL moved in these
+slices.
 
 `src/components/layout/AppLayout.tsx` also hard-codes the navigation and route labels. The admin experience is a single large route rather than grouped Users, Deposits, Withdrawals, Plans, and Settings sections.
 

@@ -11,6 +11,7 @@ import {
   extractNetlifyMethodContract,
   listRepositoryFiles,
   parseNetlifyFunctionsDirectory,
+  thresholdFor,
   validateOwnershipRegistry,
 } from "../scripts/check-engineering-baseline.mjs";
 
@@ -40,6 +41,31 @@ function domainWithAsset(registry, kind, value) {
 
 test("canonical cross-system ownership registry passes", () => {
   assert.deepEqual(validate(canonicalRegistry), []);
+});
+
+test("domain-layer complexity thresholds preserve extracted debt", () => {
+  assert.equal(
+    thresholdFor("src/domains/crypto-deposits/ui/UsdtBep20Deposit.tsx"),
+    300,
+  );
+  assert.equal(
+    thresholdFor("src/domains/crypto-deposits/ui/useDepositOverview.ts"),
+    300,
+  );
+  assert.equal(
+    thresholdFor(
+      "src/domains/crypto-deposits/ui/hooks/useDepositOverview.ts",
+    ),
+    300,
+  );
+  assert.equal(
+    thresholdFor("src/domains/crypto-deposits/ui/nowpayments-deposit-ui.ts"),
+    400,
+  );
+  assert.equal(
+    thresholdFor("src/domains/crypto-deposits/application/load-overview.ts"),
+    400,
+  );
 });
 
 for (const [kind, value] of [
