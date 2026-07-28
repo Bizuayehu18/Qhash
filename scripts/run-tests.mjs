@@ -74,6 +74,7 @@ const allTests = [
   "nowpayments-usdt-withdrawal-admin.test.mjs",
   "nowpayments-usdt-withdrawal-user.test.mjs",
   "unified-cross-rail-withdrawal-database.test.mjs",
+  "withdrawal-route-compatibility.test.mjs",
 ];
 
 const handlerTests = [

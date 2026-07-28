@@ -55,6 +55,14 @@ contract: `/deposit` remains the hub, `/deposit/crypto/usdt/bep20` is a
 non-nested child of the protected application layout, Back returns to the hub,
 and the thin route/client facade contain no server-only or sensitive URL state.
 
+`tests/withdrawal-route-compatibility.test.mjs` freezes the matching withdrawal
+route contract: `/withdraw` remains the CBE, TeleBirr, and USDT hub,
+`/withdraw/crypto/usdt/bep20` is a non-nested child of the protected
+application layout, Back returns to the hub, and the thin route/client facade
+contain no server-only or sensitive URL state. The established Fund PIN,
+rolling 24-hour cross-rail policy, and accounting remain in the existing
+withdrawal component and server/database boundaries.
+
 ## Native PostgreSQL safety
 
 Native tests require `TEST_DATABASE_URL`. The runner refuses the URL unless:

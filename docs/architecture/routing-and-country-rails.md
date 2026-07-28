@@ -1,6 +1,8 @@
 # Routing and Country-Rail Architecture
 
-Status: approved target routing contract; the USDT-BEP20 deposit route is implemented, while most routes described here remain future work.
+Status: approved target routing contract; the USDT-BEP20 deposit and
+withdrawal routes are implemented, while most routes described here remain
+future work.
 
 This document defines stable public URLs and how a user's registered country controls fiat-rail visibility. It must be implemented incrementally with compatibility redirects and no behavior change during the initial mechanical reorganization.
 
@@ -64,7 +66,16 @@ Initial Ethiopian examples:
 - `/withdraw/fiat/et/telebirr`
 - `/withdraw/crypto/usdt/bep20`
 
-The hubs remain stable navigation entrypoints. Country/provider routes are details beneath them, not separate financial systems.
+Implementation status:
+
+- `/withdraw` remains the live CBE, TeleBirr, and USDT withdrawal hub.
+- `/withdraw/crypto/usdt/bep20` is the first canonical withdrawal rail route.
+- The hub's USDT-BEP20 option navigates to that route.
+- Fiat country and provider routes remain in-page because authoritative
+  registered-country rail selection is not implemented yet.
+
+The hubs remain stable navigation entrypoints. Country/provider routes are
+details beneath them, not separate financial systems.
 
 ## Administrator routes
 

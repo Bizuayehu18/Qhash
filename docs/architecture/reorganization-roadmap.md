@@ -14,7 +14,7 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 |---|---|
 | Phase 0 — Architecture foundation | Complete |
 | Phase 1 — Deterministic engineering baseline | Complete |
-| Phase 2 — Compatibility scaffolding | In progress: first crypto-deposit route/facade slice implemented |
+| Phase 2 — Compatibility scaffolding | In progress: crypto deposit and withdrawal route/facade slices implemented |
 | Phase 3 and later | Not started |
 
 ## Invariants throughout the roadmap
@@ -109,6 +109,17 @@ First bounded slice:
 - keeps `/deposit` as the hub and all existing external deposit links valid;
 - preserves the existing crypto component, handler endpoints, response
   contracts, pause behavior, and financial boundaries; and
+- deliberately defers fiat country/provider routes until country-aware rail
+  authorization exists.
+
+Second bounded slice:
+
+- adds the client-safe `src/domains/withdrawals/public.ts` facade;
+- adds `/withdraw/crypto/usdt/bep20` as a thin authenticated route;
+- keeps `/withdraw` as the CBE, TeleBirr, and USDT withdrawal hub;
+- preserves the existing withdrawal component, handlers, four-digit Fund PIN,
+  rolling 24-hour cross-rail policy, accounting, and administrator
+  Complete/Reject behavior; and
 - deliberately defers fiat country/provider routes until country-aware rail
   authorization exists.
 

@@ -316,9 +316,10 @@ much risk. Such a facade:
 - remains until direct-import scans, characterization tests, and a separately
   reviewed extraction allow the old path to become a compatibility bridge.
 
-The first facade is `src/domains/crypto-deposits/public.ts`. Server-only domain
-entry points remain a later bounded Phase 2 slice; client code must not infer a
-server boundary from this browser-safe surface.
+The first facades are `src/domains/crypto-deposits/public.ts` and
+`src/domains/withdrawals/public.ts`. Server-only domain entry points remain a
+later bounded Phase 2 slice; client code must not infer a server boundary from
+these browser-safe surfaces.
 
 ## Documentation ownership
 

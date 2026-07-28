@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline at repository revision `ebca234bd7bb40fbddcfce29e13bd6612f2f9aae`, plus the Phase 1 engineering controls and first Phase 2 compatibility scaffold documented below
+**Scope:** Runtime baseline through repository revision `530e6cc9d0f6e000f151120f5aa7f07aced49fa8`, plus the Phase 2 compatibility scaffolds documented below
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -72,16 +72,17 @@ permanent limits.
 ### Route concentration
 
 Most current user URLs remain broad pages such as `/deposit`, `/withdraw`, and
-`/admin`. The first Phase 2 compatibility slice adds the canonical
-`/deposit/crypto/usdt/bep20` route while preserving `/deposit` as the hub.
-Fiat deposit, withdrawal, and administrator subflows are still selected inside
-their broad pages.
+`/admin`. Phase 2 adds the canonical `/deposit/crypto/usdt/bep20` and
+`/withdraw/crypto/usdt/bep20` routes while preserving `/deposit` and
+`/withdraw` as their hubs. Fiat country/provider and administrator subflows
+are still selected inside their broad pages.
 
-The canonical crypto route is a non-nested TanStack route beneath the protected
-`_app` layout. It imports the client-safe
-`src/domains/crypto-deposits/public.ts` facade, which temporarily re-exports the
-existing implementation. No provider, database, accounting, or authorization
-logic moved in this slice.
+The canonical crypto routes are non-nested TanStack routes beneath the
+protected `_app` layout. They import the client-safe
+`src/domains/crypto-deposits/public.ts` and
+`src/domains/withdrawals/public.ts` facades, which temporarily re-export the
+existing implementations. No provider, database, accounting, Fund PIN,
+cross-rail policy, or authorization logic moved in these slices.
 
 `src/components/layout/AppLayout.tsx` also hard-codes the navigation and route labels. The admin experience is a single large route rather than grouped Users, Deposits, Withdrawals, Plans, and Settings sections.
 
