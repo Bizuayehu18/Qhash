@@ -10,10 +10,15 @@ Route segments use stable machine codes:
 
 - lowercase ISO 3166-1 alpha-2 country codes, such as `et`, `in`, and `gb`;
 - lowercase provider slugs, such as `cbe` and `telebirr`;
-- explicit asset/network slugs, such as `usdt-bep20`; and
+- separate asset and network path segments, such as `usdt/bep20`; and
 - domain nouns rather than component or vendor implementation names.
 
 Display names are localized UI data and must not be parsed from URLs.
+
+Public route identity is provider-independent. For the current rail, the URL
+segments are `usdt/bep20`, the UI label is `BNB Smart Chain (BEP20)`, and the
+NOWPayments adapter maps that pair to its existing `usdtbsc` provider currency.
+Provider-specific identifiers must not become public route segments.
 
 ## User routes
 
@@ -25,19 +30,19 @@ Display names are localized UI data and must not be parsed from URLs.
 | Country fiat options | `/deposit/fiat/:country` |
 | Fiat provider flow | `/deposit/fiat/:country/:provider` |
 | Crypto options | `/deposit/crypto` |
-| USDT-BEP20 flow | `/deposit/crypto/usdt-bep20` |
+| USDT-BEP20 flow | `/deposit/crypto/usdt/bep20` |
 
 Initial Ethiopian examples:
 
 - `/deposit/fiat/et`
 - `/deposit/fiat/et/cbe`
 - `/deposit/fiat/et/telebirr`
-- `/deposit/crypto/usdt-bep20`
+- `/deposit/crypto/usdt/bep20`
 
 Implementation status:
 
 - `/deposit` remains the live deposit hub.
-- `/deposit/crypto/usdt-bep20` is the first canonical rail route.
+- `/deposit/crypto/usdt/bep20` is the first canonical rail route.
 - The hub's Crypto Deposit option navigates to that route.
 - Fiat country and provider routes are not live because the current payment
   method boundary is not yet country-authoritative.
@@ -50,14 +55,14 @@ Implementation status:
 | Country fiat options | `/withdraw/fiat/:country` |
 | Fiat provider flow | `/withdraw/fiat/:country/:provider` |
 | Crypto options | `/withdraw/crypto` |
-| USDT-BEP20 flow | `/withdraw/crypto/usdt-bep20` |
+| USDT-BEP20 flow | `/withdraw/crypto/usdt/bep20` |
 
 Initial Ethiopian examples:
 
 - `/withdraw/fiat/et`
 - `/withdraw/fiat/et/cbe`
 - `/withdraw/fiat/et/telebirr`
-- `/withdraw/crypto/usdt-bep20`
+- `/withdraw/crypto/usdt/bep20`
 
 The hubs remain stable navigation entrypoints. Country/provider routes are details beneath them, not separate financial systems.
 
@@ -97,10 +102,10 @@ At minimum:
 | `/deposit` | Remains the deposit hub |
 | Existing in-page CBE flow | Navigate or redirect to `/deposit/fiat/et/cbe` when equivalent |
 | Existing in-page TeleBirr flow | Navigate or redirect to `/deposit/fiat/et/telebirr` when equivalent |
-| Existing in-page Crypto Deposit flow | Navigates to `/deposit/crypto/usdt-bep20`; `/deposit` remains the return hub |
+| Existing in-page Crypto Deposit flow | Navigates to `/deposit/crypto/usdt/bep20`; `/deposit` remains the return hub |
 | `/withdraw` | Remains the withdrawal hub |
 | Existing in-page fiat withdrawal flow | Navigate or redirect to the matching country/provider route |
-| Existing in-page USDT withdrawal flow | Navigate or redirect to `/withdraw/crypto/usdt-bep20` |
+| Existing in-page USDT withdrawal flow | Navigate or redirect to `/withdraw/crypto/usdt/bep20` |
 | Existing `/admin` tabs | Continue to resolve while grouped admin routes are introduced |
 
 Compatibility behavior must:

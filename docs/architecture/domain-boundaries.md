@@ -17,7 +17,7 @@ See also:
 | Identity and access | auth routes, `authStore`, `src/lib/server/auth.ts` | Supabase Auth and `profiles` | username and Ethiopian phone are currently coupled to Auth and referrals |
 | Profile and security | profile/security routes, `src/lib/server/security.ts` | `profiles`, `user_security_settings`, Supabase Auth | Fund PIN is a protected server/database workflow |
 | Fiat deposits | `/deposit`, `src/lib/server/deposits.ts`, CBE/TeleBirr verifiers | Supabase `deposits`, `payment_methods`, ETB wallet/transactions | verification and approval code is distributed across large modules and Functions |
-| Crypto deposits | `/deposit`, `/deposit/crypto/usdt-bep20`, `src/domains/crypto-deposits/public.ts`, `NowpaymentsUsdtDeposit`, NOWPayments deposit Functions | NOWPayments plus `nowpayments_usdt_*` deposit tables | the Phase 2 client facade delegates to the legacy implementation; provider communication and financial settlement remain distinct responsibilities |
+| Crypto deposits | `/deposit`, `/deposit/crypto/usdt/bep20`, `src/domains/crypto-deposits/public.ts`, `NowpaymentsUsdtDeposit`, NOWPayments deposit Functions | NOWPayments plus `nowpayments_usdt_*` deposit tables | the Phase 2 client facade delegates to the legacy implementation; provider communication and financial settlement remain distinct responsibilities |
 | Fiat withdrawals | `/withdraw`, `src/lib/server/withdrawals.ts` | Supabase `withdrawals`, ETB wallet/transactions | shares Fund PIN and cross-rail policy with USDT |
 | USDT withdrawals | `/withdraw`, NOWPayments withdrawal user/admin components and Functions | `nowpayments_usdt_withdrawals`, events, wallet, ledger | manual Complete/Reject workflow; no automatic payout/signing |
 | Plans and investments | `/plans`, investment server functions | `plans`, `investments`, ETB wallet/transactions | values are currently part of the legacy ETB model |
@@ -134,14 +134,14 @@ Future Super Admin, Finance, and Support roles should be added through explicit 
 Routes should become thin composition points. Approved route direction includes:
 
 - `/deposit/fiat/:country/:provider`
-- `/deposit/crypto/usdt-bep20`
+- `/deposit/crypto/usdt/bep20`
 - `/withdraw/fiat/:country/:provider`
-- `/withdraw/crypto/usdt-bep20`
+- `/withdraw/crypto/usdt/bep20`
 - grouped `/admin/...` routes aligned with domain ownership.
 
 Legacy `/deposit`, `/withdraw`, `/admin`, and bookmarked subflows need deliberate compatibility redirects or index routes. Country-unsupported fiat routes must fail closed even when entered directly; hiding navigation alone is insufficient.
 
-The first implemented route scaffold is `/deposit/crypto/usdt-bep20`.
+The first implemented route scaffold is `/deposit/crypto/usdt/bep20`.
 `/deposit` remains the stable hub, and its Crypto Deposit option navigates to
 the canonical route. Fiat country/provider routes remain deferred until an
 authoritative registered-country rail policy exists at the server boundary.

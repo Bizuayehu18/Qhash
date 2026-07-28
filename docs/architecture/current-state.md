@@ -73,7 +73,7 @@ permanent limits.
 
 Most current user URLs remain broad pages such as `/deposit`, `/withdraw`, and
 `/admin`. The first Phase 2 compatibility slice adds the canonical
-`/deposit/crypto/usdt-bep20` route while preserving `/deposit` as the hub.
+`/deposit/crypto/usdt/bep20` route while preserving `/deposit` as the hub.
 Fiat deposit, withdrawal, and administrator subflows are still selected inside
 their broad pages.
 

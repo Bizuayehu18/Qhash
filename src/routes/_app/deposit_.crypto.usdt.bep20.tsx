@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { NowpaymentsUsdtDeposit } from "@/domains/crypto-deposits/public.js";
 import { useAuthStore } from "@/store/authStore.js";
 
-export const Route = createFileRoute("/_app/deposit_/crypto/usdt-bep20")({
+export const Route = createFileRoute("/_app/deposit_/crypto/usdt/bep20")({
   component: UsdtBep20DepositPage,
 });
 

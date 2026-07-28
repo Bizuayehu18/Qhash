@@ -17,20 +17,20 @@ test("deposit hub keeps fiat behavior and links crypto to the canonical route", 
   assert.match(source, /submitDepositFn/);
   assert.match(source, /DepositHistory/);
   assert.match(source, /Crypto Deposit/);
-  assert.match(source, /navigate\(\{ to: "\/deposit\/crypto\/usdt-bep20" \}\)/);
+  assert.match(source, /navigate\(\{ to: "\/deposit\/crypto\/usdt\/bep20" \}\)/);
   assert.doesNotMatch(source, /setStep\("crypto"\)|step === "crypto"/);
 });
 
 test("canonical USDT-BEP20 route is thin, authenticated, and returns to the hub", async () => {
   const [route, appLayout, publicSurface] = await Promise.all([
-    readRepositoryFile("src/routes/_app/deposit_.crypto.usdt-bep20.tsx"),
+    readRepositoryFile("src/routes/_app/deposit_.crypto.usdt.bep20.tsx"),
     readRepositoryFile("src/routes/_app.tsx"),
     readRepositoryFile("src/domains/crypto-deposits/public.ts"),
   ]);
 
   assert.match(
     route,
-    /createFileRoute\("\/_app\/deposit_\/crypto\/usdt-bep20"\)/,
+    /createFileRoute\("\/_app\/deposit_\/crypto\/usdt\/bep20"\)/,
   );
   assert.match(route, /@\/domains\/crypto-deposits\/public\.js/);
   assert.match(route, /state\.session\?\.access_token \?\? null/);
@@ -48,16 +48,16 @@ test("canonical USDT-BEP20 route is thin, authenticated, and returns to the hub"
 
 test("canonical route is non-nested and exposes no sensitive or server-only state", async () => {
   const [route, publicSurface, routeTree] = await Promise.all([
-    readRepositoryFile("src/routes/_app/deposit_.crypto.usdt-bep20.tsx"),
+    readRepositoryFile("src/routes/_app/deposit_.crypto.usdt.bep20.tsx"),
     readRepositoryFile("src/domains/crypto-deposits/public.ts"),
     readRepositoryFile("src/routeTree.gen.ts"),
   ]);
   const clientSurface = `${route}\n${publicSurface}`;
 
-  assert.match(routeTree, /'\/deposit\/crypto\/usdt-bep20'/);
+  assert.match(routeTree, /'\/deposit\/crypto\/usdt\/bep20'/);
   assert.match(
     routeTree,
-    /const AppDepositCryptoUsdtBep20Route[\s\S]*?id: '\/deposit_\/crypto\/usdt-bep20',[\s\S]*?getParentRoute: \(\) => AppRoute,/,
+    /const AppDepositCryptoUsdtBep20Route[\s\S]*?id: '\/deposit_\/crypto\/usdt\/bep20',[\s\S]*?getParentRoute: \(\) => AppRoute,/,
   );
   assert.doesNotMatch(
     routeTree,

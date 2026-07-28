@@ -51,7 +51,7 @@ That file is a destructive live diagnostic helper, not a repository
 verification test.
 
 `tests/deposit-route-compatibility.test.mjs` freezes the first Phase 2 route
-contract: `/deposit` remains the hub, `/deposit/crypto/usdt-bep20` is a
+contract: `/deposit` remains the hub, `/deposit/crypto/usdt/bep20` is a
 non-nested child of the protected application layout, Back returns to the hub,
 and the thin route/client facade contain no server-only or sensitive URL state.
 

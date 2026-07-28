@@ -105,7 +105,7 @@ Introduce, without moving major implementations yet:
 First bounded slice:
 
 - adds the client-safe `src/domains/crypto-deposits/public.ts` facade;
-- adds `/deposit/crypto/usdt-bep20` as a thin authenticated route;
+- adds `/deposit/crypto/usdt/bep20` as a thin authenticated route;
 - keeps `/deposit` as the hub and all existing external deposit links valid;
 - preserves the existing crypto component, handler endpoints, response
   contracts, pause behavior, and financial boundaries; and
@@ -116,9 +116,9 @@ Target visible route families include:
 
 ```text
 /deposit/fiat/:country/:provider
-/deposit/crypto/usdt-bep20
+/deposit/crypto/usdt/bep20
 /withdraw/fiat/:country/:provider
-/withdraw/crypto/usdt-bep20
+/withdraw/crypto/usdt/bep20
 /admin/users
 /admin/deposits/fiat
 /admin/deposits/crypto

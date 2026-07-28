@@ -424,7 +424,7 @@ function DepositPage() {
               setStep("form");
             }}
             onSelectCrypto={() => {
-              void navigate({ to: "/deposit/crypto/usdt-bep20" });
+              void navigate({ to: "/deposit/crypto/usdt/bep20" });
             }}
           />
         ) : selectedMethod ? (
