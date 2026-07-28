@@ -171,7 +171,7 @@ Netlify Database inventory.
 The boundary and complexity checks start from observed legacy debt:
 
 - 27 existing TanStack server-bridge imports; and
-- 38 current file-size warnings.
+- 37 current file-size warnings.
 
 Those findings are report-only at their recorded values. New boundary leaks,
 new warning files, or growth in an existing warning fail verification. This

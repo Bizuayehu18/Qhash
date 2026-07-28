@@ -44,9 +44,11 @@ test("traditional deposit flows remain while retired native-crypto UI stays remo
   const cryptoDepositSurface = await readRepositoryFile(
     "src/domains/crypto-deposits/public.ts",
   );
-  const nowpaymentsDepositUi = await readRepositoryFile(
-    "src/domains/crypto-deposits/ui/UsdtBep20Deposit.tsx",
-  );
+  const nowpaymentsDepositUi = (await Promise.all([
+    "UsdtBep20Deposit.tsx", "UsdtBep20DepositView.tsx", "UsdtBep20AddressCard.tsx",
+    "UsdtBep20DepositHistory.tsx", "useUsdtBep20Deposit.ts",
+    "useUsdtBep20AddressPresentation.ts", "usdt-bep20-deposit-state.ts",
+  ].map((file) => readRepositoryFile(`src/domains/crypto-deposits/ui/${file}`)))).join("\n");
   const legacyDepositBridge = await readRepositoryFile(
     "src/components/deposit/NowpaymentsUsdtDeposit.tsx",
   );
