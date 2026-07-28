@@ -230,6 +230,12 @@ Generated files, forward migrations, catalog fingerprints, and data-driven
 fixtures may need exemptions. Exemptions must be explicit and must not hide
 hand-written product logic.
 
+The active complexity check applies the React component/hook threshold to
+`src/domains/<domain>/ui` TSX files and `use*.ts` hooks, and the 400-line
+domain/application threshold to the remaining layered domain modules. Moving a
+legacy file into `src/domains` therefore transfers its recorded warning rather
+than making the debt disappear.
+
 ## Generated files
 
 Generated files have a declared generator, source, command, and drift check.
@@ -320,9 +326,12 @@ much risk. Such a facade:
   reviewed extraction allow the old path to become a compatibility bridge.
 
 The first facades are `src/domains/crypto-deposits/public.ts` and
-`src/domains/withdrawals/public.ts`. Server-only domain entry points remain a
-later bounded Phase 2 slice; client code must not infer a server boundary from
-these browser-safe surfaces.
+`src/domains/withdrawals/public.ts`. The crypto-deposit facade now points to
+its canonical domain-owned UI implementation, with the old component and
+client-library paths retained as compatibility bridges. The withdrawal facade
+still delegates to its legacy implementation. Server-only domain entry points
+remain a later bounded slice; client code must not infer a server boundary
+from these browser-safe surfaces.
 
 ## Documentation ownership
 

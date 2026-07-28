@@ -1115,6 +1115,19 @@ function checkBoundaries() {
 function thresholdFor(fileRelative) {
   if (fileRelative.startsWith("src/routes/")) return 150;
   if (fileRelative.startsWith("src/components/")) return 300;
+  if (
+    /^src\/domains\/[^/]+\/ui\/.*\.tsx$/.test(fileRelative)
+    || /^src\/domains\/[^/]+\/ui\/(?:[^/]+\/)*use[^/]*\.ts$/.test(fileRelative)
+  ) {
+    return 300;
+  }
+  if (
+    /^src\/domains\/[^/]+\/(?:application|domain|infrastructure|server|ui)\//.test(
+      fileRelative,
+    )
+  ) {
+    return 400;
+  }
   if (fileRelative.startsWith("netlify/functions/")) return 250;
   if (fileRelative.startsWith("src/lib/server/")) return 400;
   if (fileRelative.startsWith("tests/")) return 800;
@@ -1264,5 +1277,6 @@ export {
   extractNetlifyMethodContract,
   listRepositoryFiles,
   parseNetlifyFunctionsDirectory,
+  thresholdFor,
   validateOwnershipRegistry,
 };

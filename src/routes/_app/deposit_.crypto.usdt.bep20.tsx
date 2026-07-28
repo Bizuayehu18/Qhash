@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { NowpaymentsUsdtDeposit } from "@/domains/crypto-deposits/public.js";
+import { UsdtBep20Deposit } from "@/domains/crypto-deposits/public.js";
 import { useAuthStore } from "@/store/authStore.js";
 
 export const Route = createFileRoute("/_app/deposit_/crypto/usdt/bep20")({
@@ -22,7 +22,7 @@ function UsdtBep20DepositPage() {
         </p>
       </div>
 
-      <NowpaymentsUsdtDeposit
+      <UsdtBep20Deposit
         accessToken={accessToken}
         onBack={() => {
           void navigate({ to: "/deposit", replace: true });

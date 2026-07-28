@@ -14,8 +14,10 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 |---|---|
 | Phase 0 — Architecture foundation | Complete |
 | Phase 1 — Deterministic engineering baseline | Complete |
-| Phase 2 — Compatibility scaffolding | In progress: route/facade slices and cross-system ownership enforcement implemented |
-| Phase 3 and later | Not started |
+| Phase 2 — Compatibility scaffolding | In progress: client-safe route/facade slices and cross-system ownership enforcement implemented; server-only entry points remain |
+| Phase 3 — Extract shared primitives | Not started |
+| Phase 4 — Extract domains one at a time | In progress: first crypto-deposit client slice extracted |
+| Phase 5 and later | Not started |
 
 ## Invariants throughout the roadmap
 
@@ -207,6 +209,20 @@ For each domain:
 7. update documentation.
 
 Do not combine extraction with new international behavior.
+
+First crypto-deposit extraction slice:
+
+- moves the USDT-BEP20 React component and its browser-safe NOWPayments
+  transport/view model into `src/domains/crypto-deposits/ui`;
+- gives the canonical route a provider-neutral `UsdtBep20Deposit` component
+  name while retaining `NowpaymentsUsdtDeposit` as a compatibility export;
+- leaves the old component and client-library paths as documented re-export
+  bridges;
+- extends complexity governance to domain UI and layered domain modules so
+  moved debt cannot disappear from the baseline; and
+- deliberately leaves Netlify entrypoints, provider helpers, Supabase
+  functions/tables, applied migrations, endpoints, and fiat behavior in place
+  for separately characterized extraction slices.
 
 ## Phase 5 — Decompose administration
 

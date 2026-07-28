@@ -17,7 +17,7 @@ import {
   parseNowpaymentsDepositOverview,
   requestNowpaymentsDepositSession,
   sanitizeDisabledNowpaymentsDepositOverview,
-} from "../src/lib/nowpayments-deposit-ui.ts";
+} from "../src/domains/crypto-deposits/ui/nowpayments-deposit-ui.ts";
 
 const repositoryRoot = new URL("../", import.meta.url);
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -75,7 +75,7 @@ const {
   copyUsdtDepositAddress,
   nowpaymentsDepositUiReducer,
   nowpaymentsDepositUiVisibility,
-} = await tsImport("../src/components/deposit/NowpaymentsUsdtDeposit.tsx", import.meta.url);
+} = await tsImport("../src/domains/crypto-deposits/ui/UsdtBep20Deposit.tsx", import.meta.url);
 
 const [
   overviewSource,
@@ -86,7 +86,7 @@ const [
 ] = await Promise.all([
   readFile(new URL("netlify/functions/nowpayments-usdt-deposit-overview.mts", repositoryRoot), "utf8"),
   readFile(new URL("netlify/functions/lib/nowpayments-deploy-context.mts", repositoryRoot), "utf8"),
-  readFile(new URL("src/components/deposit/NowpaymentsUsdtDeposit.tsx", repositoryRoot), "utf8"),
+  readFile(new URL("src/domains/crypto-deposits/ui/UsdtBep20Deposit.tsx", repositoryRoot), "utf8"),
   readFile(new URL("src/routes/_app/deposit.tsx", repositoryRoot), "utf8"),
   readFile(new URL("tsconfig.netlify.json", repositoryRoot), "utf8"),
 ]);

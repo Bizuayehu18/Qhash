@@ -131,6 +131,8 @@
         ],
         "sourceModules": [
           "src/components/deposit/NowpaymentsUsdtDeposit.tsx",
+          "src/domains/crypto-deposits/ui/nowpayments-deposit-ui.ts",
+          "src/domains/crypto-deposits/ui/UsdtBep20Deposit.tsx",
           "src/lib/nowpayments-deposit-ui.ts"
         ],
         "supabaseFunctions": [
