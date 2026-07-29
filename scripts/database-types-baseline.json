@@ -340,7 +340,7 @@
     },
     {
       "path": "supabase/migrations/20260729120000_fiat_deposit_global_pause_enforcement/migration.sql",
-      "sha256": "d43ca45074b13af3a940a48c4994d4a01ccf927ba89302b3fa8f70bd9fbfd903"
+      "sha256": "df2727a28fa9d52ee6ece69b22d21aa92be3d0ad726ffe48b2449cd04a426318"
     }
   ]
 }

@@ -19,6 +19,8 @@ lock table public.deposits in access exclusive mode;
 do $preflight$
 declare
   v_inherited_catalog_md5 text;
+  v_policy_dependency_md5 text;
+  v_deposit_status_catalog jsonb;
   v_pause_value text;
   v_public_schema oid := pg_catalog.to_regnamespace('public');
   v_postgres oid := pg_catalog.to_regrole('postgres');
@@ -580,6 +582,264 @@ begin
     raise exception 'unexpected inherited fiat deposit catalog';
   end if;
 
+  with policy_dependency_function_rows as (
+    select
+      function_namespace.nspname as schema_name,
+      function_row.proname,
+      pg_catalog.pg_get_function_identity_arguments(function_row.oid)
+        as identity_arguments,
+      pg_catalog.jsonb_build_array(
+        function_namespace.nspname,
+        function_row.proname,
+        pg_catalog.pg_get_userbyid(function_row.proowner),
+        language_row.lanname,
+        function_row.prokind,
+        function_row.pronargs,
+        function_row.pronargdefaults,
+        function_row.proretset,
+        function_row.proleakproof,
+        function_row.procost,
+        function_row.prorows,
+        function_row.prosupport::oid,
+        function_row.provariadic::oid,
+        function_row.prosecdef,
+        function_row.provolatile,
+        function_row.proisstrict,
+        function_row.proparallel,
+        function_row.proconfig,
+        function_row.probin,
+        function_row.prosqlbody is null,
+        pg_catalog.pg_get_function_identity_arguments(function_row.oid),
+        pg_catalog.pg_get_function_result(function_row.oid),
+        pg_catalog.md5(
+          pg_catalog.replace(function_row.prosrc, E'\r\n', E'\n')
+        ),
+        function_row.proacl is null,
+        (
+          select coalesce(
+            pg_catalog.jsonb_agg(
+              pg_catalog.jsonb_build_array(
+                case
+                  when acl_row.grantee = 0 then 'PUBLIC'
+                  else pg_catalog.pg_get_userbyid(acl_row.grantee)
+                end,
+                pg_catalog.pg_get_userbyid(acl_row.grantor),
+                acl_row.privilege_type,
+                acl_row.is_grantable
+              )
+              order by
+                pg_catalog.convert_to(
+                  case
+                    when acl_row.grantee = 0 then 'PUBLIC'
+                    else pg_catalog.pg_get_userbyid(acl_row.grantee)
+                  end,
+                  'UTF8'
+                ),
+                pg_catalog.convert_to(
+                  pg_catalog.pg_get_userbyid(acl_row.grantor),
+                  'UTF8'
+                ),
+                pg_catalog.convert_to(acl_row.privilege_type, 'UTF8'),
+                acl_row.is_grantable
+            ),
+            '[]'::jsonb
+          )
+          from pg_catalog.aclexplode(function_row.proacl) acl_row
+        )
+      ) as row_value
+    from pg_catalog.pg_proc function_row
+    join pg_catalog.pg_namespace function_namespace
+      on function_namespace.oid = function_row.pronamespace
+    join pg_catalog.pg_language language_row
+      on language_row.oid = function_row.prolang
+    where (
+      function_namespace.nspname = 'auth'
+      and function_row.proname = 'uid'
+    ) or (
+      function_namespace.nspname = 'public'
+      and function_row.proname = 'is_admin'
+    )
+  ),
+  policy_dependency_binding_rows as (
+    select
+      policy_row.polname,
+      function_namespace.nspname as schema_name,
+      function_row.proname,
+      pg_catalog.pg_get_function_identity_arguments(function_row.oid)
+        as identity_arguments,
+      pg_catalog.jsonb_build_array(
+        policy_row.polname,
+        dependency_row.deptype,
+        function_namespace.nspname,
+        function_row.proname,
+        pg_catalog.pg_get_function_identity_arguments(function_row.oid)
+      ) as row_value
+    from pg_catalog.pg_policy policy_row
+    join pg_catalog.pg_depend dependency_row
+      on dependency_row.classid = 'pg_catalog.pg_policy'::regclass
+     and dependency_row.objid = policy_row.oid
+     and dependency_row.refclassid = 'pg_catalog.pg_proc'::regclass
+    join pg_catalog.pg_proc function_row
+      on function_row.oid = dependency_row.refobjid
+    join pg_catalog.pg_namespace function_namespace
+      on function_namespace.oid = function_row.pronamespace
+    where policy_row.polrelid = 'public.deposits'::regclass
+  ),
+  policy_dependency_fingerprint as (
+    select pg_catalog.jsonb_build_object(
+      'functions',
+        (
+          select pg_catalog.jsonb_agg(
+            row_value
+            order by
+              pg_catalog.convert_to(schema_name, 'UTF8'),
+              pg_catalog.convert_to(proname, 'UTF8'),
+              pg_catalog.convert_to(identity_arguments, 'UTF8')
+          )
+          from policy_dependency_function_rows
+        ),
+      'bindings',
+        (
+          select pg_catalog.jsonb_agg(
+            row_value
+            order by
+              pg_catalog.convert_to(polname, 'UTF8'),
+              pg_catalog.convert_to(schema_name, 'UTF8'),
+              pg_catalog.convert_to(proname, 'UTF8'),
+              pg_catalog.convert_to(identity_arguments, 'UTF8')
+          )
+          from policy_dependency_binding_rows
+        )
+    ) as value
+  )
+  select pg_catalog.md5(value::text)
+    into v_policy_dependency_md5
+  from policy_dependency_fingerprint;
+
+  if v_policy_dependency_md5 is distinct from
+    '58e8091e1a82038071e1067c709ca409'
+  then
+    raise exception 'unexpected inherited fiat deposit catalog';
+  end if;
+
+  with deposit_status_enum as (
+    select pg_catalog.jsonb_build_array(
+      type_namespace.nspname,
+      type_row.typname,
+      pg_catalog.pg_get_userbyid(type_row.typowner),
+      type_row.typtype,
+      type_row.typcategory,
+      type_row.typispreferred,
+      type_row.typisdefined,
+      type_row.typlen,
+      type_row.typbyval,
+      type_row.typalign,
+      type_row.typstorage,
+      type_row.typdelim,
+      type_row.typnotnull,
+      type_row.typbasetype = 0::oid,
+      type_row.typtypmod,
+      type_row.typndims,
+      type_row.typcollation = 0::oid,
+      type_row.typdefault is null,
+      type_row.typdefaultbin is null,
+      type_row.typacl is null,
+      (
+        select coalesce(
+          pg_catalog.jsonb_agg(
+            pg_catalog.jsonb_build_array(
+              case
+                when acl_row.grantee = 0 then 'PUBLIC'
+                else pg_catalog.pg_get_userbyid(acl_row.grantee)
+              end,
+              pg_catalog.pg_get_userbyid(acl_row.grantor),
+              acl_row.privilege_type,
+              acl_row.is_grantable
+            )
+            order by
+              pg_catalog.convert_to(
+                case
+                  when acl_row.grantee = 0 then 'PUBLIC'
+                  else pg_catalog.pg_get_userbyid(acl_row.grantee)
+                end,
+                'UTF8'
+              ),
+              pg_catalog.convert_to(
+                pg_catalog.pg_get_userbyid(acl_row.grantor),
+                'UTF8'
+              ),
+              pg_catalog.convert_to(acl_row.privilege_type, 'UTF8'),
+              acl_row.is_grantable
+          ),
+          '[]'::jsonb
+        )
+        from pg_catalog.aclexplode(type_row.typacl) acl_row
+      ),
+      (
+        select coalesce(
+          pg_catalog.jsonb_agg(
+            pg_catalog.jsonb_build_array(
+              enum_value.enumlabel,
+              enum_value.enum_ordinal
+            )
+            order by enum_value.enum_ordinal
+          ),
+          '[]'::jsonb
+        )
+        from (
+          select
+            enum_row.enumlabel::text,
+            pg_catalog.row_number() over (
+              order by enum_row.enumsortorder
+            ) as enum_ordinal
+          from pg_catalog.pg_enum enum_row
+          where enum_row.enumtypid = type_row.oid
+        ) enum_value
+      )
+    ) as row_value
+    from pg_catalog.pg_attribute attribute_row
+    join pg_catalog.pg_type type_row
+      on type_row.oid = attribute_row.atttypid
+    join pg_catalog.pg_namespace type_namespace
+      on type_namespace.oid = type_row.typnamespace
+    where attribute_row.attrelid = 'public.deposits'::regclass
+      and attribute_row.attname = 'status'
+      and attribute_row.attnum > 0
+      and not attribute_row.attisdropped
+  )
+  select row_value
+    into v_deposit_status_catalog
+  from deposit_status_enum;
+
+  if v_deposit_status_catalog is distinct from
+    '[
+      "public",
+      "deposit_status",
+      "postgres",
+      "e",
+      "E",
+      false,
+      true,
+      4,
+      true,
+      "i",
+      "p",
+      ",",
+      false,
+      true,
+      -1,
+      0,
+      true,
+      true,
+      true,
+      true,
+      [],
+      [["pending", 1], ["approved", 2], ["rejected", 3]]
+    ]'::jsonb
+  then
+    raise exception 'unexpected inherited fiat deposit catalog';
+  end if;
+
   begin
     select setting.value
       into strict v_pause_value
@@ -646,6 +906,8 @@ execute function public.enforce_fiat_deposits_open();
 do $postflight$
 declare
   v_inherited_catalog_md5 text;
+  v_policy_dependency_md5 text;
+  v_deposit_status_catalog jsonb;
   v_pause_value text;
   v_function record;
   v_function_oid oid :=
@@ -1115,6 +1377,264 @@ begin
 
   if v_inherited_catalog_md5 is distinct from
     'fcf41d198f7013cd09abd89aadc290be'
+  then
+    raise exception 'inherited fiat deposit catalog changed during migration';
+  end if;
+
+  with policy_dependency_function_rows as (
+    select
+      function_namespace.nspname as schema_name,
+      function_row.proname,
+      pg_catalog.pg_get_function_identity_arguments(function_row.oid)
+        as identity_arguments,
+      pg_catalog.jsonb_build_array(
+        function_namespace.nspname,
+        function_row.proname,
+        pg_catalog.pg_get_userbyid(function_row.proowner),
+        language_row.lanname,
+        function_row.prokind,
+        function_row.pronargs,
+        function_row.pronargdefaults,
+        function_row.proretset,
+        function_row.proleakproof,
+        function_row.procost,
+        function_row.prorows,
+        function_row.prosupport::oid,
+        function_row.provariadic::oid,
+        function_row.prosecdef,
+        function_row.provolatile,
+        function_row.proisstrict,
+        function_row.proparallel,
+        function_row.proconfig,
+        function_row.probin,
+        function_row.prosqlbody is null,
+        pg_catalog.pg_get_function_identity_arguments(function_row.oid),
+        pg_catalog.pg_get_function_result(function_row.oid),
+        pg_catalog.md5(
+          pg_catalog.replace(function_row.prosrc, E'\r\n', E'\n')
+        ),
+        function_row.proacl is null,
+        (
+          select coalesce(
+            pg_catalog.jsonb_agg(
+              pg_catalog.jsonb_build_array(
+                case
+                  when acl_row.grantee = 0 then 'PUBLIC'
+                  else pg_catalog.pg_get_userbyid(acl_row.grantee)
+                end,
+                pg_catalog.pg_get_userbyid(acl_row.grantor),
+                acl_row.privilege_type,
+                acl_row.is_grantable
+              )
+              order by
+                pg_catalog.convert_to(
+                  case
+                    when acl_row.grantee = 0 then 'PUBLIC'
+                    else pg_catalog.pg_get_userbyid(acl_row.grantee)
+                  end,
+                  'UTF8'
+                ),
+                pg_catalog.convert_to(
+                  pg_catalog.pg_get_userbyid(acl_row.grantor),
+                  'UTF8'
+                ),
+                pg_catalog.convert_to(acl_row.privilege_type, 'UTF8'),
+                acl_row.is_grantable
+            ),
+            '[]'::jsonb
+          )
+          from pg_catalog.aclexplode(function_row.proacl) acl_row
+        )
+      ) as row_value
+    from pg_catalog.pg_proc function_row
+    join pg_catalog.pg_namespace function_namespace
+      on function_namespace.oid = function_row.pronamespace
+    join pg_catalog.pg_language language_row
+      on language_row.oid = function_row.prolang
+    where (
+      function_namespace.nspname = 'auth'
+      and function_row.proname = 'uid'
+    ) or (
+      function_namespace.nspname = 'public'
+      and function_row.proname = 'is_admin'
+    )
+  ),
+  policy_dependency_binding_rows as (
+    select
+      policy_row.polname,
+      function_namespace.nspname as schema_name,
+      function_row.proname,
+      pg_catalog.pg_get_function_identity_arguments(function_row.oid)
+        as identity_arguments,
+      pg_catalog.jsonb_build_array(
+        policy_row.polname,
+        dependency_row.deptype,
+        function_namespace.nspname,
+        function_row.proname,
+        pg_catalog.pg_get_function_identity_arguments(function_row.oid)
+      ) as row_value
+    from pg_catalog.pg_policy policy_row
+    join pg_catalog.pg_depend dependency_row
+      on dependency_row.classid = 'pg_catalog.pg_policy'::regclass
+     and dependency_row.objid = policy_row.oid
+     and dependency_row.refclassid = 'pg_catalog.pg_proc'::regclass
+    join pg_catalog.pg_proc function_row
+      on function_row.oid = dependency_row.refobjid
+    join pg_catalog.pg_namespace function_namespace
+      on function_namespace.oid = function_row.pronamespace
+    where policy_row.polrelid = 'public.deposits'::regclass
+  ),
+  policy_dependency_fingerprint as (
+    select pg_catalog.jsonb_build_object(
+      'functions',
+        (
+          select pg_catalog.jsonb_agg(
+            row_value
+            order by
+              pg_catalog.convert_to(schema_name, 'UTF8'),
+              pg_catalog.convert_to(proname, 'UTF8'),
+              pg_catalog.convert_to(identity_arguments, 'UTF8')
+          )
+          from policy_dependency_function_rows
+        ),
+      'bindings',
+        (
+          select pg_catalog.jsonb_agg(
+            row_value
+            order by
+              pg_catalog.convert_to(polname, 'UTF8'),
+              pg_catalog.convert_to(schema_name, 'UTF8'),
+              pg_catalog.convert_to(proname, 'UTF8'),
+              pg_catalog.convert_to(identity_arguments, 'UTF8')
+          )
+          from policy_dependency_binding_rows
+        )
+    ) as value
+  )
+  select pg_catalog.md5(value::text)
+    into v_policy_dependency_md5
+  from policy_dependency_fingerprint;
+
+  if v_policy_dependency_md5 is distinct from
+    '58e8091e1a82038071e1067c709ca409'
+  then
+    raise exception 'inherited fiat deposit catalog changed during migration';
+  end if;
+
+  with deposit_status_enum as (
+    select pg_catalog.jsonb_build_array(
+      type_namespace.nspname,
+      type_row.typname,
+      pg_catalog.pg_get_userbyid(type_row.typowner),
+      type_row.typtype,
+      type_row.typcategory,
+      type_row.typispreferred,
+      type_row.typisdefined,
+      type_row.typlen,
+      type_row.typbyval,
+      type_row.typalign,
+      type_row.typstorage,
+      type_row.typdelim,
+      type_row.typnotnull,
+      type_row.typbasetype = 0::oid,
+      type_row.typtypmod,
+      type_row.typndims,
+      type_row.typcollation = 0::oid,
+      type_row.typdefault is null,
+      type_row.typdefaultbin is null,
+      type_row.typacl is null,
+      (
+        select coalesce(
+          pg_catalog.jsonb_agg(
+            pg_catalog.jsonb_build_array(
+              case
+                when acl_row.grantee = 0 then 'PUBLIC'
+                else pg_catalog.pg_get_userbyid(acl_row.grantee)
+              end,
+              pg_catalog.pg_get_userbyid(acl_row.grantor),
+              acl_row.privilege_type,
+              acl_row.is_grantable
+            )
+            order by
+              pg_catalog.convert_to(
+                case
+                  when acl_row.grantee = 0 then 'PUBLIC'
+                  else pg_catalog.pg_get_userbyid(acl_row.grantee)
+                end,
+                'UTF8'
+              ),
+              pg_catalog.convert_to(
+                pg_catalog.pg_get_userbyid(acl_row.grantor),
+                'UTF8'
+              ),
+              pg_catalog.convert_to(acl_row.privilege_type, 'UTF8'),
+              acl_row.is_grantable
+          ),
+          '[]'::jsonb
+        )
+        from pg_catalog.aclexplode(type_row.typacl) acl_row
+      ),
+      (
+        select coalesce(
+          pg_catalog.jsonb_agg(
+            pg_catalog.jsonb_build_array(
+              enum_value.enumlabel,
+              enum_value.enum_ordinal
+            )
+            order by enum_value.enum_ordinal
+          ),
+          '[]'::jsonb
+        )
+        from (
+          select
+            enum_row.enumlabel::text,
+            pg_catalog.row_number() over (
+              order by enum_row.enumsortorder
+            ) as enum_ordinal
+          from pg_catalog.pg_enum enum_row
+          where enum_row.enumtypid = type_row.oid
+        ) enum_value
+      )
+    ) as row_value
+    from pg_catalog.pg_attribute attribute_row
+    join pg_catalog.pg_type type_row
+      on type_row.oid = attribute_row.atttypid
+    join pg_catalog.pg_namespace type_namespace
+      on type_namespace.oid = type_row.typnamespace
+    where attribute_row.attrelid = 'public.deposits'::regclass
+      and attribute_row.attname = 'status'
+      and attribute_row.attnum > 0
+      and not attribute_row.attisdropped
+  )
+  select row_value
+    into v_deposit_status_catalog
+  from deposit_status_enum;
+
+  if v_deposit_status_catalog is distinct from
+    '[
+      "public",
+      "deposit_status",
+      "postgres",
+      "e",
+      "E",
+      false,
+      true,
+      4,
+      true,
+      "i",
+      "p",
+      ",",
+      false,
+      true,
+      -1,
+      0,
+      true,
+      true,
+      true,
+      true,
+      [],
+      [["pending", 1], ["approved", 2], ["rejected", 3]]
+    ]'::jsonb
   then
     raise exception 'inherited fiat deposit catalog changed during migration';
   end if;

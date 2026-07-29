@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  EXPECTED_DEPOSIT_STATUS_CATALOG,
   EXPECTED_GUARD_SOURCE_MD5,
   EXPECTED_INHERITED_MD5,
+  EXPECTED_POLICY_DEPENDENCY_MD5,
   OTHER_USER_ID,
   PAUSED_ERROR,
   PAYMENT_METHOD_ID,
@@ -12,13 +14,14 @@ import {
   applyMigration,
   bounded,
   createLiveBaseline,
+  inheritedDependencyCatalog,
+  internalTriggerDriftCases,
   disposablePostgresUrl,
   guardCatalog,
   insertDeposit,
   installMutationSentinel,
   migration,
   operationalState,
-  quoteIdentifier,
   removeMutationSentinel,
   availabilitySource,
   serverSource,
@@ -32,6 +35,28 @@ test("fiat deposit pause repair is runner-compatible and checks availability bef
     migration.match(new RegExp(EXPECTED_INHERITED_MD5, "g"))?.length,
     2,
   );
+  assert.equal(
+    migration.match(new RegExp(EXPECTED_POLICY_DEPENDENCY_MD5, "g"))
+      ?.length,
+    2,
+  );
+  assert.equal(
+    migration.match(/\bpolicy_dependency_function_rows\s+as\s*\(/gi)
+      ?.length,
+    2,
+  );
+  assert.equal(
+    migration.match(/\bpolicy_dependency_binding_rows\s+as\s*\(/gi)
+      ?.length,
+    2,
+  );
+  assert.equal(
+    migration.match(/\bdeposit_status_enum\s+as\s*\(/gi)?.length,
+    2,
+  );
+  for (const label of EXPECTED_DEPOSIT_STATUS_CATALOG.at(-1)) {
+    assert.match(migration, new RegExp(`"${label[0]}"`, "g"));
+  }
   assert.match(migration, new RegExp(EXPECTED_GUARD_SOURCE_MD5, "i"));
   assert.equal(
     migration.match(/\binternal_trigger_rows\s+as\s*\(/gi)?.length,
@@ -126,6 +151,69 @@ test("native PostgreSQL enforces the shared fiat pause and exact live catalog", 
 
   await t.test("valid live-shaped catalog migrates with a restricted guard", async () => {
     await createLiveBaseline(client);
+    const inheritedCatalog = await inheritedDependencyCatalog(client);
+    assert.deepEqual(
+      inheritedCatalog.deposit_status,
+      EXPECTED_DEPOSIT_STATUS_CATALOG,
+    );
+    assert.deepEqual(inheritedCatalog.bindings, [
+      ["deposits_insert_own", "n", "auth", "uid", ""],
+      ["deposits_select_admin", "n", "public", "is_admin", ""],
+      ["deposits_select_own", "n", "auth", "uid", ""],
+      ["deposits_update_admin", "n", "public", "is_admin", ""],
+    ]);
+    assert.deepEqual(
+      inheritedCatalog.functions.map((row) => [
+        row[0],
+        row[1],
+        row[2],
+        row[3],
+        row[13],
+        row[17],
+        row[21],
+        row[22],
+        row[24],
+      ]),
+      [
+        [
+          "auth",
+          "uid",
+          "supabase_auth_admin",
+          "sql",
+          false,
+          null,
+          "uuid",
+          "cdef18c69c4f4cbbced2eaf81e628b49",
+          [
+            ["PUBLIC", "supabase_auth_admin", "EXECUTE", false],
+            ["dashboard_user", "supabase_auth_admin", "EXECUTE", false],
+            [
+              "supabase_auth_admin",
+              "supabase_auth_admin",
+              "EXECUTE",
+              false,
+            ],
+          ],
+        ],
+        [
+          "public",
+          "is_admin",
+          "postgres",
+          "plpgsql",
+          true,
+          null,
+          "boolean",
+          "6fcf8577055da6cc6ab48cf9ebb61954",
+          [
+            ["PUBLIC", "postgres", "EXECUTE", false],
+            ["anon", "postgres", "EXECUTE", false],
+            ["authenticated", "postgres", "EXECUTE", false],
+            ["postgres", "postgres", "EXECUTE", false],
+            ["service_role", "postgres", "EXECUTE", false],
+          ],
+        ],
+      ],
+    );
     await applyMigration(client);
 
     const catalog = await guardCatalog(client);
@@ -313,6 +401,110 @@ test("native PostgreSQL enforces the shared fiat pause and exact live catalog", 
 
     const driftCases = [
       {
+        name: "is_admin implementation",
+        mutate: `
+          create or replace function public.is_admin()
+          returns boolean
+          language plpgsql
+          security definer
+          stable
+          as $admin$
+          begin
+            return true;
+          end;
+          $admin$
+        `,
+      },
+      {
+        name: "auth uid implementation",
+        mutate: `
+          create or replace function auth.uid()
+          returns uuid
+          language sql
+          stable
+          as $uid$
+            select null::uuid
+          $uid$
+        `,
+      },
+      {
+        name: "is_admin security mode",
+        mutate: "alter function public.is_admin() security invoker",
+      },
+      {
+        name: "is_admin owner",
+        mutate: "alter function public.is_admin() owner to service_role",
+      },
+      {
+        name: "auth uid security mode",
+        mutate: "alter function auth.uid() security definer",
+      },
+      {
+        name: "is_admin search path",
+        mutate: `
+          alter function public.is_admin()
+          set search_path = pg_catalog, public
+        `,
+      },
+      {
+        name: "is_admin ACL grant option",
+        mutate: `
+          grant execute on function public.is_admin()
+          to authenticated with grant option
+        `,
+      },
+      {
+        name: "auth uid ACL",
+        mutate: `
+          set role supabase_auth_admin;
+          grant execute on function auth.uid()
+          to anon with grant option;
+          reset role;
+          set role postgres
+        `,
+      },
+      {
+        name: "unexpected is_admin overload",
+        mutate: `
+          create function public.is_admin(check_admin boolean)
+          returns boolean
+          language sql
+          stable
+          as $admin$
+            select check_admin
+          $admin$
+        `,
+      },
+      {
+        name: "deposit status extra label",
+        mutate: `
+          alter type public.deposit_status
+          add value 'quarantined' after 'pending'
+        `,
+      },
+      {
+        name: "deposit status label identity",
+        mutate: `
+          alter type public.deposit_status
+          rename value 'rejected' to 'denied'
+        `,
+      },
+      {
+        name: "deposit status owner",
+        mutate: "alter type public.deposit_status owner to service_role",
+      },
+      {
+        name: "deposit status ACL",
+        mutate: `
+          grant usage on type public.deposit_status
+          to authenticated with grant option
+        `,
+      },
+      {
+        name: "deposit status default ACL representation",
+        mutate: "revoke usage on type public.deposit_status from public",
+      },
+      {
         name: "deposits ACL grant option",
         mutate: `
           grant select on table public.deposits
@@ -349,45 +541,7 @@ test("native PostgreSQL enforces the shared fiat pause and exact live catalog", 
           on public.deposits(amount)
         `,
       },
-      {
-        name: "disabled internal FK trigger",
-        mutate: async () => {
-          const triggerName = (await client.query(`
-            select trigger_row.tgname
-            from pg_catalog.pg_trigger trigger_row
-            join pg_catalog.pg_constraint constraint_row
-              on constraint_row.oid = trigger_row.tgconstraint
-            where trigger_row.tgrelid = 'public.deposits'::regclass
-              and trigger_row.tgisinternal
-              and constraint_row.conname = 'deposits_user_id_fkey'
-              and trigger_row.tgtype = 5
-          `)).rows[0]?.tgname;
-          assert.ok(triggerName);
-          await client.query(
-            `alter table public.deposits disable trigger ${quoteIdentifier(triggerName)}`,
-          );
-        },
-      },
-      {
-        name: "disabled counterpart RI trigger",
-        mutate: async () => {
-          const triggerName = (await client.query(`
-            select trigger_row.tgname
-            from pg_catalog.pg_trigger trigger_row
-            join pg_catalog.pg_constraint constraint_row
-              on constraint_row.oid = trigger_row.tgconstraint
-            where trigger_row.tgrelid = 'public.profiles'::regclass
-              and trigger_row.tgisinternal
-              and constraint_row.conname = 'deposits_user_id_fkey'
-            order by trigger_row.tgtype
-            limit 1
-          `)).rows[0]?.tgname;
-          assert.ok(triggerName);
-          await client.query(
-            `alter table public.profiles disable trigger ${quoteIdentifier(triggerName)}`,
-          );
-        },
-      },
+      ...internalTriggerDriftCases(client),
       {
         name: "referenced index rebound from profiles primary key",
         mutate: async () => {
@@ -446,6 +600,7 @@ test("native PostgreSQL enforces the shared fiat pause and exact live catalog", 
           await client.query(drift.mutate);
         }
         const before = await operationalState(client);
+        const catalogBefore = await inheritedDependencyCatalog(client);
         await installMutationSentinel(client);
         await assert.rejects(applyMigration(client), (error) => {
           assert.match(error.message, PREFLIGHT_ERROR);
@@ -453,7 +608,9 @@ test("native PostgreSQL enforces the shared fiat pause and exact live catalog", 
           return true;
         });
         const after = await operationalState(client);
+        const catalogAfter = await inheritedDependencyCatalog(client);
         assert.deepEqual(after, before);
+        assert.deepEqual(catalogAfter, catalogBefore);
         assert.equal(after.guard_exists, false);
         assert.equal(after.pause_trigger_exists, false);
         await removeMutationSentinel(client);
