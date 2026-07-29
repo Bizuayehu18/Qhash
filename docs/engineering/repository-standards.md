@@ -183,8 +183,10 @@ Rules:
 - Cross-domain orchestration belongs in an application service with explicit
   ports, not in a route or component.
 
-Import-boundary automation is a target check. It starts in report-only mode
-while the current baseline is reduced.
+Import-boundary automation fails closed for domain-owned `server.ts` entry
+points and `server/` trees: browser modules may neither import nor re-export
+them. Legacy `src/lib/server` create-server bridges remain measured against
+their frozen baseline while they are moved into domain-owned boundaries.
 
 ## Naming
 

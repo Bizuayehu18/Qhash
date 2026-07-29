@@ -1021,35 +1021,68 @@ function checkOwnership() {
   }
 }
 
-function checkBoundaries() {
-  const sourceFiles = walk(path.join(root, "src"), (filePath) =>
-    /\.(?:ts|tsx|mts)$/.test(filePath),
+function normalizeSourceImport(importerRelative, specifier) {
+  const normalizedSpecifier = specifier.replaceAll("\\", "/");
+  if (normalizedSpecifier.startsWith("@/")) {
+    return path.posix.normalize(`src/${normalizedSpecifier.slice(2)}`);
+  }
+  if (normalizedSpecifier.startsWith(".")) {
+    return path.posix.normalize(
+      path.posix.join(path.posix.dirname(importerRelative), normalizedSpecifier),
+    );
+  }
+  if (normalizedSpecifier.startsWith("src/")) {
+    return path.posix.normalize(normalizedSpecifier);
+  }
+  return null;
+}
+
+function isDomainServerModule(fileRelative) {
+  return /^src\/domains\/[^/]+\/server(?:\/|\.|$)/.test(fileRelative);
+}
+
+function isServerSourceModule(fileRelative) {
+  return (
+    fileRelative.startsWith("src/lib/server/") ||
+    isDomainServerModule(fileRelative)
   );
-  const importPattern =
+}
+
+function analyzeSourceBoundaries({
+  sourceModules,
+  allowedServerBridgeImports,
+}) {
+  const staticImportPattern =
     /(?:import|export)\s+(?:[\s\S]*?\s+from\s+)?["']([^"']+)["']/g;
+  const dynamicImportPattern =
+    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
   const forbiddenClientFragments = [
     "supabase-admin",
     "/db/",
     "netlify/functions",
     "supabase/migrations",
   ];
+  const errors = [];
   let serverBridgeImports = 0;
 
-  for (const filePath of sourceFiles) {
-    const fileRelative = relative(filePath);
+  for (const { fileRelative, source } of sourceModules) {
     if (
       fileRelative === "src/routeTree.gen.ts" ||
       fileRelative === "src/lib/database.generated.ts"
     ) {
       continue;
     }
-    const source = fs.readFileSync(filePath, "utf8");
-    const isServerModule = fileRelative.startsWith("src/lib/server/");
+    const isServerModule = isServerSourceModule(fileRelative);
     const isRouteModule = fileRelative.startsWith("src/routes/");
 
-    for (const match of source.matchAll(importPattern)) {
+    const importMatches = [
+      ...source.matchAll(staticImportPattern),
+      ...source.matchAll(dynamicImportPattern),
+    ];
+    for (const match of importMatches) {
       const specifier = match[1].replaceAll("\\", "/");
       const normalizedSpecifier = specifier.toLowerCase();
+      const importedSource = normalizeSourceImport(fileRelative, specifier);
 
       if (
         !isServerModule &&
@@ -1057,20 +1090,36 @@ function checkBoundaries() {
           normalizedSpecifier.includes(fragment),
         )
       ) {
-        fail(`${fileRelative} imports forbidden client dependency ${specifier}.`);
+        errors.push(
+          `${fileRelative} imports forbidden client dependency ${specifier}.`,
+        );
       }
 
-      if (!isServerModule && normalizedSpecifier.includes("/lib/server/")) {
+      if (
+        !isServerModule &&
+        importedSource &&
+        isDomainServerModule(importedSource)
+      ) {
+        errors.push(
+          `${fileRelative} imports domain server-only module ${specifier}.`,
+        );
+      }
+
+      if (
+        !isServerModule &&
+        importedSource?.startsWith("src/lib/server/")
+      ) {
         serverBridgeImports += 1;
       }
 
-      if (!isRouteModule && specifier.startsWith(".")) {
-        const resolved = path
-          .normalize(path.resolve(path.dirname(filePath), specifier))
-          .replaceAll("\\", "/");
-        if (resolved.includes("/src/routes/")) {
-          fail(`${fileRelative} introduces a reverse dependency into routes.`);
-        }
+      if (
+        !isRouteModule &&
+        specifier.startsWith(".") &&
+        importedSource?.startsWith("src/routes/")
+      ) {
+        errors.push(
+          `${fileRelative} introduces a reverse dependency into routes.`,
+        );
       }
     }
 
@@ -1078,9 +1127,35 @@ function checkBoundaries() {
       !isServerModule &&
       /SUPABASE_SERVICE_ROLE_KEY|NOWPAYMENTS_(?:API|IPN)_KEY/.test(source)
     ) {
-      fail(`${fileRelative} references a server-only secret name.`);
+      errors.push(`${fileRelative} references a server-only secret name.`);
     }
   }
+
+  if (serverBridgeImports > allowedServerBridgeImports) {
+    errors.push(
+      `Server bridge imports increased from ${allowedServerBridgeImports} to ${serverBridgeImports}.`,
+    );
+  }
+
+  return {
+    errors: sortStrings(errors),
+    serverBridgeImports,
+  };
+}
+
+function checkBoundaries() {
+  const sourceFiles = walk(path.join(root, "src"), (filePath) =>
+    /\.(?:ts|tsx|mts)$/.test(filePath),
+  );
+  const sourceModules = sourceFiles.map((filePath) => ({
+    fileRelative: relative(filePath),
+    source: fs.readFileSync(filePath, "utf8"),
+  }));
+  const sourceBoundaryResult = analyzeSourceBoundaries({
+    sourceModules,
+    allowedServerBridgeImports: baseline.boundaries.serverBridgeImports,
+  });
+  for (const error of sourceBoundaryResult.errors) fail(error);
 
   const functionDirectory = path.join(root, "netlify", "functions");
   const entrypoints = fs
@@ -1101,14 +1176,8 @@ function checkBoundaries() {
     );
   }
 
-  if (serverBridgeImports > baseline.boundaries.serverBridgeImports) {
-    fail(
-      `Server bridge imports increased from ${baseline.boundaries.serverBridgeImports} to ${serverBridgeImports}.`,
-    );
-  }
-
   console.log(
-    `Boundary check complete: ${entrypoints.length} Function entrypoints; ${serverBridgeImports} existing createServerFn bridge imports.`,
+    `Boundary check complete: ${entrypoints.length} Function entrypoints; ${sourceBoundaryResult.serverBridgeImports} existing createServerFn bridge imports.`,
   );
 }
 
@@ -1267,6 +1336,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 }
 
 export {
+  analyzeSourceBoundaries,
   checkBoundaries,
   checkComplexity,
   checkDocs,

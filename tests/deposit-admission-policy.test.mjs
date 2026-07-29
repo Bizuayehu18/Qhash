@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { tsImport } from "tsx/esm/api";
+import { analyzeSourceBoundaries } from "../scripts/check-engineering-baseline.mjs";
 
 const repositoryRoot = new URL("../", import.meta.url);
 const {
@@ -175,4 +176,46 @@ test("fiat and crypto adapters consume one shared provider-neutral boundary", as
   assert.doesNotMatch(cryptoAdapter, /\.from\("app_settings"\)/);
   assert.doesNotMatch(fiatAdapter, /NOWPAYMENTS|CBE|TeleBirr/);
   assert.doesNotMatch(sharedReader, /NOWPAYMENTS|CBE|TeleBirr|throwSafe|Netlify/);
+});
+
+test("browser imports and re-exports cannot cross a domain server boundary", () => {
+  const result = analyzeSourceBoundaries({
+    allowedServerBridgeImports: 0,
+    sourceModules: [
+      {
+        fileRelative: "src/components/UnsafeDeposit.tsx",
+        source:
+          'import { readGlobalDepositAdmission } from "@/domains/deposits/server.js";',
+      },
+      {
+        fileRelative: "src/domains/deposits/ui/unsafe-public.ts",
+        source:
+          'export { readGlobalDepositAdmission } from "../server.ts";',
+      },
+      {
+        fileRelative: "src/domains/deposits/ui/lazy-unsafe.ts",
+        source: 'const loadAdmission = () => import("../server.ts");',
+      },
+      {
+        fileRelative: "src/lib/server/deposits.ts",
+        source:
+          'import { readGlobalDepositAdmission } from "../../domains/deposits/server.ts";',
+      },
+      {
+        fileRelative:
+          "src/domains/fiat-deposits/server/require-fiat-deposit-admission.ts",
+        source:
+          'import { readGlobalDepositAdmission } from "../../deposits/server.ts";',
+      },
+    ],
+  });
+
+  assert.deepEqual(result, {
+    errors: [
+      "src/components/UnsafeDeposit.tsx imports domain server-only module @/domains/deposits/server.js.",
+      "src/domains/deposits/ui/lazy-unsafe.ts imports domain server-only module ../server.ts.",
+      "src/domains/deposits/ui/unsafe-public.ts imports domain server-only module ../server.ts.",
+    ],
+    serverBridgeImports: 0,
+  });
 });
