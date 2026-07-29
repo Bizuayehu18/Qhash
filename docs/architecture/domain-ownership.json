@@ -270,12 +270,14 @@
           "TELEBIRR_ANDROID_VERIFIER_STABLE_CHECKPOINT.md",
           "TELEBIRR_AUTO_MODE_CHECKPOINT.md",
           "TELEBIRR_AUTOMATION_CHECKPOINT.md",
-          "TELEBIRR_VERIFIER_KEY_ROTATION_RUNBOOK.md"
+          "TELEBIRR_VERIFIER_KEY_ROTATION_RUNBOOK.md",
+          "tests/helpers/fiat-deposit-global-pause-fixture.mjs"
         ],
         "routes": [
           "src/routes/_app/deposit.tsx"
         ],
         "sourceModules": [
+          "src/domains/fiat-deposits/server/fiat-deposit-availability.ts",
           "src/lib/server/cbe-verify.ts",
           "src/lib/server/deposit-audit-logs.ts",
           "src/lib/server/deposit-verification-audit.ts",
@@ -285,6 +287,9 @@
         ],
         "supabaseFunctions": [
           "public.approve_deposit_tx"
+        ],
+        "supabaseInternalFunctions": [
+          "public.enforce_fiat_deposits_open"
         ],
         "supabaseMigrations": [
           "supabase/migrations/20260512100000_deposits_phase4.sql",
@@ -300,7 +305,8 @@
           "supabase/migrations/20260526000000_align_approve_deposit_tx_with_live_rpc.sql",
           "supabase/migrations/20260604120000_add_deposit_verification_logs.sql",
           "supabase/migrations/20260605222402_add_payment_methods_is_archived.sql",
-          "supabase/migrations/20260727210000_harden_legacy_deposit_approval_rpc/migration.sql"
+          "supabase/migrations/20260727210000_harden_legacy_deposit_approval_rpc/migration.sql",
+          "supabase/migrations/20260729120000_fiat_deposit_global_pause_enforcement/migration.sql"
         ],
         "supabaseTables": [
           "public.deposit_verification_logs",
@@ -309,7 +315,8 @@
         ],
         "tests": [
           "tests/deposit-approval-rpc-security.test.mjs",
-          "tests/deposit-route-compatibility.test.mjs"
+          "tests/deposit-route-compatibility.test.mjs",
+          "tests/fiat-deposit-global-pause-database.test.mjs"
         ]
       }
     },

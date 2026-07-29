@@ -1,6 +1,6 @@
 {
   "projectRef": "wsgxmvmkibliccsktiqj",
-  "generatedAt": "2026-07-27T22:02:16.942Z",
+  "generatedAt": "2026-07-29T12:36:47.322Z",
   "generatedSnapshot": {
     "path": "src/lib/database.generated.ts",
     "sha256": "8fbb15794c708cfab862f492fe712a180cdf13b911979bec78ca3cca44d7c4b5",
@@ -337,6 +337,10 @@
     {
       "path": "supabase/migrations/20260727210000_harden_legacy_deposit_approval_rpc/migration.sql",
       "sha256": "33a198046e306cce146860e4079abc881833c439b9303f833c73aa8768415633"
+    },
+    {
+      "path": "supabase/migrations/20260729120000_fiat_deposit_global_pause_enforcement/migration.sql",
+      "sha256": "d43ca45074b13af3a940a48c4994d4a01ccf927ba89302b3fa8f70bd9fbfd903"
     }
   ]
 }
