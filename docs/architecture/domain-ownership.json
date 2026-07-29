@@ -103,7 +103,7 @@
     {
       "id": "crypto-deposits",
       "kind": "product",
-      "description": "Owns USDT deposit admission, permanent-address lifecycle, provider evidence, settlement, and retired native-crypto evidence.",
+      "description": "Owns USDT rail enablement, permanent-address lifecycle, provider evidence, settlement, and retired native-crypto evidence.",
       "assets": {
         "documents": [
           "docs/nowpayments-late-deposit-recovery.md"
@@ -199,6 +199,24 @@
       }
     },
     {
+      "id": "deposits",
+      "kind": "product",
+      "description": "Owns provider-neutral cross-rail deposit admission policy, shared availability, deposit-hub navigation, and the server-only global admission boundary.",
+      "assets": {
+        "routes": [
+          "src/routes/_app/deposit.tsx"
+        ],
+        "sourceModules": [
+          "src/domains/deposits/domain/deposit-admission-policy.ts",
+          "src/domains/deposits/server.ts",
+          "src/domains/deposits/server/read-global-deposit-admission.ts"
+        ],
+        "tests": [
+          "tests/deposit-admission-policy.test.mjs"
+        ]
+      }
+    },
+    {
       "id": "earnings",
       "kind": "product",
       "description": "Owns scheduled and administrator-triggered investment earnings processing and its run audit.",
@@ -227,7 +245,7 @@
     {
       "id": "fiat-deposits",
       "kind": "product",
-      "description": "Owns country-specific fiat deposit methods, CBE and TeleBirr verification, approval, and the current deposit-hub composition.",
+      "description": "Owns country-specific fiat rail enablement, CBE and TeleBirr collection, verification, approval, and rail-specific database enforcement.",
       "assets": {
         "netlifySupportModules": [
           "netlify/functions/lib/verifier-auth.mts"
@@ -270,12 +288,11 @@
           "TELEBIRR_ANDROID_VERIFIER_STABLE_CHECKPOINT.md",
           "TELEBIRR_AUTO_MODE_CHECKPOINT.md",
           "TELEBIRR_AUTOMATION_CHECKPOINT.md",
-          "TELEBIRR_VERIFIER_KEY_ROTATION_RUNBOOK.md"
-        ],
-        "routes": [
-          "src/routes/_app/deposit.tsx"
+          "TELEBIRR_VERIFIER_KEY_ROTATION_RUNBOOK.md",
+          "tests/helpers/fiat-deposit-global-pause-fixture.mjs"
         ],
         "sourceModules": [
+          "src/domains/fiat-deposits/server/require-fiat-deposit-admission.ts",
           "src/lib/server/cbe-verify.ts",
           "src/lib/server/deposit-audit-logs.ts",
           "src/lib/server/deposit-verification-audit.ts",
@@ -285,6 +302,9 @@
         ],
         "supabaseFunctions": [
           "public.approve_deposit_tx"
+        ],
+        "supabaseInternalFunctions": [
+          "public.enforce_fiat_deposits_open"
         ],
         "supabaseMigrations": [
           "supabase/migrations/20260512100000_deposits_phase4.sql",
@@ -300,7 +320,8 @@
           "supabase/migrations/20260526000000_align_approve_deposit_tx_with_live_rpc.sql",
           "supabase/migrations/20260604120000_add_deposit_verification_logs.sql",
           "supabase/migrations/20260605222402_add_payment_methods_is_archived.sql",
-          "supabase/migrations/20260727210000_harden_legacy_deposit_approval_rpc/migration.sql"
+          "supabase/migrations/20260727210000_harden_legacy_deposit_approval_rpc/migration.sql",
+          "supabase/migrations/20260729120000_fiat_deposit_global_pause_enforcement/migration.sql"
         ],
         "supabaseTables": [
           "public.deposit_verification_logs",
@@ -309,7 +330,8 @@
         ],
         "tests": [
           "tests/deposit-approval-rpc-security.test.mjs",
-          "tests/deposit-route-compatibility.test.mjs"
+          "tests/deposit-route-compatibility.test.mjs",
+          "tests/fiat-deposit-global-pause-database.test.mjs"
         ]
       }
     },

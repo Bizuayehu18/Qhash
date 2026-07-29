@@ -79,6 +79,7 @@
     "supabaseInternalFunctions": [
       "public.activate_qualified_nowpayments_usdt_address",
       "public.create_wallet_for_new_user",
+      "public.enforce_fiat_deposits_open",
       "public.enforce_nowpayments_usdt_address_lifecycle_immutability",
       "public.enforce_nowpayments_usdt_withdrawal_immutability",
       "public.reject_nowpayments_usdt_ledger_mutation",

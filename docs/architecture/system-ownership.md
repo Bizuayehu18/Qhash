@@ -55,9 +55,10 @@ router, build configuration, and Netlify configuration.
 | `accounts` | Wallet and ledger views, balances, transactions, and accounting presentation |
 | `admin` | Administrator shell and composition; financial commands remain owned by their financial domain |
 | `app-shell` | Router, layouts, shared UI primitives, global UI state, and generated route integration |
-| `crypto-deposits` | USDT deposit admission, addresses, provider evidence, settlement, and retired crypto evidence |
+| `crypto-deposits` | USDT rail enablement, addresses, provider evidence, settlement, and retired crypto evidence |
+| `deposits` | Provider-neutral cross-rail deposit admission, shared availability, history composition, and deposit navigation |
 | `earnings` | Investment earning execution and earning-run audit |
-| `fiat-deposits` | Country fiat methods, CBE/TeleBirr verification, and deposit approval |
+| `fiat-deposits` | Country fiat rail enablement, CBE/TeleBirr collection and verification, deposit approval, and fiat-table enforcement |
 | `identity` | Registration, login, immutable profile identity, account security, and Fund PIN |
 | `legacy-netlify-database` | Quarantined Netlify Database history; never production Supabase authority |
 | `notifications` | User notification records and presentation |

@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository base `64ff385e2c9d25bbb696686f1892e263e0260042`, plus this behavior-preserving USDT-withdrawal UI decomposition
+**Scope:** Runtime baseline through repository base `d8e915b8fd9490f918be16f2d34a3215a679fe01`, plus this fiat-deposit global-pause enforcement
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -179,8 +179,17 @@ At the pinned revision:
   admission; the approved shared global withdrawal pause is target behavior,
   not live behavior at this revision;
 - Fund PIN is four numeric digits and is verified through a server-owned boundary;
-- global deposit pause and the NOWPayments rail flag jointly govern crypto address disclosure and provisioning;
-- settlement of already admitted provider payments remains operational during a deposit pause.
+- `src/domains/deposits/server.ts` owns the provider-neutral global deposit
+  admission decision and is the only TypeScript boundary that reads and
+  strictly decodes `app_settings.deposits_paused`;
+- `app_settings.deposits_paused` gates new CBE and TeleBirr deposits at both
+  the server admission boundary and the authoritative `public.deposits`
+  insert boundary;
+- the same global deposit pause and the NOWPayments rail flag jointly govern
+  crypto address disclosure and provisioning, with the fiat and crypto
+  adapters translating the shared decision rather than reimplementing it; and
+- settlement and recovery of already admitted provider payments remain
+  operational during a deposit pause.
 
 ## Active and quarantined paths
 

@@ -41,6 +41,7 @@ src/
     identity/
     accounts/
     countries/
+    deposits/
     fiat-rails/
     crypto-deposits/
     withdrawals/
@@ -182,8 +183,10 @@ Rules:
 - Cross-domain orchestration belongs in an application service with explicit
   ports, not in a route or component.
 
-Import-boundary automation is a target check. It starts in report-only mode
-while the current baseline is reduced.
+Import-boundary automation fails closed for domain-owned `server.ts` entry
+points and `server/` trees: browser modules may neither import nor re-export
+them. Legacy `src/lib/server` create-server bridges remain measured against
+their frozen baseline while they are moved into domain-owned boundaries.
 
 ## Naming
 
@@ -325,7 +328,7 @@ much risk. Such a facade:
 - remains until direct-import scans, characterization tests, and a separately
   reviewed extraction allow the old path to become a compatibility bridge.
 
-The first facades are `src/domains/crypto-deposits/public.ts` and
+The first browser-safe facades are `src/domains/crypto-deposits/public.ts` and
 `src/domains/withdrawals/public.ts`. The crypto-deposit facade now points to
 its canonical domain-owned UI implementation. That implementation separates
 state, request orchestration, address presentation, and focused views while
@@ -334,9 +337,15 @@ withdrawal facade now points to its canonical domain-owned ordinary-user UI,
 which separates request orchestration, state selection, the request form, and
 history. Its old component path is a compatibility bridge; its existing
 browser transport remains at the legacy client-library path for a later
-bounded extraction. Server-only domain entry points remain a later bounded
-slice; client code must not infer a server boundary from these browser-safe
-surfaces.
+bounded extraction.
+
+The provider-neutral deposit admission slice uses the explicit server-only
+entry point `src/domains/deposits/server.ts`. A server entry point may expose
+domain policy and trusted adapters to server consumers, but must not be
+imported by browser code or re-exported through a client-safe `public.ts`.
+Further server-only entry points remain bounded extractions reviewed
+independently; client code must never infer a server boundary from a
+browser-safe surface.
 
 ## Documentation ownership
 

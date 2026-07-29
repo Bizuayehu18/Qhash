@@ -61,9 +61,11 @@ const allTests = [
   "bsc-user-deposit-exposure.test.mjs",
   "crypto-schema-reconciliation.test.mjs",
   "crypto-user-id-uuid-repair.test.mjs",
+  "deposit-admission-policy.test.mjs",
   "deposit-route-compatibility.test.mjs",
   "deposit-approval-rpc-security.test.mjs",
   "domain-ownership-registry.test.mjs",
+  "fiat-deposit-global-pause-database.test.mjs",
   "fund-pin-security-database.test.mjs",
   "native-crypto-database-retirement.test.mjs",
   "native-crypto-runtime-decommission.test.mjs",
@@ -88,6 +90,7 @@ const handlerTests = [
 
 const nativeTests = [
   "deposit-approval-rpc-security.test.mjs",
+  "fiat-deposit-global-pause-database.test.mjs",
   "fund-pin-security-database.test.mjs",
   "nowpayments-usdt-ipn-settlement.test.mjs",
   "nowpayments-usdt-manual-withdrawal-database.test.mjs",
