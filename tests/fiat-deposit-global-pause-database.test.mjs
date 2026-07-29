@@ -23,7 +23,6 @@ import {
   migration,
   operationalState,
   removeMutationSentinel,
-  availabilitySource,
   serverSource,
   waitForBlocker,
 } from "./helpers/fiat-deposit-global-pause-fixture.mjs";
@@ -90,7 +89,7 @@ test("fiat deposit pause repair is runner-compatible and checks availability bef
   const authCheck = submitSource.indexOf("admin.auth.getUser");
   const profileCheck = submitSource.indexOf('.from("profiles")');
   const pauseCheck = submitSource.indexOf(
-    "requireFiatDepositsAvailable(admin)",
+    "requireFiatDepositAdmission(admin)",
   );
   const startLog = submitSource.indexOf('log("deposit_submit_started"');
   const methodLookup = submitSource.indexOf('.from("payment_methods")');
@@ -101,33 +100,7 @@ test("fiat deposit pause repair is runner-compatible and checks availability bef
   assert.ok(pauseCheck < startLog);
   assert.ok(startLog < methodLookup);
   assert.ok(methodLookup < depositInsert);
-
-  assert.match(availabilitySource, /\.from\("app_settings"\)/);
-  assert.match(availabilitySource, /\.select\("key, value"\)/);
-  assert.match(
-    availabilitySource,
-    /\.eq\("key",\s*"deposits_paused"\)/,
-  );
-  assert.match(availabilitySource, /\.limit\(2\)/);
-  assert.match(availabilitySource, /depositSettings\.length\s*!==\s*1/);
-  assert.match(
-    availabilitySource,
-    /depositSettings\[0\]\?\.value/,
-  );
-  assert.match(availabilitySource, /depositPauseValue\s*===\s*"true"/);
-  assert.match(availabilitySource, /depositPauseValue\s*!==\s*"false"/);
-  assert.match(
-    availabilitySource,
-    /Deposit availability configuration is unavailable/,
-  );
-  assert.match(
-    availabilitySource,
-    /Global deposit pause is enabled/,
-  );
-  assert.match(
-    availabilitySource,
-    /Deposit availability configuration is malformed/,
-  );
+  assert.doesNotMatch(serverSource, /\.from\("app_settings"\)/);
 });
 
 test("native PostgreSQL enforces the shared fiat pause and exact live catalog", {

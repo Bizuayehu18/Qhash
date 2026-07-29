@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireFiatDepositsAvailable } from "../../domains/fiat-deposits/server/fiat-deposit-availability.js";
+import { requireFiatDepositAdmission } from "../../domains/fiat-deposits/server/require-fiat-deposit-admission.ts";
 import { getAdminClient } from "./supabase-admin.js";
 import type { Database, DepositStatus } from "../database.types.js";
 import { throwSafe } from "../errors.js";
@@ -397,7 +397,7 @@ export const submitDepositFn = createServerFn({ method: "POST" })
       throwSafe("DEPOSIT", "Unable to submit deposit.", "Account is frozen or unavailable");
     }
 
-    await requireFiatDepositsAvailable(admin);
+    await requireFiatDepositAdmission(admin);
 
     log("deposit_submit_started", {
       userId: authUserId,

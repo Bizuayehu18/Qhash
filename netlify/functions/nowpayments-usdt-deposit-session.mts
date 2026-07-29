@@ -1,5 +1,6 @@
 import type { Config, Context } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
+import { readGlobalDepositAdmission } from "../../src/domains/deposits/server.ts";
 import type { Database } from "../../src/lib/database.types.ts";
 import { isPublishedProductionDeployContext } from "./lib/nowpayments-deploy-context.mts";
 import {
@@ -338,14 +339,10 @@ export default async (req: Request, context?: Context): Promise<Response> => {
   }
 
   const [
-    { data: globalDepositSettings, error: globalDepositSettingsError },
+    depositAdmission,
     { data: config, error: configError },
   ] = await Promise.all([
-    admin
-      .from("app_settings")
-      .select("key,value")
-      .eq("key", "deposits_paused")
-      .limit(2),
+    readGlobalDepositAdmission(admin),
     admin
       .from("nowpayments_usdt_config")
       .select(
@@ -355,18 +352,10 @@ export default async (req: Request, context?: Context): Promise<Response> => {
       .maybeSingle(),
   ]);
 
-  const globalRows = globalDepositSettings as unknown;
-  const globalRow = Array.isArray(globalRows) && globalRows.length === 1
-    && isRecord(globalRows[0])
-    ? globalRows[0]
-    : null;
   const configValue = config as unknown;
   const configRow = isRecord(configValue) ? configValue : null;
   if (
-    globalDepositSettingsError
-    || !globalRow
-    || globalRow.key !== "deposits_paused"
-    || (globalRow.value !== "true" && globalRow.value !== "false")
+    depositAdmission.status === "unavailable"
     || configError
     || !configRow
     || configRow.id !== "USDT-BEP20"
@@ -386,7 +375,7 @@ export default async (req: Request, context?: Context): Promise<Response> => {
   ) {
     return json({ error: "crypto_config_unavailable", message: "Crypto deposits are unavailable." }, 503);
   }
-  if (globalRow.value === "true" || !configRow.enabled) {
+  if (depositAdmission.status === "paused" || !configRow.enabled) {
     return json({ error: "crypto_deposits_disabled", message: "Crypto deposits are disabled." }, 503);
   }
 

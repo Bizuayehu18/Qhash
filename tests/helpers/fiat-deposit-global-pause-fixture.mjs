@@ -4,15 +4,9 @@ const root = new URL("../../", import.meta.url);
 const migrationPath =
   "supabase/migrations/20260729120000_fiat_deposit_global_pause_enforcement/migration.sql";
 const serverPath = "src/lib/server/deposits.ts";
-const availabilityPath =
-  "src/domains/fiat-deposits/server/fiat-deposit-availability.ts";
 
 export const migration = await readFile(new URL(migrationPath, root), "utf8");
 export const serverSource = await readFile(new URL(serverPath, root), "utf8");
-export const availabilitySource = await readFile(
-  new URL(availabilityPath, root),
-  "utf8",
-);
 
 export const USER_ID = "11111111-1111-4111-8111-111111111111";
 export const OTHER_USER_ID = "22222222-2222-4222-8222-222222222222";

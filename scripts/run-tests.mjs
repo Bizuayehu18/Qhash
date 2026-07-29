@@ -61,6 +61,7 @@ const allTests = [
   "bsc-user-deposit-exposure.test.mjs",
   "crypto-schema-reconciliation.test.mjs",
   "crypto-user-id-uuid-repair.test.mjs",
+  "deposit-admission-policy.test.mjs",
   "deposit-route-compatibility.test.mjs",
   "deposit-approval-rpc-security.test.mjs",
   "domain-ownership-registry.test.mjs",

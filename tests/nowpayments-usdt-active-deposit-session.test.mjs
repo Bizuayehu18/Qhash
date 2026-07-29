@@ -1234,14 +1234,14 @@ test("types and endpoint expose only the hidden server-side session contract", (
     endpointSource.indexOf("if (!isPublishedProductionDeployContext(context))")
       < endpointSource.indexOf('Netlify.env.get("VITE_SUPABASE_URL")'),
   );
-  assert.match(endpointSource, /globalRow\.value === "true" \|\| !configRow\.enabled/);
+  assert.match(endpointSource, /depositAdmission\.status === "paused" \|\| !configRow\.enabled/);
   assert.ok(
-    endpointSource.indexOf('globalRow.value === "true" || !configRow.enabled')
+    endpointSource.indexOf('depositAdmission.status === "paused" || !configRow.enabled')
       < endpointSource.indexOf('Netlify.env.get("NOWPAYMENTS_API_KEY")'),
   );
   assert.ok(
     endpointSource.indexOf('from("profiles")')
-      < endpointSource.indexOf('from("app_settings")'),
+      < endpointSource.indexOf("readGlobalDepositAdmission(admin)"),
   );
   assert.doesNotMatch(endpointSource, /req\.json\(|requested_amount|price_amount/);
   assert.match(endpointSource, /path: "\/api\/crypto\/nowpayments\/deposit-session"/);

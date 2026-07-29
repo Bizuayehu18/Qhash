@@ -179,11 +179,15 @@ At the pinned revision:
   admission; the approved shared global withdrawal pause is target behavior,
   not live behavior at this revision;
 - Fund PIN is four numeric digits and is verified through a server-owned boundary;
+- `src/domains/deposits/server.ts` owns the provider-neutral global deposit
+  admission decision and is the only TypeScript boundary that reads and
+  strictly decodes `app_settings.deposits_paused`;
 - `app_settings.deposits_paused` gates new CBE and TeleBirr deposits at both
   the server admission boundary and the authoritative `public.deposits`
   insert boundary;
 - the same global deposit pause and the NOWPayments rail flag jointly govern
-  crypto address disclosure and provisioning; and
+  crypto address disclosure and provisioning, with the fiat and crypto
+  adapters translating the shared decision rather than reimplementing it; and
 - settlement and recovery of already admitted provider payments remain
   operational during a deposit pause.
 
