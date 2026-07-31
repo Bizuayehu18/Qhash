@@ -38,6 +38,15 @@ test("native crypto runtime files are absent", async () => {
 
 test("traditional deposit flows remain while retired native-crypto UI stays removed", async () => {
   const depositRoute = await readRepositoryFile("src/routes/_app/deposit.tsx");
+  const depositHub = await readRepositoryFile("src/domains/deposits/ui/DepositHub.tsx");
+  const fiatDepositUi = (await Promise.all([
+    "useFiatDeposit.ts",
+    "FiatDepositForm.tsx",
+    "FiatDepositHistory.tsx",
+    "FiatDepositMethodList.tsx",
+    "providers/et/cbe-deposit-provider.tsx",
+    "providers/et/telebirr-deposit-provider.tsx",
+  ].map((file) => readRepositoryFile(`src/domains/fiat-deposits/ui/${file}`)))).join("\n");
   const cryptoDepositRoute = await readRepositoryFile(
     "src/routes/_app/deposit_.crypto.usdt.bep20.tsx",
   );
@@ -54,14 +63,15 @@ test("traditional deposit flows remain while retired native-crypto UI stays remo
   );
   const adminRoute = await readRepositoryFile("src/routes/_app/admin.tsx");
 
-  assert.match(depositRoute, /getPaymentMethodsFn/);
-  assert.match(depositRoute, /submitDepositFn/);
-  assert.match(depositRoute, /getUserDepositsFn/);
-  assert.match(depositRoute, /label: "CBE"/);
-  assert.match(depositRoute, /refPrefix: "FT"/);
-  assert.match(depositRoute, /label: "TeleBirr"/);
-  assert.match(depositRoute, /refPrefix: "D"/);
-  assert.match(depositRoute, /\/deposit\/crypto\/usdt\/bep20/);
+  assert.match(depositRoute, /@\/domains\/deposits\/public\.js/);
+  assert.match(fiatDepositUi, /getPaymentMethodsFn/);
+  assert.match(fiatDepositUi, /submitDepositFn/);
+  assert.match(fiatDepositUi, /getUserDepositsFn/);
+  assert.match(fiatDepositUi, /label: "CBE"/);
+  assert.match(fiatDepositUi, /refPrefix: "FT"/);
+  assert.match(fiatDepositUi, /label: "TeleBirr"/);
+  assert.match(fiatDepositUi, /refPrefix: "D"/);
+  assert.match(depositHub, /\/deposit\/crypto\/usdt\/bep20/);
   assert.match(cryptoDepositRoute, /UsdtBep20Deposit/);
   assert.match(cryptoDepositSurface, /UsdtBep20Deposit/);
   assert.match(nowpaymentsDepositUi, /USDT/);
@@ -70,7 +80,7 @@ test("traditional deposit flows remain while retired native-crypto UI stays remo
     legacyDepositBridge,
     /@\/domains\/crypto-deposits\/ui\/UsdtBep20Deposit\.js/,
   );
-  assert.doesNotMatch(depositRoute, /TRC20|crypto_deposit_addresses|crypto_deposits/);
+  assert.doesNotMatch(`${depositRoute}\n${depositHub}\n${fiatDepositUi}`, /TRC20|crypto_deposit_addresses|crypto_deposits/);
   assert.doesNotMatch(cryptoDepositRoute, /TRC20|crypto_deposit_addresses|crypto_deposits/);
   assert.doesNotMatch(nowpaymentsDepositUi, /TRC20|crypto_deposit_addresses|crypto_deposits/);
 

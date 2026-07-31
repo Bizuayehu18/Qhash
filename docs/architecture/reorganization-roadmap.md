@@ -16,7 +16,7 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 | Phase 1 — Deterministic engineering baseline | Complete |
 | Phase 2 — Compatibility scaffolding | In progress: client-safe route/facade slices and cross-system ownership enforcement implemented; server-only entry points remain |
 | Phase 3 — Extract shared primitives | Not started |
-| Phase 4 — Extract domains one at a time | In progress: crypto-deposit and ordinary-user USDT-withdrawal UI decompositions implemented |
+| Phase 4 — Extract domains one at a time | In progress: crypto-deposit, ordinary-user USDT-withdrawal, and Ethiopia fiat-deposit UI decompositions implemented |
 | Phase 5 and later | Not started |
 
 ## Invariants throughout the roadmap
@@ -66,7 +66,7 @@ Implemented:
 - an authorized live Supabase type snapshot with offline hash, compatibility,
   and migration-provenance checks;
 - import-boundary no-growth enforcement;
-- 36 report-only complexity warnings with no-growth enforcement;
+- 35 report-only complexity warnings with no-growth enforcement;
 - documentation link, code-fence, required-document, ADR status, and ADR index
   checks; and
 - Windows/Linux portable CI plus isolated PostgreSQL 17 native CI.
@@ -251,6 +251,24 @@ First ordinary-user USDT-withdrawal UI extraction slice:
 - deliberately leaves the browser transport, Netlify Functions, Supabase
   functions and tables, administrator workflow, provider boundary, accounting,
   flags, and financial behavior unchanged.
+
+First fiat-deposit UI extraction slice:
+
+- makes `/deposit` a thin route through the shared deposits public facade and
+  keeps cross-rail layout and crypto navigation in
+  `src/domains/deposits/ui/DepositHub.tsx`;
+- moves the existing Ethiopia fiat browser flow behind
+  `src/domains/fiat-deposits/public.ts`, with shared fiat orchestration, form,
+  method-list, and history modules plus provider-specific ET/CBE and
+  ET/TeleBirr presentation modules;
+- preserves the current server functions, validation, submission, history,
+  payment-method ordering, visual design, route URL, database boundaries, and
+  accounting behavior;
+- removes the resolved deposit-route complexity warning without raising a new
+  warning; and
+- deliberately defers `/deposit/fiat/et/cbe` and
+  `/deposit/fiat/et/telebirr` until registered-country rail authorization is
+  implemented and independently verified.
 
 ## Phase 5 — Decompose administration
 

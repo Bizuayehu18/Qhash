@@ -1,7 +1,7 @@
 # QHash domain boundaries
 
 **Status:** Current boundary map with target recommendations
-**Scope:** Repository base `64ff385e2c9d25bbb696686f1892e263e0260042` plus this behavior-preserving USDT-withdrawal UI decomposition
+**Scope:** Repository base `1b2f7a140b00884b27c21eec3925cc2007211bda` plus this behavior-preserving Ethiopia fiat-deposit UI extraction
 **Purpose:** Define ownership before files are moved. Current facts and target recommendations are intentionally separated.
 
 The exact current assignment of repository, Netlify, Supabase, test, and
@@ -22,8 +22,8 @@ See also:
 |---|---|---|---|
 | Identity and access | auth routes, `authStore`, `src/lib/server/auth.ts` | Supabase Auth and `profiles` | username and Ethiopian phone are currently coupled to Auth and referrals |
 | Profile and security | profile/security routes, `src/lib/server/security.ts` | `profiles`, `user_security_settings`, Supabase Auth | Fund PIN is a protected server/database workflow |
-| Shared deposits | `/deposit`, `src/domains/deposits/server.ts` | `app_settings.deposits_paused` plus rail-owned history sources | the provider-neutral server admission boundary is implemented; shared history and hub composition remain incremental extractions |
-| Fiat deposits | `src/lib/server/deposits.ts`, CBE/TeleBirr verifiers | Supabase `deposits`, `payment_methods`, ETB wallet/transactions | verification and approval code is distributed across large modules and Functions |
+| Shared deposits | `/deposit`, `src/domains/deposits/public.ts`, `src/domains/deposits/ui/DepositHub.tsx`, `src/domains/deposits/server.ts` | `app_settings.deposits_paused` plus rail-owned history sources | the provider-neutral admission boundary and cross-rail browser composition are implemented; shared composition imports rail public surfaces rather than rail internals |
+| Fiat deposits | `src/domains/fiat-deposits/public.ts`, `src/domains/fiat-deposits/ui`, `src/lib/server/deposits.ts`, CBE/TeleBirr verifiers | Supabase `deposits`, `payment_methods`, ETB wallet/transactions | the Ethiopia CBE/TeleBirr browser flow is domain-owned and provider-specific presentation is split under `ui/providers/et`; verification and approval code remains distributed across large server modules and Functions |
 | Crypto deposits | `/deposit/crypto/usdt/bep20`, `src/domains/crypto-deposits/public.ts`, `src/domains/crypto-deposits/ui`, NOWPayments deposit Functions | NOWPayments plus `nowpayments_usdt_*` deposit tables | the USDT-BEP20 browser component is decomposed into domain-owned state, orchestration, address-presentation, and view modules; old source paths are compatibility bridges, while provider communication and financial settlement remain distinct responsibilities |
 | Fiat withdrawals | `/withdraw`, `src/lib/server/withdrawals.ts` | Supabase `withdrawals`, ETB wallet/transactions | shares Fund PIN and cross-rail policy with USDT |
 | USDT withdrawals | `/withdraw`, `/withdraw/crypto/usdt/bep20`, `src/domains/withdrawals/public.ts`, `src/domains/withdrawals/ui`, NOWPayments withdrawal admin component and Functions | `nowpayments_usdt_withdrawals`, events, wallet, ledger | the ordinary-user USDT-BEP20 component is decomposed into domain-owned request orchestration, view, form, and history modules; the old component path is a compatibility bridge, while the legacy browser transport and manual administrator Complete/Reject flow remain unchanged with no automatic payout/signing |
@@ -104,6 +104,17 @@ and crypto address provisioning consume that boundary and translate its
 decision into their existing rail-specific responses; neither adapter owns or
 reimplements the setting semantics. Rail-specific database functions and
 triggers remain authoritative defense-in-depth at their own write boundary.
+
+The implemented browser composition boundary is
+`src/domains/deposits/public.ts` and
+`src/domains/deposits/ui/DepositHub.tsx`. The hub owns page layout, rail
+selection, and navigation to the canonical crypto route. It consumes the
+client-safe `src/domains/fiat-deposits/public.ts` surface rather than importing
+fiat provider internals. The fiat domain owns its request controller,
+validation, provider ordering, form, history, and ET/CBE and ET/TeleBirr
+presentation. It does not own crypto navigation. Country/provider fiat URLs
+remain target routes until server-owned registered-country authorization is
+available.
 
 Global pause must block new deposits across all rails. Rail disablement is additional and independent. Already admitted settlement and recovery remain available through protected operations.
 

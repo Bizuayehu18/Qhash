@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository base `d8e915b8fd9490f918be16f2d34a3215a679fe01`, plus this fiat-deposit global-pause enforcement
+**Scope:** Runtime baseline through repository base `1b2f7a140b00884b27c21eec3925cc2007211bda`, plus this behavior-preserving Ethiopia fiat-deposit UI extraction
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -58,7 +58,8 @@ The repository is organized mainly by technical layer, with several business dom
 
 | Area | Current role | Observed concentration |
 |---|---|---|
-| `src/routes` | TanStack route entry points and substantial page logic | Phase 1 records 13 route files over the 150-nonblank-line warning, including `admin.tsx`, `withdraw.tsx`, and `deposit.tsx` |
+| `src/routes` | TanStack route entry points and substantial page logic | 12 route files remain over the 150-nonblank-line warning; `deposit.tsx` is now a thin composition entry while `admin.tsx` and `withdraw.tsx` remain concentrated |
+| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Deposit, crypto-deposit, and ordinary-user withdrawal UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
 | `src/components` | Shared UI plus extracted crypto compatibility bridges | Only the administrator NOWPayments withdrawal component remains over the 300-nonblank-line warning after the user deposit and withdrawal UI decompositions |
 | `src/lib/server` | TanStack server functions for many domains in one flat folder | Large deposit, verification, withdrawal, earning, security, and admin modules |
 | `netlify/functions` | provider-facing, scheduled, verification, and admin Functions | NOWPayments handlers are partly decomposed through `netlify/functions/lib` |
@@ -83,6 +84,17 @@ Most current user URLs remain broad pages such as `/deposit`, `/withdraw`, and
 `/withdraw/crypto/usdt/bep20` routes while preserving `/deposit` and
 `/withdraw` as their hubs. Fiat country/provider and administrator subflows
 are still selected inside their broad pages.
+
+`/deposit` is now a thin route through `src/domains/deposits/public.ts`.
+`src/domains/deposits/ui/DepositHub.tsx` owns only cross-rail composition and
+crypto navigation. The Ethiopia fiat browser flow is exposed through
+`src/domains/fiat-deposits/public.ts`; its CBE and TeleBirr presentation is
+split into provider-specific `ui/providers/et` modules while shared fiat
+request orchestration, validation, form, method list, and history remain in
+the fiat-deposit domain. This extraction preserves the existing in-page fiat
+flows, server functions, submission behavior, history, and visual design.
+Country/provider fiat routes remain deferred until the registered-country rail
+policy is authoritative at the server boundary.
 
 The canonical crypto routes are non-nested TanStack routes beneath the
 protected `_app` layout. They import the client-safe
@@ -212,7 +224,7 @@ At the pinned revision:
 5. Twenty-seven existing route/component-to-server bridge imports remain as
    frozen legacy coupling; Phase 1 blocks growth but does not misclassify them
    as a completed domain architecture.
-6. Thirty-six existing file-size warnings identify decomposition debt; they
+6. Thirty-five existing file-size warnings identify decomposition debt; they
    remain report-only at or below the recorded baseline.
 7. The compatibility Supabase type surface lacks three live tables and seven
    live functions, although the authoritative generated snapshot and

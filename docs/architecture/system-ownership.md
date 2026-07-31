@@ -90,6 +90,13 @@ deposit-approval and TeleBirr verifier adapters also require further extraction
 or direct handler tests. The registry must not describe a missing production
 gate as present.
 
+The browser deposit hub now composes the shared `deposits` public surface.
+Ethiopia CBE and TeleBirr collection and presentation are owned by the
+`fiat-deposits` public surface and provider-specific modules; crypto navigation
+remains owned by shared deposit composition. This physical extraction does not
+change the recorded trust debt in the legacy approval or TeleBirr verifier
+Functions.
+
 ## Supabase contract
 
 Generated table and Data API function inventories come from

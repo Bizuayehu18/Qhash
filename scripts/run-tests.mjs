@@ -66,6 +66,7 @@ const allTests = [
   "deposit-approval-rpc-security.test.mjs",
   "domain-ownership-registry.test.mjs",
   "fiat-deposit-global-pause-database.test.mjs",
+  "fiat-deposit-ui.test.mjs",
   "fund-pin-security-database.test.mjs",
   "native-crypto-database-retirement.test.mjs",
   "native-crypto-runtime-decommission.test.mjs",
