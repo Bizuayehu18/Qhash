@@ -22,7 +22,7 @@ const SUPPORT_SETTINGS_LOAD_TIMEOUT_MS = 10_000;
 
 function ProfilePage() {
   const { profile, user, signOut } = useAuthStore();
-  const walletBalance = useWalletStore((s) => s.balance);
+  const walletBalance = useWalletStore((s) => s.activeUserId === user?.id ? s.balance : null);
   const fetchWallet = useWalletStore((s) => s.fetchWallet);
   const [supportUrl, setSupportUrl] = useState<string | null>(null);
   const [supportOpening, setSupportOpening] = useState(false);

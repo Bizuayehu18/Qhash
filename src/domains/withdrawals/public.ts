@@ -8,6 +8,7 @@ export {
   UsdtBep20Withdrawal,
   UsdtBep20Withdrawal as NowpaymentsUsdtWithdrawal,
 } from "./ui/UsdtBep20Withdrawal.js";
+export { WithdrawalHub } from "./ui/WithdrawalHub.js";
 
 export type {
   NowpaymentsWithdrawalHistoryView,

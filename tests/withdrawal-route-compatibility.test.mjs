@@ -9,20 +9,32 @@ async function readRepositoryFile(path) {
 }
 
 test("withdrawal hub keeps fiat behavior and links USDT to the canonical route", async () => {
-  const source = await readRepositoryFile("src/routes/_app/withdraw.tsx");
+  const [route, publicSurface, hub, fiatSurface, fiatController] = await Promise.all([
+    readRepositoryFile("src/routes/_app/withdraw.tsx"),
+    readRepositoryFile("src/domains/withdrawals/public.ts"),
+    readRepositoryFile("src/domains/withdrawals/ui/WithdrawalHub.tsx"),
+    readRepositoryFile("src/domains/fiat-withdrawals/public.ts"),
+    readRepositoryFile("src/domains/fiat-withdrawals/ui/useFiatWithdrawal.ts"),
+  ]);
 
-  assert.match(source, /createFileRoute\("\/_app\/withdraw"\)/);
-  assert.match(source, /METHOD_META[\s\S]*cbe:/);
-  assert.match(source, /METHOD_META[\s\S]*telebirr:/);
-  assert.match(source, /submitWithdrawalFn/);
-  assert.match(source, /WithdrawalHistory/);
-  assert.match(source, /USDT Withdrawal/);
+  assert.match(route, /createFileRoute\("\/_app\/withdraw"\)/);
+  assert.match(route, /@\/domains\/withdrawals\/public\.js/);
+  assert.match(route, /component: WithdrawalHub/);
+  assert.doesNotMatch(route, /lib\/server|useAuthStore|useWalletStore|CBE|TeleBirr|USDT/);
+
+  assert.match(publicSurface, /WithdrawalHub/);
+  assert.match(hub, /@\/domains\/fiat-withdrawals\/public\.js/);
+  assert.match(hub, /FiatWithdrawalMethodList/);
+  assert.match(hub, /FiatWithdrawalHistory/);
+  assert.match(hub, /USDT Withdrawal/);
   assert.match(
-    source,
+    hub,
     /navigate\(\{ to: "\/withdraw\/crypto\/usdt\/bep20" \}\)/,
   );
+  assert.match(fiatSurface, /useFiatWithdrawal/);
+  assert.match(fiatController, /submitFiatWithdrawal/);
   assert.doesNotMatch(
-    source,
+    `${route}\n${hub}`,
     /usdtSelected|setUsdtSelected|<NowpaymentsUsdtWithdrawal/,
   );
 });

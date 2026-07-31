@@ -19,25 +19,17 @@ import { ListRow } from "@/components/ui/ListRow.js";
 import { EmptyState } from "@/components/ui/EmptyState.js";
 import { AmountText, CurrencyUnit } from "@/components/ui/AmountText.js";
 import { TxIcon, txTitle, txSubtitle, isOutgoingTx } from "@/components/ui/TransactionHelpers.js";
+import { useDashboardRemoteState } from "@/domains/accounts/public.js";
 import { formatDateTime } from "@/lib/format.js";
 import { useAuthStore } from "@/store/authStore.js";
-import { useWalletStore } from "@/store/walletStore.js";
-import { loadDashboardFn } from "@/lib/server/dashboard.js";
-import { getPlansFn } from "@/lib/server/plans.js";
 import { getSupportSettingsFn } from "@/lib/server/support-settings.js";
 import { withTimeout } from "@/lib/async.js";
-import type { Plan } from "@/lib/database.types.js";
 
 export const Route = createFileRoute("/_app/dashboard")({
   component: DashboardPage,
 });
 
-type DashboardData = Awaited<ReturnType<typeof loadDashboardFn>>;
-
-const DASHBOARD_LOAD_TIMEOUT_MS = 10_000;
 const SUPPORT_SETTINGS_LOAD_TIMEOUT_MS = 10_000;
-const AUTO_RETRY_DELAY_MS = 1_500;
-const MAX_AUTO_RETRIES = 2;
 
 function formatDashboardAmount(value: number) {
   return value.toLocaleString("en-US", {
@@ -120,34 +112,11 @@ function CompactMetric({
 }
 
 function DashboardPage() {
-  const { user, profile } = useAuthStore();
-  const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
-  const walletBalance = useWalletStore((s) => s.balance);
-  const setWalletBalance = useWalletStore((s) => s.setBalance);
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [plans, setPlans] = useState<Plan[]>([]);
+  const { profile } = useAuthStore();
+  const { balance, data, plans } = useDashboardRemoteState();
   const [supportUrl, setSupportUrl] = useState<string | null>(null);
   const [supportOpening, setSupportOpening] = useState(false);
-  const loadingRef = useRef(false);
-  const retryCountRef = useRef(0);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
-
-  const clearRetryTimer = useCallback(() => {
-    if (retryTimerRef.current) {
-      clearTimeout(retryTimerRef.current);
-      retryTimerRef.current = null;
-    }
-  }, []);
-
-  const scheduleRetry = useCallback((loadFn: () => void) => {
-    clearRetryTimer();
-
-    if (retryCountRef.current >= MAX_AUTO_RETRIES) return;
-
-    retryCountRef.current += 1;
-    retryTimerRef.current = setTimeout(loadFn, AUTO_RETRY_DELAY_MS);
-  }, [clearRetryTimer]);
 
   const loadSupportUrl = useCallback(async () => {
     try {
@@ -190,90 +159,23 @@ function DashboardPage() {
     window.location.assign("/support");
   }, [loadSupportUrl, supportOpening, supportUrl]);
 
-  const load = useCallback(
-    async (options?: { resetRetryCount?: boolean }) => {
-      if (loadingRef.current) return;
-
-      if (options?.resetRetryCount) {
-        retryCountRef.current = 0;
-      }
-
-      if (!user?.id || !accessToken) {
-        setData(null);
-        return;
-      }
-
-      clearRetryTimer();
-      loadingRef.current = true;
-
-      try {
-        const [dashboardResult, plansResult] = await Promise.allSettled([
-          withTimeout(
-            loadDashboardFn({ data: { accessToken } }),
-            DASHBOARD_LOAD_TIMEOUT_MS,
-            "Dashboard request timed out.",
-          ),
-          withTimeout(
-            getPlansFn(),
-            DASHBOARD_LOAD_TIMEOUT_MS,
-            "Plans request timed out.",
-          ),
-        ]);
-
-        if (!mountedRef.current) return;
-
-        if (dashboardResult.status === "fulfilled") {
-          setData(dashboardResult.value);
-          setWalletBalance(dashboardResult.value.wallet.balance);
-          retryCountRef.current = 0;
-        } else {
-          console.error("[QHash] Dashboard background refresh failed:", dashboardResult.reason);
-          scheduleRetry(() => {
-            void load();
-          });
-        }
-
-        if (plansResult.status === "fulfilled") {
-          setPlans(plansResult.value);
-        } else {
-          console.error("[QHash] Dashboard plans background refresh failed:", plansResult.reason);
-        }
-      } catch (err) {
-        console.error("[QHash] Dashboard background refresh failed:", err);
-
-        if (!mountedRef.current) return;
-
-        scheduleRetry(() => {
-          void load();
-        });
-      } finally {
-        loadingRef.current = false;
-      }
-    },
-    [accessToken, clearRetryTimer, scheduleRetry, setWalletBalance, user?.id],
-  );
-
   useEffect(() => {
     mountedRef.current = true;
-    void load({ resetRetryCount: true });
     void loadSupportUrl();
 
     return () => {
       mountedRef.current = false;
-      clearRetryTimer();
     };
-  }, [clearRetryTimer, load, loadSupportUrl]);
+  }, [loadSupportUrl]);
 
   useEffect(() => {
     const handleVisible = () => {
       if (document.visibilityState === "visible") {
-        void load({ resetRetryCount: true });
         void loadSupportUrl();
       }
     };
 
     const handleOnline = () => {
-      void load({ resetRetryCount: true });
       void loadSupportUrl();
     };
 
@@ -284,16 +186,13 @@ function DashboardPage() {
       document.removeEventListener("visibilitychange", handleVisible);
       window.removeEventListener("online", handleOnline);
     };
-  }, [load, loadSupportUrl]);
+  }, [loadSupportUrl]);
 
   const hasDashboardData = data !== null;
-  const wallet = data?.wallet ?? null;
   const activeInvestments = data?.activeInvestments ?? [];
   const completedInvestments = data?.completedInvestments ?? [];
   const incomeSummary = data?.incomeSummary ?? null;
   const recentTransactions = data?.recentTransactions ?? [];
-  const balance = walletBalance ?? wallet?.balance ?? null;
-
   const getPlanName = (planId: string) => {
     const plan = plans.find((p) => p.id === planId);
     return plan?.name ?? "Mining Plan";

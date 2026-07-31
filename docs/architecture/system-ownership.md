@@ -52,13 +52,14 @@ router, build configuration, and Netlify configuration.
 
 | Domain | Accountable boundary |
 |---|---|
-| `accounts` | Wallet and ledger views, balances, transactions, and accounting presentation |
+| `accounts` | Dashboard remote state, wallet and ledger views, balances, transactions, and authentication-scoped accounting presentation |
 | `admin` | Administrator shell and composition; financial commands remain owned by their financial domain |
 | `app-shell` | Router, layouts, shared UI primitives, global UI state, and generated route integration |
 | `crypto-deposits` | USDT rail enablement, addresses, provider evidence, settlement, and retired crypto evidence |
 | `deposits` | Provider-neutral cross-rail deposit admission, shared availability, history composition, and deposit navigation |
 | `earnings` | Investment earning execution and earning-run audit |
 | `fiat-deposits` | Country fiat rail enablement, CBE/TeleBirr collection and verification, deposit approval, and fiat-table enforcement |
+| `fiat-withdrawals` | Ethiopia CBE/TeleBirr browser presentation and legacy ETB request orchestration; shared financial policy remains in `withdrawals` |
 | `identity` | Registration, login, immutable profile identity, account security, and Fund PIN |
 | `legacy-netlify-database` | Quarantined Netlify Database history; never production Supabase authority |
 | `notifications` | User notification records and presentation |
@@ -96,6 +97,20 @@ Ethiopia CBE and TeleBirr collection and presentation are owned by the
 remains owned by shared deposit composition. This physical extraction does not
 change the recorded trust debt in the legacy approval or TeleBirr verifier
 Functions.
+
+The browser withdrawal hub now composes the shared `withdrawals` public
+surface. Ethiopia CBE and TeleBirr withdrawal presentation and browser
+orchestration are owned by the `fiat-withdrawals` public surface and
+provider-specific modules. The shared Fund PIN, cooldown, active-request,
+financial, database, and administrator boundaries remain owned by
+`withdrawals`; the extraction creates no new live fiat route or server trust
+boundary.
+
+The `accounts` public facade owns the browser dashboard remote-state hook. Its
+application bridge is the only dashboard-domain dependency on legacy server
+functions, and its state plus the shared wallet cache are keyed to the exact
+authenticated user/token generation. Routes and other consumers cannot render
+a balance or dashboard snapshot owned by a previous session.
 
 ## Supabase contract
 

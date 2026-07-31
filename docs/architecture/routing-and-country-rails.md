@@ -73,8 +73,13 @@ Initial Ethiopian examples:
 Implementation status:
 
 - `/withdraw` remains the live CBE, TeleBirr, and USDT withdrawal hub.
+- `/withdraw` is now a thin route through the shared withdrawals public
+  facade, while cross-rail composition lives in `WithdrawalHub`.
 - `/withdraw/crypto/usdt/bep20` is the first canonical withdrawal rail route.
 - The hub's USDT-BEP20 option navigates to that route.
+- Ethiopia CBE and TeleBirr presentation now has provider-specific file
+  ownership under the fiat-withdrawal domain, while the established in-page
+  user flow and URL remain unchanged.
 - Fiat country and provider routes remain in-page because authoritative
   registered-country rail selection is not implemented yet.
 

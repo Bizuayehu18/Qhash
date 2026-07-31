@@ -16,7 +16,7 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 | Phase 1 — Deterministic engineering baseline | Complete |
 | Phase 2 — Compatibility scaffolding | In progress: client-safe route/facade slices and cross-system ownership enforcement implemented; server-only entry points remain |
 | Phase 3 — Extract shared primitives | Not started |
-| Phase 4 — Extract domains one at a time | In progress: crypto-deposit, ordinary-user USDT-withdrawal, and Ethiopia fiat-deposit UI decompositions implemented |
+| Phase 4 — Extract domains one at a time | In progress: crypto-deposit, ordinary-user USDT-withdrawal, Ethiopia fiat-deposit, and Ethiopia fiat-withdrawal UI decompositions implemented |
 | Phase 5 and later | Not started |
 
 ## Invariants throughout the roadmap
@@ -268,6 +268,24 @@ First fiat-deposit UI extraction slice:
   warning; and
 - deliberately defers `/deposit/fiat/et/cbe` and
   `/deposit/fiat/et/telebirr` until registered-country rail authorization is
+  implemented and independently verified.
+
+First fiat-withdrawal UI extraction slice:
+
+- makes `/withdraw` a thin route through the shared withdrawals public facade
+  and keeps cross-rail layout and USDT-BEP20 navigation in
+  `src/domains/withdrawals/ui/WithdrawalHub.tsx`;
+- moves the existing Ethiopia fiat browser flow behind
+  `src/domains/fiat-withdrawals/public.ts`, with an application service,
+  controller, remote-state coordination, method list, details, confirmation,
+  history, and provider-specific ET/CBE and ET/TeleBirr modules;
+- preserves the 200 ETB minimum, 5% fee, four-digit Fund PIN, server functions,
+  accepted-request policy, history, retry behavior, visual design, route URL,
+  database boundaries, and accounting behavior;
+- removes the resolved withdrawal-route complexity warning without raising a
+  new warning; and
+- deliberately defers `/withdraw/fiat/et/cbe` and
+  `/withdraw/fiat/et/telebirr` until registered-country rail authorization is
   implemented and independently verified.
 
 ## Phase 5 — Decompose administration

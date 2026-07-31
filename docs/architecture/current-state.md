@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository base `1b2f7a140b00884b27c21eec3925cc2007211bda`, plus this behavior-preserving Ethiopia fiat-deposit UI extraction
+**Scope:** Runtime baseline through repository base `e4c339a3458a59bd6b9d7f06d1dad6e2fe4f477f`, plus this behavior-preserving Ethiopia fiat-withdrawal UI extraction and shared wallet/dashboard authentication-isolation hardening
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -58,8 +58,8 @@ The repository is organized mainly by technical layer, with several business dom
 
 | Area | Current role | Observed concentration |
 |---|---|---|
-| `src/routes` | TanStack route entry points and substantial page logic | 12 route files remain over the 150-nonblank-line warning; `deposit.tsx` is now a thin composition entry while `admin.tsx` and `withdraw.tsx` remain concentrated |
-| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Deposit, crypto-deposit, and ordinary-user withdrawal UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
+| `src/routes` | TanStack route entry points and substantial page logic | 11 route files remain over the 150-nonblank-line warning; `deposit.tsx` and `withdraw.tsx` are now thin composition entries while `admin.tsx` remains concentrated |
+| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Deposit, withdrawal, crypto-rail, and Ethiopia fiat-rail UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
 | `src/components` | Shared UI plus extracted crypto compatibility bridges | Only the administrator NOWPayments withdrawal component remains over the 300-nonblank-line warning after the user deposit and withdrawal UI decompositions |
 | `src/lib/server` | TanStack server functions for many domains in one flat folder | Large deposit, verification, withdrawal, earning, security, and admin modules |
 | `netlify/functions` | provider-facing, scheduled, verification, and admin Functions | NOWPayments handlers are partly decomposed through `netlify/functions/lib` |
@@ -95,6 +95,25 @@ the fiat-deposit domain. This extraction preserves the existing in-page fiat
 flows, server functions, submission behavior, history, and visual design.
 Country/provider fiat routes remain deferred until the registered-country rail
 policy is authoritative at the server boundary.
+
+`/withdraw` is likewise a thin route through
+`src/domains/withdrawals/public.ts`. The shared
+`src/domains/withdrawals/ui/WithdrawalHub.tsx` owns only cross-rail
+composition and USDT-BEP20 navigation. Ethiopia CBE and TeleBirr withdrawal
+presentation and browser orchestration are exposed through
+`src/domains/fiat-withdrawals/public.ts`, with provider-specific definitions
+under `ui/providers/et`. The extraction preserves the established in-page
+flow, 200 ETB minimum, 5% fee, four-digit Fund PIN, history, server calls,
+cross-rail policy, and visual behavior. Fiat withdrawal country/provider URLs
+remain deferred until the same server-authoritative country-rail boundary is
+available.
+
+The accounts facade at `src/domains/accounts/public.ts` now owns the dashboard
+remote-state composition. Complete dashboard snapshots, wallet cache entries,
+in-flight requests, retries, and direct balance updates are bound to the exact
+authenticated user and access-token generation. This prevents a previous or
+late session from supplying financial presentation to a replacement session;
+it does not change any server or accounting behavior.
 
 The canonical crypto routes are non-nested TanStack routes beneath the
 protected `_app` layout. They import the client-safe

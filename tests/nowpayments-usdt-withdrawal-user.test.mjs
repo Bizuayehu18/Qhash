@@ -792,7 +792,6 @@ test("source boundaries contain no provider, signing, payout, client database, o
     uiLibSource,
     withdrawalPolicySource,
     etbWithdrawalServer,
-    withdrawRoute,
     depositRoute,
     depositHub,
     typecheck,
@@ -811,7 +810,6 @@ test("source boundaries contain no provider, signing, payout, client database, o
       readFile(new URL("src/lib/nowpayments-withdrawal-ui.ts", root), "utf8"),
       readFile(new URL("src/lib/withdrawal-policy.ts", root), "utf8"),
       readFile(new URL("src/lib/server/withdrawals.ts", root), "utf8"),
-      readFile(new URL("src/routes/_app/withdraw.tsx", root), "utf8"),
       readFile(new URL("src/routes/_app/deposit.tsx", root), "utf8"),
       readFile(new URL("src/domains/deposits/ui/DepositHub.tsx", root), "utf8"),
       readFile(new URL("tsconfig.netlify.json", root), "utf8"),
@@ -833,12 +831,7 @@ test("source boundaries contain no provider, signing, payout, client database, o
   assert.match(withdrawalPolicySource, /Next eligible: \$\{nextAllowedAtUtc\}/);
   assert.match(withdrawalPolicySource, /UTC/);
   assert.match(uiSource, /formatWithdrawalCooldownMessage\(error\.nextAllowedAt\)/);
-  assert.match(withdrawRoute, /formatWithdrawalCooldownMessage\(result\.next_allowed_at\)/);
-  assert.match(
-    withdrawRoute,
-    /24h processing[\s\S]*?<p className="mt-1\.5 border-t[\s\S]*?CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE/,
-  );
-  assert.doesNotMatch(`${uiSource}\n${withdrawRoute}`, /one request\/day|one per day|try again tomorrow|calendar day/i);
+  assert.doesNotMatch(uiSource, /one request\/day|one per day|try again tomorrow|calendar day/i);
   assert.match(uiSource, /Four-digit Fund PIN/);
   assert.doesNotMatch(clientSource, /transaction_hash|current_broadcast_id|confirmations|manual review/i);
   assert.match(uiSource, /BigInt|formatUsdtMicros/);
@@ -849,10 +842,6 @@ test("source boundaries contain no provider, signing, payout, client database, o
   assert.ok((uiSource.match(/request\.isCurrent\(\)/g) ?? []).length >= 3);
   assert.match(uiSource, /overviewRequestsRef\.current!\.invalidate\(\);[\s\S]*?setSubmitting\(true\)/);
   assert.match(uiSource, /return \(\) => \{[\s\S]*?mountedRef\.current = false;[\s\S]*?\.invalidate\(\)/);
-  assert.match(withdrawRoute, /submitWithdrawalFn/);
-  assert.match(withdrawRoute, /CBE Withdrawal/);
-  assert.match(withdrawRoute, /TeleBirr Withdrawal/);
-  assert.match(withdrawRoute, /\/withdraw\/crypto\/usdt\/bep20/);
   assert.match(depositRoute, /@\/domains\/deposits\/public\.js/);
   assert.match(depositHub, /\/deposit\/crypto\/usdt\/bep20/);
   assert.match(typecheck, /(?=[\s\S]*netlify\/functions\/\*\*\/\*)(?=[\s\S]*"allowJs": true)(?=[\s\S]*"checkJs": true)/);
