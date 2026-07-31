@@ -43,9 +43,13 @@ Initial Ethiopian examples:
 
 Implementation status:
 
-- `/deposit` remains the live deposit hub.
+- `/deposit` remains the live deposit hub and is now a thin route through the
+  shared deposits public facade.
 - `/deposit/crypto/usdt/bep20` is the first canonical rail route.
 - The hub's Crypto Deposit option navigates to that route.
+- Ethiopia CBE and TeleBirr presentation now has provider-specific file
+  ownership under the fiat-deposit domain, while the established in-page user
+  flow and URL remain unchanged.
 - Fiat country and provider routes are not live because the current payment
   method boundary is not yet country-authoritative.
 

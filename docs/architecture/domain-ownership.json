@@ -203,16 +203,21 @@
       "kind": "product",
       "description": "Owns provider-neutral cross-rail deposit admission policy, shared availability, deposit-hub navigation, and the server-only global admission boundary.",
       "assets": {
+        "publicSurfaces": [
+          "src/domains/deposits/public.ts"
+        ],
         "routes": [
           "src/routes/_app/deposit.tsx"
         ],
         "sourceModules": [
           "src/domains/deposits/domain/deposit-admission-policy.ts",
           "src/domains/deposits/server.ts",
-          "src/domains/deposits/server/read-global-deposit-admission.ts"
+          "src/domains/deposits/server/read-global-deposit-admission.ts",
+          "src/domains/deposits/ui/DepositHub.tsx"
         ],
         "tests": [
-          "tests/deposit-admission-policy.test.mjs"
+          "tests/deposit-admission-policy.test.mjs",
+          "tests/deposit-route-compatibility.test.mjs"
         ]
       }
     },
@@ -245,10 +250,13 @@
     {
       "id": "fiat-deposits",
       "kind": "product",
-      "description": "Owns country-specific fiat rail enablement, CBE and TeleBirr collection, verification, approval, and rail-specific database enforcement.",
+      "description": "Owns country-specific fiat rail enablement, browser-facing CBE and TeleBirr provider collection, verification, approval, and rail-specific database enforcement.",
       "assets": {
         "netlifySupportModules": [
           "netlify/functions/lib/verifier-auth.mts"
+        ],
+        "publicSurfaces": [
+          "src/domains/fiat-deposits/public.ts"
         ],
         "repositoryFiles": [
           "ADMIN_VERIFICATION_AUDIT_UI_CHECKPOINT.md",
@@ -293,6 +301,15 @@
         ],
         "sourceModules": [
           "src/domains/fiat-deposits/server/require-fiat-deposit-admission.ts",
+          "src/domains/fiat-deposits/ui/fiat-deposit-provider.ts",
+          "src/domains/fiat-deposits/ui/fiat-deposit-providers.ts",
+          "src/domains/fiat-deposits/ui/fiat-deposit-types.ts",
+          "src/domains/fiat-deposits/ui/FiatDepositForm.tsx",
+          "src/domains/fiat-deposits/ui/FiatDepositHistory.tsx",
+          "src/domains/fiat-deposits/ui/FiatDepositMethodList.tsx",
+          "src/domains/fiat-deposits/ui/providers/et/cbe-deposit-provider.tsx",
+          "src/domains/fiat-deposits/ui/providers/et/telebirr-deposit-provider.tsx",
+          "src/domains/fiat-deposits/ui/useFiatDeposit.ts",
           "src/lib/server/cbe-verify.ts",
           "src/lib/server/deposit-audit-logs.ts",
           "src/lib/server/deposit-verification-audit.ts",
@@ -330,8 +347,8 @@
         ],
         "tests": [
           "tests/deposit-approval-rpc-security.test.mjs",
-          "tests/deposit-route-compatibility.test.mjs",
-          "tests/fiat-deposit-global-pause-database.test.mjs"
+          "tests/fiat-deposit-global-pause-database.test.mjs",
+          "tests/fiat-deposit-ui.test.mjs"
         ]
       }
     },

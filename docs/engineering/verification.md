@@ -51,12 +51,19 @@ The test manifest deliberately excludes `scripts/test-referral-chain.mts`.
 That file is a destructive live diagnostic helper, not a repository
 verification test.
 
-`tests/deposit-route-compatibility.test.mjs` freezes the first Phase 2 route
-contract: `/deposit` remains the hub, `/deposit/crypto/usdt/bep20` is a
-non-nested child of the protected application layout, Back returns to the hub,
-and the thin route/client facade contain no server-only or sensitive URL state.
-It also pins the canonical domain UI paths and both temporary legacy import
-bridges so a mechanical extraction cannot silently break existing consumers.
+`tests/deposit-route-compatibility.test.mjs` freezes the deposit composition
+contract: `/deposit` remains a thin hub through the shared deposits facade,
+`/deposit/crypto/usdt/bep20` is a non-nested child of the protected application
+layout, Back returns to the hub, and shared composition consumes rail public
+surfaces without server-only or sensitive URL state. It also pins the canonical
+crypto domain UI paths, both temporary legacy crypto import bridges, and the
+intentional absence of fiat country/provider routes until authorization exists.
+
+`tests/fiat-deposit-ui.test.mjs` freezes the behavior-preserving Ethiopia fiat
+UI extraction: CBE and TeleBirr retain their exact reference-prefix contracts,
+provider copy, ordering, server-function boundaries, validation, submission,
+and history behavior while remaining client-safe and independent of crypto
+navigation.
 
 The complexity check covers extracted domain layers as well as legacy
 technical folders. Domain UI TSX files and hooks retain the 300-line warning;
@@ -174,7 +181,7 @@ Netlify Database inventory.
 The boundary and complexity checks start from observed legacy debt:
 
 - 27 existing TanStack server-bridge imports; and
-- 36 current file-size warnings.
+- 35 current file-size warnings.
 
 Those findings are report-only at their recorded values. New boundary leaks,
 new warning files, or growth in an existing warning fail verification. This

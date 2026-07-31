@@ -9,16 +9,32 @@ async function readRepositoryFile(path) {
 }
 
 test("deposit hub keeps fiat behavior and links crypto to the canonical route", async () => {
-  const source = await readRepositoryFile("src/routes/_app/deposit.tsx");
+  const [route, publicSurface, hub, fiatSurface, routeTree] = await Promise.all([
+    readRepositoryFile("src/routes/_app/deposit.tsx"),
+    readRepositoryFile("src/domains/deposits/public.ts"),
+    readRepositoryFile("src/domains/deposits/ui/DepositHub.tsx"),
+    readRepositoryFile("src/domains/fiat-deposits/public.ts"),
+    readRepositoryFile("src/routeTree.gen.ts"),
+  ]);
 
-  assert.match(source, /createFileRoute\("\/_app\/deposit"\)/);
-  assert.match(source, /METHOD_META[\s\S]*cbe:/);
-  assert.match(source, /METHOD_META[\s\S]*telebirr:/);
-  assert.match(source, /submitDepositFn/);
-  assert.match(source, /DepositHistory/);
-  assert.match(source, /Crypto Deposit/);
-  assert.match(source, /navigate\(\{ to: "\/deposit\/crypto\/usdt\/bep20" \}\)/);
-  assert.doesNotMatch(source, /setStep\("crypto"\)|step === "crypto"/);
+  assert.match(route, /createFileRoute\("\/_app\/deposit"\)/);
+  assert.match(route, /@\/domains\/deposits\/public\.js/);
+  assert.match(route, /component: DepositHub/);
+  assert.doesNotMatch(route, /lib\/server|fiat-deposits|crypto-deposits|useNavigate/);
+
+  assert.match(publicSurface, /\.\/ui\/DepositHub\.js/);
+  assert.doesNotMatch(publicSurface, /lib\/server|fiat-deposits|crypto-deposits/);
+  assert.match(hub, /@\/domains\/fiat-deposits\/public\.js/);
+  assert.match(hub, /@\/domains\/crypto-deposits\/public\.js/);
+  assert.match(hub, /FiatDepositMethodList/);
+  assert.match(hub, /FiatDepositForm/);
+  assert.match(hub, /FiatDepositHistory/);
+  assert.match(hub, /Crypto Deposit/);
+  assert.match(hub, /navigate\(\{ to: "\/deposit\/crypto\/usdt\/bep20" \}\)/);
+  assert.doesNotMatch(hub, /submitDepositFn|getPaymentMethodsFn|getUserDepositsFn/);
+  assert.doesNotMatch(fiatSurface, /crypto-deposits|\/deposit\/crypto/);
+  assert.doesNotMatch(`${route}\n${hub}`, /setStep\("crypto"\)|step === "crypto"/);
+  assert.doesNotMatch(routeTree, /\/deposit\/fiat\/(?:et\/)?(?:cbe|telebirr)/);
 });
 
 test("canonical USDT-BEP20 route is thin, authenticated, and returns to the hub", async () => {

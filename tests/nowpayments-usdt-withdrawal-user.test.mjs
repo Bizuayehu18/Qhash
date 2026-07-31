@@ -794,6 +794,7 @@ test("source boundaries contain no provider, signing, payout, client database, o
     etbWithdrawalServer,
     withdrawRoute,
     depositRoute,
+    depositHub,
     typecheck,
   ] =
     await Promise.all([
@@ -812,6 +813,7 @@ test("source boundaries contain no provider, signing, payout, client database, o
       readFile(new URL("src/lib/server/withdrawals.ts", root), "utf8"),
       readFile(new URL("src/routes/_app/withdraw.tsx", root), "utf8"),
       readFile(new URL("src/routes/_app/deposit.tsx", root), "utf8"),
+      readFile(new URL("src/domains/deposits/ui/DepositHub.tsx", root), "utf8"),
       readFile(new URL("tsconfig.netlify.json", root), "utf8"),
     ]);
   const serverSource = `${overviewSource}\n${requestSource}`;
@@ -851,6 +853,7 @@ test("source boundaries contain no provider, signing, payout, client database, o
   assert.match(withdrawRoute, /CBE Withdrawal/);
   assert.match(withdrawRoute, /TeleBirr Withdrawal/);
   assert.match(withdrawRoute, /\/withdraw\/crypto\/usdt\/bep20/);
-  assert.match(depositRoute, /\/deposit\/crypto\/usdt\/bep20/);
+  assert.match(depositRoute, /@\/domains\/deposits\/public\.js/);
+  assert.match(depositHub, /\/deposit\/crypto\/usdt\/bep20/);
   assert.match(typecheck, /(?=[\s\S]*netlify\/functions\/\*\*\/\*)(?=[\s\S]*"allowJs": true)(?=[\s\S]*"checkJs": true)/);
 });

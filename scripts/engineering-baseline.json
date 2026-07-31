@@ -102,7 +102,6 @@
       "src/routes/_app/admin-earnings.tsx": 229,
       "src/routes/_app/admin.tsx": 2058,
       "src/routes/_app/dashboard.tsx": 580,
-      "src/routes/_app/deposit.tsx": 818,
       "src/routes/_app/notifications.tsx": 248,
       "src/routes/_app/plans.tsx": 482,
       "src/routes/_app/profile/security/fund-password.tsx": 295,

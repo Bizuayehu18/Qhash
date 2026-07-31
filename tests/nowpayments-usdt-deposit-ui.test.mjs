@@ -1600,15 +1600,6 @@ test("UI is backend-gated, duplicate-click guarded, local-QR-only, responsive, a
   assert.match(uiHistorySource, /USDT Deposit History/);
 });
 
-test("CBE and TeleBirr deposit paths remain present and crypto is a parallel option", () => {
-  assert.match(depositRouteSource, /METHOD_META[\s\S]*cbe:/);
-  assert.match(depositRouteSource, /METHOD_META[\s\S]*telebirr:/);
-  assert.match(depositRouteSource, /submitDepositFn/);
-  assert.match(depositRouteSource, /Crypto Deposit/);
-  assert.match(depositRouteSource, /\/deposit\/crypto\/usdt\/bep20/);
-  assert.match(netlifyTypecheck, /(?=[\s\S]*netlify\/functions\/\*\*\/\*)(?=[\s\S]*"allowJs": true)(?=[\s\S]*"checkJs": true)/);
-});
-
 test("overview source keeps production and authentication gates before database reads", () => {
   assert.doesNotMatch(overviewSource, /Netlify\.env\.get\(["']CONTEXT["']\)/);
   assert.match(overviewSource, /import type \{ Config, Context \} from "@netlify\/functions"/);
