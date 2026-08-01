@@ -109,11 +109,13 @@ remain deferred until the same server-authoritative country-rail boundary is
 available.
 
 The accounts facade at `src/domains/accounts/public.ts` now owns the dashboard
-remote-state composition. Complete dashboard snapshots, wallet cache entries,
-in-flight requests, retries, and direct balance updates are bound to the exact
-authenticated user and access-token generation. This prevents a previous or
-late session from supplying financial presentation to a replacement session;
-it does not change any server or accounting behavior.
+remote-state composition. Complete dashboard snapshots and retries are bound
+to the exact authenticated user and access-token generation. Shared wallet
+cache entries, in-flight requests, polling, and direct balance updates are
+bound to the active user ID, and late cross-user results are rejected. This
+prevents a previous user from supplying wallet presentation to a replacement
+user and prevents a previous authentication generation from supplying a
+dashboard snapshot; it does not change any server or accounting behavior.
 
 The canonical crypto routes are non-nested TanStack routes beneath the
 protected `_app` layout. They import the client-safe

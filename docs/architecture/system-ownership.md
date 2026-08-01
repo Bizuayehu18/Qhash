@@ -108,9 +108,11 @@ boundary.
 
 The `accounts` public facade owns the browser dashboard remote-state hook. Its
 application bridge is the only dashboard-domain dependency on legacy server
-functions, and its state plus the shared wallet cache are keyed to the exact
-authenticated user/token generation. Routes and other consumers cannot render
-a balance or dashboard snapshot owned by a previous session.
+functions. Dashboard snapshots and retries are keyed to the exact
+authenticated user/token generation, while the shared wallet cache, in-flight
+work, polling, and writes are keyed to the active user ID. Routes and other
+consumers cannot render a balance owned by a previous user or a dashboard
+snapshot owned by a previous authentication generation.
 
 ## Supabase contract
 
