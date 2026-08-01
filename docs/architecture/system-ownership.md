@@ -155,6 +155,17 @@ generation. The existing referral graph, username-based links, legacy ETB
 presentation, reward percentages, posting functions, scheduled earnings, and
 database assets remain at their current boundaries.
 
+The Notifications public surface owns the `/notifications` page and the
+application shell's unread-count hook. One Notifications application bridge is
+the sole browser dependency on the existing notification list, unread-count,
+and mark-read server functions. Page snapshots, retries, timers, mark-all
+effects, notices, and badge results are scoped to the exact authenticated user
+and access-token generation. The existing server module remains responsible
+for deriving the caller identity from that token. Notification producer writes
+remain owned by the deposit, withdrawal, earning, and referral workflows that
+emit them; consuming a notification does not transfer ownership of the
+underlying financial transition.
+
 ## Supabase contract
 
 Generated table and Data API function inventories come from

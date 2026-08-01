@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository base `3b89c0a74bcdf44d4cbd210e00c8c49784d4499c`, plus this behavior-preserving public Support redirect extraction
+**Scope:** Runtime baseline through repository base `aa737e2d499dbca7b5c56c538615ead1fa5546b4`, plus this Notifications UI extraction and browser authentication-generation correction
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -58,8 +58,8 @@ The repository is organized mainly by technical layer, with several business dom
 
 | Area | Current role | Observed concentration |
 |---|---|---|
-| `src/routes` | TanStack route entry points and substantial page logic | 7 route files remain over the 150-nonblank-line warning; `deposit.tsx`, `withdraw.tsx`, `plans.tsx`, `referrals.tsx`, and `transactions.tsx` are now thin composition entries while `admin.tsx` remains concentrated |
-| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Account transaction history, deposit, withdrawal, plans, referrals, Support redirect/navigation, crypto-rail, and Ethiopia fiat-rail UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
+| `src/routes` | TanStack route entry points and substantial page logic | 6 route files remain over the 150-nonblank-line warning; `deposit.tsx`, `withdraw.tsx`, `plans.tsx`, `referrals.tsx`, `transactions.tsx`, and `notifications.tsx` are now thin composition entries while `admin.tsx` remains concentrated |
+| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Account transaction history, deposit, withdrawal, plans, referrals, Notifications, Support redirect/navigation, crypto-rail, and Ethiopia fiat-rail UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
 | `src/components` | Shared UI plus extracted crypto compatibility bridges | Only the administrator NOWPayments withdrawal component remains over the 300-nonblank-line warning after the user deposit and withdrawal UI decompositions |
 | `src/lib/server` | TanStack server functions for many domains in one flat folder | Large deposit, verification, withdrawal, earning, security, and admin modules |
 | `netlify/functions` | provider-facing, scheduled, verification, and admin Functions | NOWPayments handlers are partly decomposed through `netlify/functions/lib` |
@@ -172,6 +172,21 @@ session. This extraction preserves the existing username-based referral link,
 retry, server queries, reward accounting, and legacy ETB behavior. Immutable
 account and referral codes remain part of the later international identity
 cutover, not this mechanical slice.
+
+`/notifications` is now a thin route through
+`src/domains/notifications/public.ts`. The Notifications domain owns list
+presentation, type and legacy-withdrawal copy normalization, page remote-state
+coordination, and the application shell's unread-count hook. One application
+bridge is the sole browser dependency on the existing notification list,
+unread-count, and mark-read server functions. Page snapshots, retries,
+mark-all effects, notices, and badge polling are bound to the exact
+authenticated user and access-token generation, so unresolved work from one
+session cannot publish into another. The route URL, visible copy and icons,
+30-row server query, ten-second timeout, two 1.5-second retries,
+visible/online refresh, immediate plus 60-second badge polling, and existing
+server-derived caller identity remain unchanged. Notification storage and
+producer writes remain at their existing financial and referral boundaries;
+this extraction does not consolidate producers or alter authoritative state.
 
 The canonical crypto routes are non-nested TanStack routes beneath the
 protected `_app` layout. They import the client-safe
@@ -298,10 +313,10 @@ At the pinned revision:
 2. The legacy ETB and provider-named USDT accounting models are not a provider-neutral international ledger.
 3. Authentication, public identity, country, and referral identity are coupled to username and Ethiopian phone assumptions.
 4. Two database systems exist, while their ownership boundary is not prominent in the main documentation.
-5. Twenty-six existing route/component-to-server bridge imports remain as
+5. Twenty-five existing route/component-to-server bridge imports remain as
    frozen legacy coupling; Phase 1 blocks growth but does not misclassify them
    as a completed domain architecture.
-6. Thirty existing file-size warnings identify decomposition debt; they
+6. Twenty-nine existing file-size warnings identify decomposition debt; they
    remain report-only at or below the recorded baseline.
 7. The compatibility Supabase type surface lacks three live tables and seven
    live functions, although the authoritative generated snapshot and

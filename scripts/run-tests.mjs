@@ -80,6 +80,8 @@ const allTests = [
   "nowpayments-usdt-manual-withdrawal-database.test.mjs",
   "nowpayments-usdt-withdrawal-admin.test.mjs",
   "nowpayments-usdt-withdrawal-user.test.mjs",
+  "notifications-route-compatibility.test.mjs",
+  "notifications-ui.test.mjs",
   "plans-route-compatibility.test.mjs",
   "plans-ui.test.mjs",
   "referrals-route-compatibility.test.mjs",

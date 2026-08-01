@@ -141,6 +141,18 @@ Telegram `window.location.replace`, unavailable copy, error handling, and
 unmount guard while preventing the route from regaining a direct server import
 or silently adopting the dashboard's polling and fallback behavior.
 
+`tests/notifications-route-compatibility.test.mjs` freezes `/notifications` as
+a thin route through the client-safe Notifications public surface, confines
+browser list/count/mark-read server imports to one application bridge, and
+requires the application shell to consume the public unread-count hook while
+retaining `/notifications` navigation, zero hiding, and the `9+` badge cap.
+`tests/notifications-ui.test.mjs` freezes notification type/icon/copy
+presentation, loading and empty states, the 30-row server contract,
+ten-second timeout, 1.5-second retry policy, visible/online refresh,
+60-second badge polling, and mark-all interaction. Deferred-request fixtures
+prove late list, retry, finalizer, mark-all, toast, and badge effects cannot
+cross a user or access-token generation.
+
 ## Native PostgreSQL safety
 
 Native tests require `TEST_DATABASE_URL`. The runner refuses the URL unless:
@@ -240,8 +252,8 @@ Netlify Database inventory.
 
 The boundary and complexity checks start from observed legacy debt:
 
-- 26 existing TanStack server-bridge imports; and
-- 30 current file-size warnings.
+- 25 existing TanStack server-bridge imports; and
+- 29 current file-size warnings.
 
 Those findings are report-only at their recorded values. New boundary leaks,
 new warning files, or growth in an existing warning fail verification. This

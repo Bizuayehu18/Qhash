@@ -1,6 +1,6 @@
 {
   "boundaries": {
-    "serverBridgeImports": 26
+    "serverBridgeImports": 25
   },
   "ownership": {
     "knownLiveOnlyResources": [
@@ -101,7 +101,6 @@
       "src/lib/server/withdrawals.ts": 757,
       "src/routes/_app/admin-earnings.tsx": 229,
       "src/routes/_app/admin.tsx": 2058,
-      "src/routes/_app/notifications.tsx": 248,
       "src/routes/_app/profile/security/fund-password.tsx": 295,
       "src/routes/_app/profile/security.tsx": 157,
       "src/routes/_app/profile.tsx": 216,

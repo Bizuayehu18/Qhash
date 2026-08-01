@@ -16,7 +16,7 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 | Phase 1 — Deterministic engineering baseline | Complete |
 | Phase 2 — Compatibility scaffolding | In progress: client-safe route/facade slices and cross-system ownership enforcement implemented; server-only entry points remain |
 | Phase 3 — Extract shared primitives | Not started |
-| Phase 4 — Extract domains one at a time | In progress: accounts transaction history/dashboard, public Support redirect, crypto-deposit, ordinary-user USDT-withdrawal, Ethiopia fiat-deposit, Ethiopia fiat-withdrawal, legacy ETB plans, and referrals UI decompositions implemented |
+| Phase 4 — Extract domains one at a time | In progress: accounts transaction history/dashboard, public Support redirect, Notifications, crypto-deposit, ordinary-user USDT-withdrawal, Ethiopia fiat-deposit, Ethiopia fiat-withdrawal, legacy ETB plans, and referrals UI decompositions implemented |
 | Phase 5 and later | Not started |
 
 ## Invariants throughout the roadmap
@@ -375,6 +375,26 @@ Public Support redirect extraction slice:
   introducing a new complexity warning; and
 - changes no support setting, server function, schema, migration, Supabase or
   Netlify data, authentication, route URL, visible copy, or financial behavior.
+
+Notifications UI extraction slice:
+
+- makes `/notifications` a thin route through
+  `src/domains/notifications/public.ts` and moves list presentation,
+  normalization, page coordination, and the application-shell unread hook into
+  Notifications-owned domain, application, and UI modules;
+- confines all browser list/count/mark-read server imports to one application
+  bridge and binds snapshots, retries, finalizers, mark-all effects and notices,
+  and badge polling to the exact authenticated user/access-token generation;
+- preserves the route, copy, icons, query order and 30-row limit, loading and
+  empty states, timeout/retry behavior, visible/online refresh, badge polling,
+  silent badge failures, and mark-all interaction;
+- ratchets the frozen TanStack server-bridge baseline from 26 to 25 and removes
+  the resolved Notifications route warning without adding a new complexity
+  warning; and
+- changes no schema, migration, notification producer, server function,
+  Supabase or Netlify data, route URL, financial state, or international
+  behavior. Producer consolidation and mark-read server hardening remain
+  separately reviewed work.
 
 ## Phase 5 — Decompose administration
 

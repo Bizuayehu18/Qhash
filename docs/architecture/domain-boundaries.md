@@ -1,7 +1,7 @@
 # QHash domain boundaries
 
 **Status:** Current boundary map with target recommendations
-**Scope:** Repository base `3b89c0a74bcdf44d4cbd210e00c8c49784d4499c` plus this behavior-preserving public Support redirect extraction
+**Scope:** Repository base `aa737e2d499dbca7b5c56c538615ead1fa5546b4` plus this Notifications UI extraction and browser authentication-generation correction
 **Purpose:** Define ownership before files are moved. Current facts and target recommendations are intentionally separated.
 
 The exact current assignment of repository, Netlify, Supabase, test, and
@@ -32,7 +32,7 @@ See also:
 | Earnings | dashboard/admin-earnings and scheduled Functions | earning logs, investments, ETB wallet/transactions | processing and administrator presentation remain in legacy modules |
 | Referrals | `/referrals`, `src/domains/referrals/public.ts`, referral UI/application/domain modules, existing referral server functions | referrals, reward logs, investments, profiles, ETB transactions | browser reads are authentication-generation scoped; current visible identity and referral lookup still use username |
 | Administration | `/admin`, `/admin-earnings` | profile role plus domain data | UI is concentrated; authorization must remain inside each server action |
-| Notifications | notification route and server module | Supabase `notifications` | financial notifications are secondary to authoritative ledger/state transitions |
+| Notifications | `/notifications`, `src/domains/notifications/public.ts`, notification UI/application/domain modules, application-shell unread badge, and the existing notification server module | Supabase `notifications` | browser read/count/mark effects are exact-auth-generation scoped; notification records remain secondary to authoritative financial and referral state transitions |
 | Support and settings | `/support`, `src/domains/support/public.ts`, Support UI/application modules, and admin settings | Supabase `app_settings` | the public redirect and dashboard navigation consume one client-safe facade and application bridge; current visible support is Telegram |
 | Legacy support tickets | no active visible product flow | separate Netlify Database through Drizzle | quarantined until authentication and database ownership are redesigned |
 | Deployment and schema | build scripts and migrations | Git, Netlify, Supabase migration ledger | operational boundary, not a product domain |
@@ -164,6 +164,25 @@ queries, active-plan detection, the 21:00 UTC reward-day window, username-based
 links, reward posting, reward percentages, and legacy ETB presentation retain
 their current behavior. Public account codes, random referral codes, USDT
 rewards, and international identity migration remain later phases.
+
+### Notifications
+
+The `/notifications` route and the application shell consume only the
+client-safe Notifications public surface. One Notifications application bridge
+owns the browser dependency on the existing list, unread-count, and mark-read
+server functions. List snapshots, retry timers, mark-all effects and notices,
+and unread badge results require the exact authenticated user and access-token
+generation. A replacement session can start its own request while older work
+is unresolved, and late work cannot publish data, retry, clear busy state, or
+show a notice in the replacement session.
+
+The server continues to derive the caller from the supplied Supabase access
+token; browser code never supplies the notification query or update user ID.
+The existing 30-row newest-first list, silent unread-count failure behavior,
+and optional ID-specific server update path remain unchanged. Notification
+producer writes stay owned by their financial, deposit, withdrawal, earning,
+and referral workflows. A notification is presentation and audit context, not
+authority for a balance or financial state transition.
 
 ### Deposit rails
 

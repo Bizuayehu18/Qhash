@@ -508,10 +508,20 @@
       "kind": "product",
       "description": "Owns user notification storage, rendering, and lifecycle.",
       "assets": {
+        "publicSurfaces": [
+          "src/domains/notifications/public.ts"
+        ],
         "routes": [
           "src/routes/_app/notifications.tsx"
         ],
         "sourceModules": [
+          "src/domains/notifications/application/notifications-auth-lifecycle.ts",
+          "src/domains/notifications/application/notifications-browser-service.ts",
+          "src/domains/notifications/domain/notification-presentation.ts",
+          "src/domains/notifications/ui/NotificationList.tsx",
+          "src/domains/notifications/ui/NotificationsPage.tsx",
+          "src/domains/notifications/ui/useNotifications.ts",
+          "src/domains/notifications/ui/useUnreadNotificationCount.ts",
           "src/lib/server/notifications.ts"
         ],
         "supabaseMigrations": [
@@ -519,6 +529,10 @@
         ],
         "supabaseTables": [
           "public.notifications"
+        ],
+        "tests": [
+          "tests/notifications-route-compatibility.test.mjs",
+          "tests/notifications-ui.test.mjs"
         ]
       }
     },
