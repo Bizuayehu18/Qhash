@@ -4,9 +4,7 @@ import {
   Home, Layers, ArrowDownCircle, Users, User,
   Hash, Bell, Wallet, Power,
 } from 'lucide-react'
-import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase.js'
-import { getUnreadCountFn } from '@/lib/server/notifications.js'
+import { useUnreadNotificationCount } from '@/domains/notifications/public.js'
 import { getDisplayInitial, getDisplayUsername } from '@/lib/profileDisplay.js'
 
 interface BottomTab {
@@ -57,27 +55,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const { profile, user } = useAuthStore()
   const location = useRouterState({ select: (s) => s.location })
   const navigate = useNavigate()
-  const [unreadCount, setUnreadCount] = useState(0)
+  const unreadCount = useUnreadNotificationCount()
   const displayUsername = getDisplayUsername(profile, user)
   const displayInitial = getDisplayInitial(profile, user)
-
-  useEffect(() => {
-    if (!user?.id) return
-    const fetchCount = async () => {
-      const { data: sessionData } = await supabase.auth.getSession()
-      const accessToken = sessionData?.session?.access_token
-      if (!accessToken) {
-        setUnreadCount(0)
-        return
-      }
-      getUnreadCountFn({ data: { accessToken } })
-        .then(({ count }) => setUnreadCount(count))
-        .catch(() => {})
-    }
-    fetchCount()
-    const interval = setInterval(fetchCount, 60_000)
-    return () => clearInterval(interval)
-  }, [user?.id])
 
   const isActive = (to: string) => {
     if (to === '/dashboard') return location.pathname === '/dashboard' || location.pathname === '/'
