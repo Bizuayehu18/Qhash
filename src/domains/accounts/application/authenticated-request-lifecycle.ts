@@ -46,3 +46,77 @@ export function createLatestAuthenticatedRequestGuard() {
     },
   };
 }
+
+export type AuthenticatedScopedRequestKey<Scope extends string> = Readonly<{
+  identity: AuthenticatedRequestIdentity;
+  scope: Scope;
+}>;
+
+export function createAuthenticatedScopedRequestKey<Scope extends string>(
+  userId: string | null | undefined,
+  accessToken: string | null | undefined,
+  scope: Scope,
+): AuthenticatedScopedRequestKey<Scope> | null {
+  const identity = createAuthenticatedRequestIdentity(userId, accessToken);
+  return identity ? { identity, scope } : null;
+}
+
+export function isSameAuthenticatedScopedRequestKey<Scope extends string>(
+  current: AuthenticatedScopedRequestKey<Scope> | null,
+  expected: AuthenticatedScopedRequestKey<Scope> | null,
+): boolean {
+  return current !== null
+    && expected !== null
+    && current.scope === expected.scope
+    && isSameAuthenticatedRequestIdentity(current.identity, expected.identity);
+}
+
+export function createLatestAuthenticatedScopedRequestGuard<Scope extends string>() {
+  let generation = 0;
+  let active: {
+    generation: number;
+    key: AuthenticatedScopedRequestKey<Scope>;
+  } | null = null;
+
+  return {
+    begin(key: AuthenticatedScopedRequestKey<Scope>) {
+      generation += 1;
+      const requestGeneration = generation;
+      active = { generation: requestGeneration, key };
+      return {
+        isCurrent: (currentKey: AuthenticatedScopedRequestKey<Scope> | null) => (
+          active?.generation === requestGeneration
+          && isSameAuthenticatedScopedRequestKey(active.key, key)
+          && isSameAuthenticatedScopedRequestKey(currentKey, key)
+        ),
+      };
+    },
+    invalidate() {
+      generation += 1;
+      active = null;
+    },
+  };
+}
+
+export function createRequestRetryPolicy(maxRetries: number) {
+  let retryCount = 0;
+
+  return {
+    admitLoad(options: {
+      coalescesWithActiveFlight: boolean;
+      resetRetryCount: boolean;
+    }) {
+      if (options.coalescesWithActiveFlight) return false;
+      if (options.resetRetryCount) retryCount = 0;
+      return true;
+    },
+    reserveRetry() {
+      if (retryCount >= maxRetries) return false;
+      retryCount += 1;
+      return true;
+    },
+    reset() {
+      retryCount = 0;
+    },
+  };
+}

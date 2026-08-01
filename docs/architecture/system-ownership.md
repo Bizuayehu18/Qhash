@@ -114,6 +114,15 @@ work, polling, and writes are keyed to the active user ID. Routes and other
 consumers cannot render a balance owned by a previous user or a dashboard
 snapshot owned by a previous authentication generation.
 
+The transactions route also consumes only the accounts public facade. One
+accounts application bridge owns the browser dependency on the existing
+read-only transaction server function; filter policy, list presentation, and
+remote-state coordination are accounts-owned. Snapshot visibility, retries,
+timers, and request finalizers require the exact authenticated user,
+access-token generation, and selected filter. The existing server query,
+legacy ETB presentation, shared transaction helpers, wallet and ledger
+boundaries, and accounting behavior remain unchanged.
+
 The `plans` public facade owns the browser catalog and purchase experience. Its
 application bridge is the sole plans-browser dependency on the legacy plan and
 investment server functions. Plan cards, details, formatting, eligibility, and

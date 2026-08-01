@@ -119,6 +119,15 @@ replacement session can load while the older request remains unresolved and
 that late success or failure cannot expose the previous account's team or
 schedule a retry.
 
+`tests/transactions-route-compatibility.test.mjs` freezes `/transactions` as a
+thin route through the accounts public surface and confines transaction server
+access to one accounts application bridge. `tests/transactions-ui.test.mjs`
+freezes the six filters, legacy ETB amount/sign presentation, status labels,
+shared transaction formatting, loading and empty states, timeout/retry policy,
+and visible/online refresh wiring. Deferred-request fixtures prove that late
+success, failure, retry, and finalizer effects cannot cross an authenticated
+user, access-token generation, or selected-filter boundary.
+
 `tests/wallet-auth-isolation.test.mjs` pins the shared wallet cache to one active
 authenticated user. It rejects fresh-cache reuse across users, stale in-flight
 commits and finalizers, unscoped balance writes, and consumer rendering of a
@@ -226,7 +235,7 @@ Netlify Database inventory.
 The boundary and complexity checks start from observed legacy debt:
 
 - 27 existing TanStack server-bridge imports; and
-- 32 current file-size warnings.
+- 31 current file-size warnings.
 
 Those findings are report-only at their recorded values. New boundary leaks,
 new warning files, or growth in an existing warning fail verification. This

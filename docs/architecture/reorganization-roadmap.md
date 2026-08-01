@@ -16,7 +16,7 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 | Phase 1 — Deterministic engineering baseline | Complete |
 | Phase 2 — Compatibility scaffolding | In progress: client-safe route/facade slices and cross-system ownership enforcement implemented; server-only entry points remain |
 | Phase 3 — Extract shared primitives | Not started |
-| Phase 4 — Extract domains one at a time | In progress: crypto-deposit, ordinary-user USDT-withdrawal, Ethiopia fiat-deposit, Ethiopia fiat-withdrawal, legacy ETB plans, and referrals UI decompositions implemented |
+| Phase 4 — Extract domains one at a time | In progress: accounts transaction history, crypto-deposit, ordinary-user USDT-withdrawal, Ethiopia fiat-deposit, Ethiopia fiat-withdrawal, legacy ETB plans, and referrals UI decompositions implemented |
 | Phase 5 and later | Not started |
 
 ## Invariants throughout the roadmap
@@ -326,6 +326,24 @@ First referrals UI extraction slice:
   new warning; and
 - changes no schema, migration, RPC, reward posting, earning, referral graph,
   plan, financial, or international identity behavior.
+
+First accounts transaction-history UI extraction slice:
+
+- makes `/transactions` a thin route through
+  `src/domains/accounts/public.ts`;
+- moves the six-filter contract, list and status presentation, and remote-state
+  coordination into accounts-owned domain, application, and UI modules;
+- confines the existing read-only transaction server-function import to one
+  application bridge and scopes snapshots, retries, timers, and request
+  finalizers to the exact authenticated user, access-token generation, and
+  selected filter;
+- preserves the 50-row server query, legacy ETB amount and sign presentation,
+  status labels, transaction titles and subtitles, date formatting, loading
+  and empty states, timeout, retry, and visible/online refresh behavior;
+- removes the resolved transactions-route complexity warning without raising a
+  new warning; and
+- changes no schema, migration, RPC, server query, wallet, ledger, accounting,
+  financial, or international-currency behavior.
 
 ## Phase 5 — Decompose administration
 

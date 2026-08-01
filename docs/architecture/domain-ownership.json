@@ -14,6 +14,12 @@
         "sourceModules": [
           "src/domains/accounts/application/authenticated-request-lifecycle.ts",
           "src/domains/accounts/application/dashboard-browser-service.ts",
+          "src/domains/accounts/application/transaction-history-browser-service.ts",
+          "src/domains/accounts/domain/transaction-history.ts",
+          "src/domains/accounts/ui/transactions/TransactionFilterTabs.tsx",
+          "src/domains/accounts/ui/transactions/TransactionHistoryList.tsx",
+          "src/domains/accounts/ui/transactions/TransactionsPage.tsx",
+          "src/domains/accounts/ui/transactions/useTransactionHistory.ts",
           "src/domains/accounts/ui/useDashboardRemoteState.ts",
           "src/hooks/useWalletSync.ts",
           "src/lib/server/dashboard.ts",
@@ -36,6 +42,8 @@
           "public.wallets"
         ],
         "tests": [
+          "tests/transactions-route-compatibility.test.mjs",
+          "tests/transactions-ui.test.mjs",
           "tests/wallet-auth-isolation.test.mjs"
         ],
         "documents": [
