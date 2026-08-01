@@ -108,14 +108,24 @@ cross-rail policy, and visual behavior. Fiat withdrawal country/provider URLs
 remain deferred until the same server-authoritative country-rail boundary is
 available.
 
-The accounts facade at `src/domains/accounts/public.ts` now owns the dashboard
-remote-state composition. Complete dashboard snapshots and retries are bound
-to the exact authenticated user and access-token generation. Shared wallet
-cache entries, in-flight requests, polling, and direct balance updates are
-bound to the active user ID, and late cross-user results are rejected. This
-prevents a previous user from supplying wallet presentation to a replacement
-user and prevents a previous authentication generation from supplying a
-dashboard snapshot; it does not change any server or accounting behavior.
+The `/dashboard` route is now a thin adapter over the client-safe accounts
+facade at `src/domains/accounts/public.ts`. Accounts-owned UI modules compose
+the account summary, plan progress, recent transactions, completed plans, and
+legacy two-decimal ETB presentation. Complete dashboard snapshots and retries
+remain bound to the exact authenticated user and access-token generation.
+Shared wallet cache entries, in-flight requests, polling, and direct balance
+updates remain bound to the active user ID, and late cross-user results are
+rejected. This prevents a previous user from supplying wallet presentation to
+a replacement user and prevents a previous authentication generation from
+supplying a dashboard snapshot; it changes no server or accounting behavior.
+
+Dashboard support navigation consumes only the client-safe support facade.
+One support application bridge owns the new dashboard dependency on the
+existing read-only support-settings server function. Preload, ten-second
+timeout, visibility/online refresh, Telegram navigation, and `/support`
+fallback behavior remain unchanged; stale or unmounted requests cannot publish
+a replacement destination. The public `/support` route remains a documented
+legacy direct bridge for a later support-specific extraction.
 
 `/transactions` is now a thin route through the same client-safe accounts
 facade. The accounts domain owns transaction filters, list presentation, and

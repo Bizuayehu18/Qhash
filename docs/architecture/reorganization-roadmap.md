@@ -345,6 +345,23 @@ First accounts transaction-history UI extraction slice:
 - changes no schema, migration, RPC, server query, wallet, ledger, accounting,
   financial, or international-currency behavior.
 
+Accounts dashboard UI extraction slice:
+
+- makes `/dashboard` a thin route through `src/domains/accounts/public.ts`;
+- moves account summary, plan progress, recent transactions, completed plans,
+  formatting, and composition into accounts-owned UI modules;
+- introduces a client-safe support facade and one support application bridge
+  for the dashboard's existing read-only support-settings dependency;
+- preserves the legacy two-decimal ETB balance and income presentation, plan
+  timing, five-transaction and three-completed-plan previews, links, copy,
+  loading and empty states, ten-second support timeout, Telegram destination,
+  `/support` fallback, and authenticated dashboard isolation;
+- removes the resolved dashboard-route complexity warning without raising a
+  new warning; and
+- changes no schema, migration, Netlify Function, RPC, server query, wallet,
+  ledger, plan, transaction, support setting, accounting, financial, or
+  international-currency behavior.
+
 ## Phase 5 — Decompose administration
 
 Replace the monolithic admin route/component with an admin shell that composes

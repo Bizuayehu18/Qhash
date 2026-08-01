@@ -99,10 +99,11 @@ test("dashboard requests and visible data stay inside one exact auth generation"
 });
 
 test("shared wallet store keys cache, in-flight work, and writes to the active user", async () => {
-  const [store, sync, dashboard, dashboardBridge, dashboardRemote, plans, profile, fiatRemoteState] = await Promise.all([
+  const [store, sync, dashboard, dashboardPage, dashboardBridge, dashboardRemote, plans, profile, fiatRemoteState] = await Promise.all([
     readRepositoryFile("src/store/walletStore.ts"),
     readRepositoryFile("src/hooks/useWalletSync.ts"),
     readRepositoryFile("src/routes/_app/dashboard.tsx"),
+    readRepositoryFile("src/domains/accounts/ui/dashboard/DashboardPage.tsx"),
     readRepositoryFile("src/domains/accounts/application/dashboard-browser-service.ts"),
     readRepositoryFile("src/domains/accounts/ui/useDashboardRemoteState.ts"),
     readRepositoryFile("src/domains/plans/ui/usePlansCatalog.ts"),
@@ -131,8 +132,9 @@ test("shared wallet store keys cache, in-flight work, and writes to the active u
   }
   assert.match(plans, /activeUserId === userId \? state\.balance : null/s);
   assert.match(dashboardRemote, /activeUserId === userId \? state\.balance : null/s);
-  assert.match(dashboard, /useDashboardRemoteState/);
-  assert.doesNotMatch(dashboard, /data\?\.wallet\.balance|walletBalance/);
+  assert.match(dashboard, /DashboardPage/);
+  assert.match(dashboardPage, /useDashboardRemoteState/);
+  assert.doesNotMatch(dashboardPage, /data\?\.wallet\.balance|walletBalance/);
   assert.match(dashboardBridge, /loadDashboardFn/);
   assert.match(dashboardBridge, /getPlansFn/);
   assert.doesNotMatch(dashboardRemote, /@\/lib\/server\//);

@@ -16,6 +16,11 @@
           "src/domains/accounts/application/dashboard-browser-service.ts",
           "src/domains/accounts/application/transaction-history-browser-service.ts",
           "src/domains/accounts/domain/transaction-history.ts",
+          "src/domains/accounts/ui/dashboard/dashboard-format.ts",
+          "src/domains/accounts/ui/dashboard/DashboardAccountSummary.tsx",
+          "src/domains/accounts/ui/dashboard/DashboardPage.tsx",
+          "src/domains/accounts/ui/dashboard/DashboardPlanSections.tsx",
+          "src/domains/accounts/ui/dashboard/DashboardRecentTransactions.tsx",
           "src/domains/accounts/ui/transactions/TransactionFilterTabs.tsx",
           "src/domains/accounts/ui/transactions/TransactionHistoryList.tsx",
           "src/domains/accounts/ui/transactions/TransactionsPage.tsx",
@@ -42,6 +47,8 @@
           "public.wallets"
         ],
         "tests": [
+          "tests/dashboard-route-compatibility.test.mjs",
+          "tests/dashboard-ui.test.mjs",
           "tests/transactions-route-compatibility.test.mjs",
           "tests/transactions-ui.test.mjs",
           "tests/wallet-auth-isolation.test.mjs"
@@ -725,10 +732,16 @@
       "kind": "product",
       "description": "Owns user support presentation and server-owned support configuration reads.",
       "assets": {
+        "publicSurfaces": [
+          "src/domains/support/public.ts"
+        ],
         "routes": [
           "src/routes/support.tsx"
         ],
         "sourceModules": [
+          "src/domains/support/application/support-destination-request-guard.ts",
+          "src/domains/support/application/support-settings-browser-service.ts",
+          "src/domains/support/ui/useSupportDestination.ts",
           "src/lib/server/support-settings.ts",
           "src/lib/server/support.ts"
         ]
