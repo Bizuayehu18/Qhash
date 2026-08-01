@@ -64,6 +64,8 @@ const allTests = [
   "deposit-admission-policy.test.mjs",
   "deposit-route-compatibility.test.mjs",
   "deposit-approval-rpc-security.test.mjs",
+  "dashboard-route-compatibility.test.mjs",
+  "dashboard-ui.test.mjs",
   "domain-ownership-registry.test.mjs",
   "fiat-deposit-global-pause-database.test.mjs",
   "fiat-deposit-ui.test.mjs",

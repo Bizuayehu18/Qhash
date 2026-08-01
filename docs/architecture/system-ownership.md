@@ -106,13 +106,19 @@ financial, database, and administrator boundaries remain owned by
 `withdrawals`; the extraction creates no new live fiat route or server trust
 boundary.
 
-The `accounts` public facade owns the browser dashboard remote-state hook. Its
-application bridge is the only dashboard-domain dependency on legacy server
-functions. Dashboard snapshots and retries are keyed to the exact
-authenticated user/token generation, while the shared wallet cache, in-flight
-work, polling, and writes are keyed to the active user ID. Routes and other
-consumers cannot render a balance owned by a previous user or a dashboard
-snapshot owned by a previous authentication generation.
+The `accounts` public facade owns the browser dashboard page and remote-state
+hook. Its application bridge is the only accounts-domain dashboard dependency
+on legacy server functions. Dashboard snapshots and retries are keyed to the
+exact authenticated user/token generation, while the shared wallet cache,
+in-flight work, polling, and writes are keyed to the active user ID. The thin
+route and other consumers cannot render a balance owned by a previous user or
+a dashboard snapshot owned by a previous authentication generation.
+
+Dashboard support navigation crosses domains only through the client-safe
+`support` public facade. One support application bridge owns the new dashboard
+dependency on the existing read-only settings server function. The public
+support redirect route remains a legacy support-owned direct bridge until a
+separate support-route extraction.
 
 The transactions route also consumes only the accounts public facade. One
 accounts application bridge owns the browser dependency on the existing

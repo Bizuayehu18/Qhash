@@ -87,6 +87,15 @@ shared code must not import a business domain
 
 ### Accounts
 
+The `/dashboard` route composes only the client-safe accounts public surface.
+Accounts owns account-summary, plan-progress, recent-transaction, completed-plan,
+and legacy ETB presentation modules. Its existing application bridge remains
+the only dashboard dependency on the dashboard and plans server functions.
+The dashboard imports support only through the client-safe support public
+surface; Support owns the browser bridge to its existing read-only setting.
+No financial query, mutation, amount, route URL, or server behavior changes in
+this mechanical extraction.
+
 The `/transactions` route composes only the client-safe accounts public surface.
 One accounts application bridge owns the browser dependency on the existing
 read-only `getTransactionsFn`; filter policy, list presentation, status and
