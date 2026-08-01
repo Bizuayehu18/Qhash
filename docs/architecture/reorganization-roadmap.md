@@ -16,7 +16,7 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 | Phase 1 — Deterministic engineering baseline | Complete |
 | Phase 2 — Compatibility scaffolding | In progress: client-safe route/facade slices and cross-system ownership enforcement implemented; server-only entry points remain |
 | Phase 3 — Extract shared primitives | Not started |
-| Phase 4 — Extract domains one at a time | In progress: crypto-deposit, ordinary-user USDT-withdrawal, Ethiopia fiat-deposit, and Ethiopia fiat-withdrawal UI decompositions implemented |
+| Phase 4 — Extract domains one at a time | In progress: crypto-deposit, ordinary-user USDT-withdrawal, Ethiopia fiat-deposit, Ethiopia fiat-withdrawal, and legacy ETB plans UI decompositions implemented |
 | Phase 5 and later | Not started |
 
 ## Invariants throughout the roadmap
@@ -287,6 +287,27 @@ First fiat-withdrawal UI extraction slice:
 - deliberately defers `/withdraw/fiat/et/cbe` and
   `/withdraw/fiat/et/telebirr` until registered-country rail authorization is
   implemented and independently verified.
+
+First plans UI extraction slice:
+
+- makes `/plans` a thin route through `src/domains/plans/public.ts`;
+- moves catalog composition, plan cards, details, eligibility presentation,
+  formatting, and purchase state into plans-owned domain, application, and UI
+  modules;
+- confines legacy plan and investment server-function imports to one
+  application bridge and scopes catalog reads, purchase effects, and notices to
+  the exact authenticated user and access-token generation, while retaining one
+  unresolved purchase-command lock per user across token refreshes;
+- preserves plan ordering, legacy ETB amounts and formatting, durations, daily
+  and total returns, active-plan limits, referral requirements, wallet
+  presentation, timeout/retry behavior, the existing atomic purchase RPC, and
+  best-effort referral reward processing;
+- removes the resolved plans-route complexity warning without raising a new
+  warning; and
+- changes no schema, migration, RPC, accounting, plan, earning, referral, or
+  currency behavior. Purchase-command idempotency remains explicitly deferred
+  to a separately reviewed financial/server design before international
+  cutover.
 
 ## Phase 5 — Decompose administration
 

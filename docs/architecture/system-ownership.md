@@ -63,7 +63,7 @@ router, build configuration, and Netlify configuration.
 | `identity` | Registration, login, immutable profile identity, account security, and Fund PIN |
 | `legacy-netlify-database` | Quarantined Netlify Database history; never production Supabase authority |
 | `notifications` | User notification records and presentation |
-| `plans` | Plan catalog, investment purchase, and contract rules |
+| `plans` | Plan catalog presentation, eligibility, authentication-scoped purchase orchestration, investment records, and contract rules; financial execution remains server-owned |
 | `platform` | Repository governance, generated database contracts, migration runner, shared settings, and architecture docs |
 | `referrals` | Referral graph, reward posting, and reward audit |
 | `support` | User support presentation and server-owned support configuration |
@@ -113,6 +113,18 @@ authenticated user/token generation, while the shared wallet cache, in-flight
 work, polling, and writes are keyed to the active user ID. Routes and other
 consumers cannot render a balance owned by a previous user or a dashboard
 snapshot owned by a previous authentication generation.
+
+The `plans` public facade owns the browser catalog and purchase experience. Its
+application bridge is the sole plans-browser dependency on the legacy plan and
+investment server functions. Plan cards, details, formatting, eligibility, and
+remote-state coordination are plans-owned, and asynchronous catalog or purchase
+effects are scoped to the exact authenticated user/token generation. The
+unresolved purchase-command lock is keyed by user rather than token and remains
+active through a token refresh until the underlying command settles. The
+existing atomic purchase RPC, legacy ETB accounting, investment persistence,
+and best-effort referral reward call stay at their current server and domain
+boundaries. This extraction does not add purchase-command idempotency or move
+earnings and referrals into the plans domain.
 
 ## Supabase contract
 

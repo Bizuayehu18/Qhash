@@ -103,7 +103,6 @@
       "src/routes/_app/admin.tsx": 2058,
       "src/routes/_app/dashboard.tsx": 580,
       "src/routes/_app/notifications.tsx": 248,
-      "src/routes/_app/plans.tsx": 482,
       "src/routes/_app/profile/security/fund-password.tsx": 295,
       "src/routes/_app/profile/security.tsx": 157,
       "src/routes/_app/profile.tsx": 216,

@@ -105,7 +105,7 @@ test("shared wallet store keys cache, in-flight work, and writes to the active u
     readRepositoryFile("src/routes/_app/dashboard.tsx"),
     readRepositoryFile("src/domains/accounts/application/dashboard-browser-service.ts"),
     readRepositoryFile("src/domains/accounts/ui/useDashboardRemoteState.ts"),
-    readRepositoryFile("src/routes/_app/plans.tsx"),
+    readRepositoryFile("src/domains/plans/ui/usePlansCatalog.ts"),
     readRepositoryFile("src/routes/_app/profile.tsx"),
     readRepositoryFile(
       "src/domains/fiat-withdrawals/ui/useFiatWithdrawalRemoteState.ts",
@@ -115,16 +115,21 @@ test("shared wallet store keys cache, in-flight work, and writes to the active u
   assert.match(store, /activeUserId: string \| null/);
   assert.match(store, /_inFlightUserId: string \| null/);
   assert.match(store, /state\.activeUserId !== userId/);
-  assert.match(store, /state\._inFlight && state\._inFlightUserId === userId/);
+  assert.match(store, /options\?\.force/);
+  assert.match(store, /while \(true\)/);
+  assert.match(store, /await current\._inFlight/);
+  assert.match(store, /Promise<boolean>/);
+  assert.match(store, /current\._inFlight && current\._inFlightUserId === userId/);
   assert.match(store, /session\.user\.id !== userId/);
   assert.match(store, /setBalanceForUser: \(userId: string, balance: number\)/);
   assert.match(store, /walletRequestGuard\.invalidate\(\)/);
   assert.match(store, /if \(isCurrentRequest\(\)\)/);
   assert.match(sync, /startPolling\(user\.id\)/);
 
-  for (const consumer of [plans, profile, fiatRemoteState]) {
+  for (const consumer of [profile, fiatRemoteState]) {
     assert.match(consumer, /activeUserId === user\?\.id \? .*\.balance : null/s);
   }
+  assert.match(plans, /activeUserId === userId \? state\.balance : null/s);
   assert.match(dashboardRemote, /activeUserId === userId \? state\.balance : null/s);
   assert.match(dashboard, /useDashboardRemoteState/);
   assert.doesNotMatch(dashboard, /data\?\.wallet\.balance|walletBalance/);
@@ -136,5 +141,6 @@ test("shared wallet store keys cache, in-flight work, and writes to the active u
   assert.match(dashboardRemote, /setSnapshot\(null\)/);
   assert.match(dashboardRemote, /setWalletBalance\(identity\.userId/);
   assert.match(plans, /setBalanceForUser/);
+  assert.match(plans, /setWalletBalance\(identity\.userId, result\.newBalance\)/);
   assert.doesNotMatch(`${store}\n${dashboardRemote}\n${plans}`, /\bsetBalance\s*:/);
 });

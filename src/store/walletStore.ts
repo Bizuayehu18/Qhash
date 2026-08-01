@@ -18,10 +18,10 @@ interface WalletState {
   lastFetchedAt: number | null;
   _pollTimer: ReturnType<typeof setInterval> | null;
   _pollUserId: string | null;
-  _inFlight: Promise<void> | null;
+  _inFlight: Promise<boolean> | null;
   _inFlightUserId: string | null;
 
-  fetchWallet: (userId: string, options?: { force?: boolean }) => Promise<void>;
+  fetchWallet: (userId: string, options?: { force?: boolean }) => Promise<boolean>;
   setBalanceForUser: (userId: string, balance: number) => void;
   startPolling: (userId: string) => void;
   stopPolling: () => void;
@@ -53,18 +53,29 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   _inFlightUserId: null,
 
   fetchWallet: async (userId: string, options?: { force?: boolean }) => {
-    const state = get();
-    if (state.activeUserId !== userId) return;
-
-    if (!options?.force && isFresh(state.lastFetchedAt)) return;
-    if (state._inFlight && state._inFlightUserId === userId) {
-      return state._inFlight;
+    if (options?.force) {
+      while (true) {
+        const current = get();
+        if (current.activeUserId !== userId) return false;
+        if (!current._inFlight || current._inFlightUserId !== userId) break;
+        await current._inFlight;
+      }
+    } else {
+      const current = get();
+      if (current.activeUserId !== userId) return false;
+      if (isFresh(current.lastFetchedAt)) return true;
+      if (current._inFlight && current._inFlightUserId === userId) {
+        return current._inFlight;
+      }
     }
+
+    const state = get();
+    if (state.activeUserId !== userId) return false;
 
     const ticket = walletRequestGuard.begin(userId);
     const isCurrentRequest = () => ticket.isCurrent(get().activeUserId);
     const request = Promise.resolve().then(async () => {
-      if (!isCurrentRequest()) return;
+      if (!isCurrentRequest()) return false;
 
       try {
         const { data: sessionData } = await withTimeout(
@@ -72,7 +83,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
           WALLET_SESSION_TIMEOUT_MS,
           "Wallet session request timed out.",
         );
-        if (!isCurrentRequest()) return;
+        if (!isCurrentRequest()) return false;
 
         const session = sessionData?.session;
         const accessToken = session?.access_token;
@@ -86,7 +97,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
               lastFetchedAt: null,
             });
           }
-          return;
+          return false;
         }
 
         const { balance } = await withTimeout(
@@ -94,17 +105,19 @@ export const useWalletStore = create<WalletState>((set, get) => ({
           WALLET_BALANCE_TIMEOUT_MS,
           "Wallet balance request timed out.",
         );
-        if (!isCurrentRequest()) return;
+        if (!isCurrentRequest()) return false;
 
         set({ balance, loading: false, lastFetchedAt: Date.now(), error: null });
+        return true;
       } catch (err) {
-        if (!isCurrentRequest()) return;
+        if (!isCurrentRequest()) return false;
 
         const message = getSafeErrorMessage(err, "WALLET").message;
         if (/session|token|expired/i.test(message)) get().stopPolling();
 
         console.error("[QHash] Wallet fetch error:", err);
         set({ loading: false, error: message });
+        return false;
       } finally {
         if (isCurrentRequest()) {
           set({ _inFlight: null, _inFlightUserId: null, loading: false });
