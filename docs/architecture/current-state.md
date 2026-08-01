@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository base `2b202bfc7d17f3d880601680131bff23befe47a2`, plus this behavior-preserving dashboard UI and Support browser-boundary extraction
+**Scope:** Runtime baseline through repository base `3b89c0a74bcdf44d4cbd210e00c8c49784d4499c`, plus this behavior-preserving public Support redirect extraction
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -58,8 +58,8 @@ The repository is organized mainly by technical layer, with several business dom
 
 | Area | Current role | Observed concentration |
 |---|---|---|
-| `src/routes` | TanStack route entry points and substantial page logic | 8 route files remain over the 150-nonblank-line warning; `deposit.tsx`, `withdraw.tsx`, `plans.tsx`, `referrals.tsx`, and `transactions.tsx` are now thin composition entries while `admin.tsx` remains concentrated |
-| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Account transaction history, deposit, withdrawal, plans, referrals, crypto-rail, and Ethiopia fiat-rail UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
+| `src/routes` | TanStack route entry points and substantial page logic | 7 route files remain over the 150-nonblank-line warning; `deposit.tsx`, `withdraw.tsx`, `plans.tsx`, `referrals.tsx`, and `transactions.tsx` are now thin composition entries while `admin.tsx` remains concentrated |
+| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Account transaction history, deposit, withdrawal, plans, referrals, Support redirect/navigation, crypto-rail, and Ethiopia fiat-rail UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
 | `src/components` | Shared UI plus extracted crypto compatibility bridges | Only the administrator NOWPayments withdrawal component remains over the 300-nonblank-line warning after the user deposit and withdrawal UI decompositions |
 | `src/lib/server` | TanStack server functions for many domains in one flat folder | Large deposit, verification, withdrawal, earning, security, and admin modules |
 | `netlify/functions` | provider-facing, scheduled, verification, and admin Functions | NOWPayments handlers are partly decomposed through `netlify/functions/lib` |
@@ -120,13 +120,18 @@ a replacement user and prevents a previous authentication generation from
 supplying a dashboard snapshot; it changes no server or accounting behavior.
 
 Dashboard support navigation consumes only the client-safe support facade.
-One support application bridge owns the new dashboard dependency on the
-existing read-only support-settings server function. Preload, ten-second
-timeout, visibility/online refresh, Telegram navigation, and `/support`
-fallback behavior remain unchanged. Passive refreshes cannot supersede a
-pending user click, while stale or unmounted requests cannot publish or control
-navigation. The public `/support` route remains a documented
-legacy direct bridge for a later support-specific extraction.
+One support application bridge owns the extracted Dashboard and public
+`/support` dependencies on the existing read-only support-settings server
+function. Preload, ten-second timeout,
+visibility/online refresh, Telegram navigation, and `/support` fallback
+behavior remain unchanged. Passive refreshes cannot supersede a pending user
+click, while stale or unmounted requests cannot publish or control navigation.
+The public `/support` route is now a thin adapter over the same facade and its
+domain-owned redirect page. It preserves the one-shot Telegram
+`window.location.replace` behavior, unavailable state, error handling, and
+unmount guard without adopting the dashboard's polling or fallback behavior.
+The Profile and Admin routes remain documented legacy direct consumers for
+later identity/profile and administration extractions.
 
 `/transactions` is now a thin route through the same client-safe accounts
 facade. The accounts domain owns transaction filters, list presentation, and
@@ -293,10 +298,10 @@ At the pinned revision:
 2. The legacy ETB and provider-named USDT accounting models are not a provider-neutral international ledger.
 3. Authentication, public identity, country, and referral identity are coupled to username and Ethiopian phone assumptions.
 4. Two database systems exist, while their ownership boundary is not prominent in the main documentation.
-5. Twenty-seven existing route/component-to-server bridge imports remain as
+5. Twenty-six existing route/component-to-server bridge imports remain as
    frozen legacy coupling; Phase 1 blocks growth but does not misclassify them
    as a completed domain architecture.
-6. Thirty-one existing file-size warnings identify decomposition debt; they
+6. Thirty existing file-size warnings identify decomposition debt; they
    remain report-only at or below the recorded baseline.
 7. The compatibility Supabase type surface lacks three live tables and seven
    live functions, although the authoritative generated snapshot and

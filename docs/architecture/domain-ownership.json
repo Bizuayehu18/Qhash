@@ -741,9 +741,13 @@
         "sourceModules": [
           "src/domains/support/application/support-destination-request-guard.ts",
           "src/domains/support/application/support-settings-browser-service.ts",
+          "src/domains/support/ui/SupportRedirectPage.tsx",
           "src/domains/support/ui/useSupportDestination.ts",
           "src/lib/server/support-settings.ts",
           "src/lib/server/support.ts"
+        ],
+        "tests": [
+          "tests/support-route-compatibility.test.mjs"
         ]
       }
     },

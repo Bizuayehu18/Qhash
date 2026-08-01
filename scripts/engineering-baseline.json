@@ -1,6 +1,6 @@
 {
   "boundaries": {
-    "serverBridgeImports": 27
+    "serverBridgeImports": 26
   },
   "ownership": {
     "knownLiveOnlyResources": [
