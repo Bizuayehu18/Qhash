@@ -90,6 +90,24 @@ application bridge to remain client-safe and independent of crypto navigation.
 The same suite deterministically rejects late history, security, and submission
 effects after a user or access-token generation changes.
 
+`tests/plans-route-compatibility.test.mjs` freezes `/plans` as a thin route
+through the plans public surface, keeps the generated-route and deposit-link
+contracts intact, and rejects server logic in the route. `tests/plans-ui.test.mjs`
+freezes plan ordering, legacy ETB presentation, card and details copy,
+eligibility and active-limit behavior, timeout/retry and purchase state, the
+existing server-function bridge, and exact user/access-token-generation
+isolation for late catalog and purchase effects. They also prove that a
+same-user token refresh cannot start a second purchase while the first
+underlying command is unresolved. The shared
+`tests/wallet-auth-isolation.test.mjs` continues to own active-user wallet
+projection and additionally characterizes the plans controller's consumption
+of that scoped balance.
+
+These tests preserve the existing atomic `purchase_plan_tx` server boundary and
+best-effort referral reward behavior. They do not claim purchase-command
+idempotency; that guarantee remains deferred to a separate financial/server
+change before international cutover.
+
 `tests/wallet-auth-isolation.test.mjs` pins the shared wallet cache to one active
 authenticated user. It rejects fresh-cache reuse across users, stale in-flight
 commits and finalizers, unscoped balance writes, and consumer rendering of a

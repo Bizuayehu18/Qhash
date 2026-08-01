@@ -510,12 +510,26 @@
     {
       "id": "plans",
       "kind": "product",
-      "description": "Owns plan catalog, investment purchase, contract rules, and investment records.",
+      "description": "Owns plan catalog presentation, eligibility, authenticated purchase orchestration, contract rules, and investment records.",
       "assets": {
+        "publicSurfaces": [
+          "src/domains/plans/public.ts"
+        ],
         "routes": [
           "src/routes/_app/plans.tsx"
         ],
         "sourceModules": [
+          "src/domains/plans/application/plans-auth-lifecycle.ts",
+          "src/domains/plans/application/plans-browser-service.ts",
+          "src/domains/plans/domain/plan-catalog.ts",
+          "src/domains/plans/domain/plan-eligibility.ts",
+          "src/domains/plans/ui/plan-format.ts",
+          "src/domains/plans/ui/plan-icons.tsx",
+          "src/domains/plans/ui/PlanCard.tsx",
+          "src/domains/plans/ui/PlanDetailsDialog.tsx",
+          "src/domains/plans/ui/PlanEligibilityProgress.tsx",
+          "src/domains/plans/ui/PlansPage.tsx",
+          "src/domains/plans/ui/usePlansCatalog.ts",
           "src/lib/server/investments.ts",
           "src/lib/server/plans.ts"
         ],
@@ -530,6 +544,10 @@
         "supabaseTables": [
           "public.investments",
           "public.plans"
+        ],
+        "tests": [
+          "tests/plans-route-compatibility.test.mjs",
+          "tests/plans-ui.test.mjs"
         ]
       }
     },

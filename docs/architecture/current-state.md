@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository base `e4c339a3458a59bd6b9d7f06d1dad6e2fe4f477f`, plus this behavior-preserving Ethiopia fiat-withdrawal UI extraction and shared wallet/dashboard authentication-isolation hardening
+**Scope:** Runtime baseline through repository base `59c0a82b5a5ec1af58d82ee27c64e6df36fad535`, plus this behavior-preserving legacy ETB plans UI extraction and plans authentication-generation isolation
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -58,8 +58,8 @@ The repository is organized mainly by technical layer, with several business dom
 
 | Area | Current role | Observed concentration |
 |---|---|---|
-| `src/routes` | TanStack route entry points and substantial page logic | 11 route files remain over the 150-nonblank-line warning; `deposit.tsx` and `withdraw.tsx` are now thin composition entries while `admin.tsx` remains concentrated |
-| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Deposit, withdrawal, crypto-rail, and Ethiopia fiat-rail UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
+| `src/routes` | TanStack route entry points and substantial page logic | 10 route files remain over the 150-nonblank-line warning; `deposit.tsx`, `withdraw.tsx`, and `plans.tsx` are now thin composition entries while `admin.tsx` remains concentrated |
+| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Deposit, withdrawal, plans, crypto-rail, and Ethiopia fiat-rail UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
 | `src/components` | Shared UI plus extracted crypto compatibility bridges | Only the administrator NOWPayments withdrawal component remains over the 300-nonblank-line warning after the user deposit and withdrawal UI decompositions |
 | `src/lib/server` | TanStack server functions for many domains in one flat folder | Large deposit, verification, withdrawal, earning, security, and admin modules |
 | `netlify/functions` | provider-facing, scheduled, verification, and admin Functions | NOWPayments handlers are partly decomposed through `netlify/functions/lib` |
@@ -116,6 +116,21 @@ bound to the active user ID, and late cross-user results are rejected. This
 prevents a previous user from supplying wallet presentation to a replacement
 user and prevents a previous authentication generation from supplying a
 dashboard snapshot; it does not change any server or accounting behavior.
+
+`/plans` is now a thin route through `src/domains/plans/public.ts`. The plans
+domain owns the browser-facing catalog, plan cards, details dialog, eligibility
+presentation, formatting, and purchase orchestration. Its application bridge is
+the only plans-browser dependency on the existing plan and investment server
+functions. Catalog reads, purchase UI effects, and errors are bound to the
+exact authenticated user and access-token generation, so late work cannot
+populate or notify a replacement session. One unresolved purchase command
+remains locked per user across access-token refreshes until the underlying
+command settles. This extraction preserves the
+existing plan ordering, legacy ETB amounts, contract duration, daily and total
+returns, active-plan limits, referral requirements, wallet presentation,
+timeout/retry behavior, atomic purchase RPC, and best-effort referral reward
+call. Durable purchase-command idempotency is not added by this slice and remains a
+separate server/financial design requirement before international cutover.
 
 The canonical crypto routes are non-nested TanStack routes beneath the
 protected `_app` layout. They import the client-safe
