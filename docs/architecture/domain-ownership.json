@@ -660,10 +660,13 @@
     {
       "id": "referrals",
       "kind": "product",
-      "description": "Owns referral relationships, referral reward posting, and referral audit records.",
+      "description": "Owns referral relationships, authentication-scoped team presentation, referral reward posting, and referral audit records.",
       "assets": {
         "netlifySupportModules": [
           "netlify/functions/lib/process-mining-referral-rewards.mts"
+        ],
+        "publicSurfaces": [
+          "src/domains/referrals/public.ts"
         ],
         "repositoryFiles": [
           "REFERRAL_CHECKPOINT.md",
@@ -674,6 +677,15 @@
           "src/routes/_app/referrals.tsx"
         ],
         "sourceModules": [
+          "src/domains/referrals/application/referrals-auth-lifecycle.ts",
+          "src/domains/referrals/application/referrals-browser-service.ts",
+          "src/domains/referrals/domain/referral-team.ts",
+          "src/domains/referrals/ui/ReferralLinkCard.tsx",
+          "src/domains/referrals/ui/ReferralRewardsCard.tsx",
+          "src/domains/referrals/ui/ReferralsPage.tsx",
+          "src/domains/referrals/ui/ReferralStatsTiles.tsx",
+          "src/domains/referrals/ui/ReferralTeamCard.tsx",
+          "src/domains/referrals/ui/useReferralData.ts",
           "src/lib/server/referral-rewards.ts",
           "src/lib/server/referrals.ts"
         ],
@@ -693,6 +705,10 @@
         "supabaseTables": [
           "public.referral_reward_logs",
           "public.referrals"
+        ],
+        "tests": [
+          "tests/referrals-route-compatibility.test.mjs",
+          "tests/referrals-ui.test.mjs"
         ]
       }
     },

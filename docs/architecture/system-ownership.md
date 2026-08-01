@@ -65,7 +65,7 @@ router, build configuration, and Netlify configuration.
 | `notifications` | User notification records and presentation |
 | `plans` | Plan catalog presentation, eligibility, authentication-scoped purchase orchestration, investment records, and contract rules; financial execution remains server-owned |
 | `platform` | Repository governance, generated database contracts, migration runner, shared settings, and architecture docs |
-| `referrals` | Referral graph, reward posting, and reward audit |
+| `referrals` | Referral graph, authentication-scoped team presentation, reward posting, and reward audit |
 | `support` | User support presentation and server-owned support configuration |
 | `withdrawals` | Fiat and USDT requests, reservation, cross-rail policy, and manual administrator resolution |
 
@@ -125,6 +125,15 @@ existing atomic purchase RPC, legacy ETB accounting, investment persistence,
 and best-effort referral reward call stay at their current server and domain
 boundaries. This extraction does not add purchase-command idempotency or move
 earnings and referrals into the plans domain.
+
+The referrals route consumes only `src/domains/referrals/public.ts`. One
+referrals application bridge owns the browser dependency on the existing
+read-only team server function; filtering, link presentation, reward copy, and
+remote-state coordination are referrals-owned. Snapshot visibility, retries,
+timers, and request finalizers require the exact authenticated user/access-token
+generation. The existing referral graph, username-based links, legacy ETB
+presentation, reward percentages, posting functions, scheduled earnings, and
+database assets remain at their current boundaries.
 
 ## Supabase contract
 

@@ -16,7 +16,7 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 | Phase 1 — Deterministic engineering baseline | Complete |
 | Phase 2 — Compatibility scaffolding | In progress: client-safe route/facade slices and cross-system ownership enforcement implemented; server-only entry points remain |
 | Phase 3 — Extract shared primitives | Not started |
-| Phase 4 — Extract domains one at a time | In progress: crypto-deposit, ordinary-user USDT-withdrawal, Ethiopia fiat-deposit, Ethiopia fiat-withdrawal, and legacy ETB plans UI decompositions implemented |
+| Phase 4 — Extract domains one at a time | In progress: crypto-deposit, ordinary-user USDT-withdrawal, Ethiopia fiat-deposit, Ethiopia fiat-withdrawal, legacy ETB plans, and referrals UI decompositions implemented |
 | Phase 5 and later | Not started |
 
 ## Invariants throughout the roadmap
@@ -308,6 +308,24 @@ First plans UI extraction slice:
   currency behavior. Purchase-command idempotency remains explicitly deferred
   to a separately reviewed financial/server design before international
   cutover.
+
+First referrals UI extraction slice:
+
+- makes `/referrals` a thin route through
+  `src/domains/referrals/public.ts`;
+- moves team composition, referral-link presentation, stats, filtering, reward
+  copy, formatting, and remote-state coordination into referral-owned domain,
+  application, and UI modules;
+- confines the existing read-only referral server-function import to one
+  application bridge and scopes snapshots, retries, timers, and request
+  finalizers to the exact authenticated user and access-token generation;
+- preserves the username-based referral link, legacy ETB presentation,
+  5%/3%/2% reward copy, server queries, six-member preview, timeout/retry
+  behavior, reward history link, and current reward accounting;
+- removes the resolved referrals-route complexity warning without raising a
+  new warning; and
+- changes no schema, migration, RPC, reward posting, earning, referral graph,
+  plan, financial, or international identity behavior.
 
 ## Phase 5 — Decompose administration
 

@@ -1,7 +1,7 @@
 # QHash domain boundaries
 
 **Status:** Current boundary map with target recommendations
-**Scope:** Repository base `59c0a82b5a5ec1af58d82ee27c64e6df36fad535` plus this behavior-preserving legacy ETB plans UI extraction and plans authentication-generation isolation
+**Scope:** Repository base `97566b1333e5f406eb7be31eac8e26aa08331d90` plus this behavior-preserving legacy referral UI extraction and referrals authentication-generation isolation
 **Purpose:** Define ownership before files are moved. Current facts and target recommendations are intentionally separated.
 
 The exact current assignment of repository, Netlify, Supabase, test, and
@@ -29,7 +29,8 @@ See also:
 | Fiat withdrawals | `/withdraw`, `src/domains/fiat-withdrawals/public.ts`, `src/domains/fiat-withdrawals/ui`, `src/lib/server/withdrawals.ts` | Supabase `withdrawals`, ETB wallet/transactions | Ethiopia CBE/TeleBirr browser presentation and orchestration are domain-owned; the financial boundary, Fund PIN, and cross-rail policy remain shared with USDT |
 | USDT withdrawals | `/withdraw`, `/withdraw/crypto/usdt/bep20`, `src/domains/withdrawals/public.ts`, `src/domains/withdrawals/ui`, NOWPayments withdrawal admin component and Functions | `nowpayments_usdt_withdrawals`, events, wallet, ledger | the ordinary-user USDT-BEP20 component is decomposed into domain-owned request orchestration, view, form, and history modules; the old component path is a compatibility bridge, while the legacy browser transport and manual administrator Complete/Reject flow remain unchanged with no automatic payout/signing |
 | Plans and investments | `/plans`, `src/domains/plans/public.ts`, plans UI/application modules, existing plan and investment server functions | `plans`, `investments`, ETB wallet/transactions | browser presentation and authentication-scoped orchestration are domain-owned; values and financial execution remain part of the legacy ETB model |
-| Earnings and referrals | dashboard/referrals/admin-earnings, scheduled Functions | referrals, reward logs, earning logs, investments, ETB wallet/transactions | current visible identity and referral lookup use username |
+| Earnings | dashboard/admin-earnings and scheduled Functions | earning logs, investments, ETB wallet/transactions | processing and administrator presentation remain in legacy modules |
+| Referrals | `/referrals`, `src/domains/referrals/public.ts`, referral UI/application/domain modules, existing referral server functions | referrals, reward logs, investments, profiles, ETB transactions | browser reads are authentication-generation scoped; current visible identity and referral lookup still use username |
 | Administration | `/admin`, `/admin-earnings` | profile role plus domain data | UI is concentrated; authorization must remain inside each server action |
 | Notifications | notification route and server module | Supabase `notifications` | financial notifications are secondary to authoritative ledger/state transitions |
 | Support and settings | public support route and admin settings | Supabase `app_settings` | current visible support is Telegram |
@@ -104,6 +105,23 @@ amounts are legacy ETB `number` values. This extraction does not convert their
 currency or rounding model, and it does not claim purchase-command idempotency;
 that financial guarantee remains deferred to a separately reviewed server and
 database design before the international-USDT cutover.
+
+### Referrals
+
+The `/referrals` route composes only the client-safe referrals public surface.
+One application bridge owns the browser dependency on the existing read-only
+`loadReferralStatsFn`; team policy, level filtering, link presentation, reward
+copy, and authenticated remote-state coordination remain inside
+`src/domains/referrals`. Snapshot visibility and retry ownership require the
+exact user and access-token generation. A replacement session can start its own
+request while an older request is unresolved, and the older success, failure,
+retry timer, or finalizer cannot update the replacement session.
+
+The existing server and financial boundaries remain unchanged. Referral graph
+queries, active-plan detection, the 21:00 UTC reward-day window, username-based
+links, reward posting, reward percentages, and legacy ETB presentation retain
+their current behavior. Public account codes, random referral codes, USDT
+rewards, and international identity migration remain later phases.
 
 ### Deposit rails
 
