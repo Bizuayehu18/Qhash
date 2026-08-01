@@ -1,7 +1,7 @@
 # QHash domain boundaries
 
 **Status:** Current boundary map with target recommendations
-**Scope:** Repository base `97566b1333e5f406eb7be31eac8e26aa08331d90` plus this behavior-preserving legacy referral UI extraction and referrals authentication-generation isolation
+**Scope:** Repository base `0090dd41443568f9fbf9b846f9f4be3bbf963c63` plus this behavior-preserving transaction-history UI extraction and authentication-generation isolation
 **Purpose:** Define ownership before files are moved. Current facts and target recommendations are intentionally separated.
 
 The exact current assignment of repository, Netlify, Supabase, test, and
@@ -22,7 +22,7 @@ See also:
 |---|---|---|---|
 | Identity and access | auth routes, `authStore`, `src/lib/server/auth.ts` | Supabase Auth and `profiles` | username and Ethiopian phone are currently coupled to Auth and referrals |
 | Profile and security | profile/security routes, `src/lib/server/security.ts` | `profiles`, `user_security_settings`, Supabase Auth | Fund PIN is a protected server/database workflow |
-| Accounts | `/dashboard`, `/transactions`, `src/domains/accounts/public.ts`, wallet store and server readers | ETB wallet/transactions plus the separately owned USDT ledger | dashboard snapshots and retries are scoped to the exact authenticated user and token generation; wallet cache, in-flight work, polling, and writes are scoped to the active user ID; accounting writes remain server-owned |
+| Accounts | `/dashboard`, `/transactions`, `src/domains/accounts/public.ts`, accounts UI/application/domain modules, wallet store and server readers | ETB wallet/transactions plus the separately owned USDT ledger | dashboard snapshots are user/token scoped; transaction snapshots and retries are user/token/filter scoped; wallet cache, in-flight work, polling, and writes are scoped to the active user ID; accounting writes remain server-owned |
 | Shared deposits | `/deposit`, `src/domains/deposits/public.ts`, `src/domains/deposits/ui/DepositHub.tsx`, `src/domains/deposits/server.ts` | `app_settings.deposits_paused` plus rail-owned history sources | the provider-neutral admission boundary and cross-rail browser composition are implemented; shared composition imports rail public surfaces rather than rail internals |
 | Fiat deposits | `src/domains/fiat-deposits/public.ts`, `src/domains/fiat-deposits/ui`, `src/lib/server/deposits.ts`, CBE/TeleBirr verifiers | Supabase `deposits`, `payment_methods`, ETB wallet/transactions | the Ethiopia CBE/TeleBirr browser flow is domain-owned and provider-specific presentation is split under `ui/providers/et`; verification and approval code remains distributed across large server modules and Functions |
 | Crypto deposits | `/deposit/crypto/usdt/bep20`, `src/domains/crypto-deposits/public.ts`, `src/domains/crypto-deposits/ui`, NOWPayments deposit Functions | NOWPayments plus `nowpayments_usdt_*` deposit tables | the USDT-BEP20 browser component is decomposed into domain-owned state, orchestration, address-presentation, and view modules; old source paths are compatibility bridges, while provider communication and financial settlement remain distinct responsibilities |
@@ -84,6 +84,22 @@ shared code must not import a business domain
 - provider-specific outcome values, fiat source amounts, rates, and fees remain immutable evidence alongside the canonical USDT ledger.
 - plans, earnings, referrals, deposits, and withdrawals must use one documented amount/rounding contract after cutover.
 - country and payment-provider availability are configuration data, not route conditionals scattered through UI files.
+
+### Accounts
+
+The `/transactions` route composes only the client-safe accounts public surface.
+One accounts application bridge owns the browser dependency on the existing
+read-only `getTransactionsFn`; filter policy, list presentation, status and
+amount formatting, and authenticated remote-state coordination remain inside
+`src/domains/accounts`. Snapshot visibility, retries, timers, and request
+finalizers require the exact user, access-token generation, and selected
+filter. A replacement identity or filter can start its own request while older
+work is unresolved, and late work cannot update the replacement view.
+
+The existing server query, 50-row limit, legacy ETB values, shared transaction
+presentation helpers, wallet and ledger ownership, and all accounting writes
+remain unchanged. International USDT conversion is not part of this mechanical
+extraction.
 
 ### Plans and investments
 

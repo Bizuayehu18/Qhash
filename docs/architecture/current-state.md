@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository base `97566b1333e5f406eb7be31eac8e26aa08331d90`, plus this behavior-preserving legacy referral UI extraction and referrals authentication-generation isolation
+**Scope:** Runtime baseline through repository base `0090dd41443568f9fbf9b846f9f4be3bbf963c63`, plus this behavior-preserving transaction-history UI extraction and authentication-generation isolation
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -58,8 +58,8 @@ The repository is organized mainly by technical layer, with several business dom
 
 | Area | Current role | Observed concentration |
 |---|---|---|
-| `src/routes` | TanStack route entry points and substantial page logic | 9 route files remain over the 150-nonblank-line warning; `deposit.tsx`, `withdraw.tsx`, `plans.tsx`, and `referrals.tsx` are now thin composition entries while `admin.tsx` remains concentrated |
-| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Deposit, withdrawal, plans, referrals, crypto-rail, and Ethiopia fiat-rail UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
+| `src/routes` | TanStack route entry points and substantial page logic | 8 route files remain over the 150-nonblank-line warning; `deposit.tsx`, `withdraw.tsx`, `plans.tsx`, `referrals.tsx`, and `transactions.tsx` are now thin composition entries while `admin.tsx` remains concentrated |
+| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Account transaction history, deposit, withdrawal, plans, referrals, crypto-rail, and Ethiopia fiat-rail UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
 | `src/components` | Shared UI plus extracted crypto compatibility bridges | Only the administrator NOWPayments withdrawal component remains over the 300-nonblank-line warning after the user deposit and withdrawal UI decompositions |
 | `src/lib/server` | TanStack server functions for many domains in one flat folder | Large deposit, verification, withdrawal, earning, security, and admin modules |
 | `netlify/functions` | provider-facing, scheduled, verification, and admin Functions | NOWPayments handlers are partly decomposed through `netlify/functions/lib` |
@@ -116,6 +116,17 @@ bound to the active user ID, and late cross-user results are rejected. This
 prevents a previous user from supplying wallet presentation to a replacement
 user and prevents a previous authentication generation from supplying a
 dashboard snapshot; it does not change any server or accounting behavior.
+
+`/transactions` is now a thin route through the same client-safe accounts
+facade. The accounts domain owns transaction filters, list presentation, and
+browser remote-state coordination, while one application bridge is the sole
+transaction-history dependency on the existing read-only server function.
+Snapshots, retries, timers, and finalizers require the exact authenticated
+user, access-token generation, and selected filter, so late work cannot expose
+or overwrite another session or filter. This extraction preserves the six
+filters, legacy ETB amount presentation, status labels, formatting, timeout,
+retry behavior, and existing server query without changing accounting or
+financial behavior.
 
 `/plans` is now a thin route through `src/domains/plans/public.ts`. The plans
 domain owns the browser-facing catalog, plan cards, details dialog, eligibility
@@ -274,7 +285,7 @@ At the pinned revision:
 5. Twenty-seven existing route/component-to-server bridge imports remain as
    frozen legacy coupling; Phase 1 blocks growth but does not misclassify them
    as a completed domain architecture.
-6. Thirty-two existing file-size warnings identify decomposition debt; they
+6. Thirty-one existing file-size warnings identify decomposition debt; they
    remain report-only at or below the recorded baseline.
 7. The compatibility Supabase type surface lacks three live tables and seven
    live functions, although the authoritative generated snapshot and
