@@ -1,7 +1,7 @@
 # QHash domain boundaries
 
 **Status:** Current boundary map with target recommendations
-**Scope:** Repository base `1b2f7a140b00884b27c21eec3925cc2007211bda` plus this behavior-preserving Ethiopia fiat-deposit UI extraction
+**Scope:** Repository base `e4c339a3458a59bd6b9d7f06d1dad6e2fe4f477f` plus this behavior-preserving Ethiopia fiat-withdrawal UI extraction and shared wallet/dashboard authentication-isolation hardening
 **Purpose:** Define ownership before files are moved. Current facts and target recommendations are intentionally separated.
 
 The exact current assignment of repository, Netlify, Supabase, test, and
@@ -22,10 +22,11 @@ See also:
 |---|---|---|---|
 | Identity and access | auth routes, `authStore`, `src/lib/server/auth.ts` | Supabase Auth and `profiles` | username and Ethiopian phone are currently coupled to Auth and referrals |
 | Profile and security | profile/security routes, `src/lib/server/security.ts` | `profiles`, `user_security_settings`, Supabase Auth | Fund PIN is a protected server/database workflow |
+| Accounts | `/dashboard`, `/transactions`, `src/domains/accounts/public.ts`, wallet store and server readers | ETB wallet/transactions plus the separately owned USDT ledger | dashboard snapshots and retries are scoped to the exact authenticated user and token generation; wallet cache, in-flight work, polling, and writes are scoped to the active user ID; accounting writes remain server-owned |
 | Shared deposits | `/deposit`, `src/domains/deposits/public.ts`, `src/domains/deposits/ui/DepositHub.tsx`, `src/domains/deposits/server.ts` | `app_settings.deposits_paused` plus rail-owned history sources | the provider-neutral admission boundary and cross-rail browser composition are implemented; shared composition imports rail public surfaces rather than rail internals |
 | Fiat deposits | `src/domains/fiat-deposits/public.ts`, `src/domains/fiat-deposits/ui`, `src/lib/server/deposits.ts`, CBE/TeleBirr verifiers | Supabase `deposits`, `payment_methods`, ETB wallet/transactions | the Ethiopia CBE/TeleBirr browser flow is domain-owned and provider-specific presentation is split under `ui/providers/et`; verification and approval code remains distributed across large server modules and Functions |
 | Crypto deposits | `/deposit/crypto/usdt/bep20`, `src/domains/crypto-deposits/public.ts`, `src/domains/crypto-deposits/ui`, NOWPayments deposit Functions | NOWPayments plus `nowpayments_usdt_*` deposit tables | the USDT-BEP20 browser component is decomposed into domain-owned state, orchestration, address-presentation, and view modules; old source paths are compatibility bridges, while provider communication and financial settlement remain distinct responsibilities |
-| Fiat withdrawals | `/withdraw`, `src/lib/server/withdrawals.ts` | Supabase `withdrawals`, ETB wallet/transactions | shares Fund PIN and cross-rail policy with USDT |
+| Fiat withdrawals | `/withdraw`, `src/domains/fiat-withdrawals/public.ts`, `src/domains/fiat-withdrawals/ui`, `src/lib/server/withdrawals.ts` | Supabase `withdrawals`, ETB wallet/transactions | Ethiopia CBE/TeleBirr browser presentation and orchestration are domain-owned; the financial boundary, Fund PIN, and cross-rail policy remain shared with USDT |
 | USDT withdrawals | `/withdraw`, `/withdraw/crypto/usdt/bep20`, `src/domains/withdrawals/public.ts`, `src/domains/withdrawals/ui`, NOWPayments withdrawal admin component and Functions | `nowpayments_usdt_withdrawals`, events, wallet, ledger | the ordinary-user USDT-BEP20 component is decomposed into domain-owned request orchestration, view, form, and history modules; the old component path is a compatibility bridge, while the legacy browser transport and manual administrator Complete/Reject flow remain unchanged with no automatic payout/signing |
 | Plans and investments | `/plans`, investment server functions | `plans`, `investments`, ETB wallet/transactions | values are currently part of the legacy ETB model |
 | Earnings and referrals | dashboard/referrals/admin-earnings, scheduled Functions | referrals, reward logs, earning logs, investments, ETB wallet/transactions | current visible identity and referral lookup use username |
@@ -121,6 +122,18 @@ Global pause must block new deposits across all rails. Rail disablement is addit
 ### Withdrawal rails
 
 The withdrawal domain owns the shared Fund PIN, accepted-request cooldown, active-request rule, balances, history, and administrator state transition contract. Rail adapters own destination validation and payout instructions.
+
+The implemented browser composition boundary is
+`src/domains/withdrawals/public.ts` and
+`src/domains/withdrawals/ui/WithdrawalHub.tsx`. The hub owns page layout,
+rail selection, and navigation to the canonical USDT-BEP20 route. It consumes
+the client-safe `src/domains/fiat-withdrawals/public.ts` surface rather than
+fiat provider internals. The fiat-withdrawal domain owns Ethiopia provider
+ordering, fields, presentation, browser validation, confirmation, remote-state
+coordination, and history rendering. Its application service is the sole
+browser-to-existing-server bridge. It does not own the shared financial or
+cross-rail policy, and no country/provider fiat URL becomes live through this
+extraction.
 
 The shared policy is:
 

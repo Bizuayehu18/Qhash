@@ -250,9 +250,9 @@ function PlansPage() {
   const [plansLoaded, setPlansLoaded] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<PlanWithEligibility | null>(null);
   const [purchasing, setPurchasing] = useState(false);
-  const walletBalance = useWalletStore((s) => s.balance);
+  const walletBalance = useWalletStore((s) => s.activeUserId === user?.id ? s.balance : null);
   const loadingBalance = useWalletStore((s) => s.loading);
-  const setWalletBalance = useWalletStore((s) => s.setBalance);
+  const setWalletBalance = useWalletStore((s) => s.setBalanceForUser);
   const fetchWallet = useWalletStore((s) => s.fetchWallet);
 
   const mountedRef = useRef(true);
@@ -355,7 +355,7 @@ function PlansPage() {
         PURCHASE_TIMEOUT_MS,
         "Purchase request timed out.",
       );
-      setWalletBalance(result.newBalance);
+      setWalletBalance(session.user.id, result.newBalance);
       toast.success(`${selectedPlan.name} activated. Mining starts now.`);
       setSelectedPlan(null);
       void loadPlans({ resetRetryCount: true });

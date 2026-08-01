@@ -12,10 +12,14 @@
           "src/routes/_app/transactions.tsx"
         ],
         "sourceModules": [
+          "src/domains/accounts/application/authenticated-request-lifecycle.ts",
+          "src/domains/accounts/application/dashboard-browser-service.ts",
+          "src/domains/accounts/ui/useDashboardRemoteState.ts",
           "src/hooks/useWalletSync.ts",
           "src/lib/server/dashboard.ts",
           "src/lib/server/transactions.ts",
           "src/lib/server/wallet.ts",
+          "src/store/wallet-request-guard.ts",
           "src/store/walletStore.ts"
         ],
         "supabaseFunctions": [
@@ -31,8 +35,14 @@
           "public.transactions",
           "public.wallets"
         ],
+        "tests": [
+          "tests/wallet-auth-isolation.test.mjs"
+        ],
         "documents": [
           "docs/architecture/decisions/0002-canonical-usdt-ledger.md"
+        ],
+        "publicSurfaces": [
+          "src/domains/accounts/public.ts"
         ]
       }
     },
@@ -353,6 +363,42 @@
       }
     },
     {
+      "id": "fiat-withdrawals",
+      "kind": "product",
+      "description": "Owns browser-facing Ethiopia CBE and TeleBirr withdrawal provider presentation and legacy ETB request orchestration; shared cross-rail policy and financial boundaries remain in withdrawals.",
+      "assets": {
+        "publicSurfaces": [
+          "src/domains/fiat-withdrawals/public.ts"
+        ],
+        "sourceModules": [
+          "src/domains/fiat-withdrawals/application/fiat-withdrawal-browser-service.ts",
+          "src/domains/fiat-withdrawals/domain/fiat-withdrawal-method.ts",
+          "src/domains/fiat-withdrawals/ui/fiat-withdrawal-auth-lifecycle.ts",
+          "src/domains/fiat-withdrawals/ui/fiat-withdrawal-errors.ts",
+          "src/domains/fiat-withdrawals/ui/fiat-withdrawal-format.ts",
+          "src/domains/fiat-withdrawals/ui/fiat-withdrawal-provider.ts",
+          "src/domains/fiat-withdrawals/ui/fiat-withdrawal-providers.ts",
+          "src/domains/fiat-withdrawals/ui/fiat-withdrawal-types.ts",
+          "src/domains/fiat-withdrawals/ui/FiatWithdrawalBalanceStrip.tsx",
+          "src/domains/fiat-withdrawals/ui/FiatWithdrawalConfirmForm.tsx",
+          "src/domains/fiat-withdrawals/ui/FiatWithdrawalDetailsForm.tsx",
+          "src/domains/fiat-withdrawals/ui/FiatWithdrawalHistory.tsx",
+          "src/domains/fiat-withdrawals/ui/FiatWithdrawalMethodList.tsx",
+          "src/domains/fiat-withdrawals/ui/FiatWithdrawalNotice.tsx",
+          "src/domains/fiat-withdrawals/ui/FiatWithdrawalSecurityStatusLine.tsx",
+          "src/domains/fiat-withdrawals/ui/FiatWithdrawalSummary.tsx",
+          "src/domains/fiat-withdrawals/ui/providers/et/cbe-withdrawal-provider.tsx",
+          "src/domains/fiat-withdrawals/ui/providers/et/ethiopia-withdrawal-policy.ts",
+          "src/domains/fiat-withdrawals/ui/providers/et/telebirr-withdrawal-provider.tsx",
+          "src/domains/fiat-withdrawals/ui/useFiatWithdrawal.ts",
+          "src/domains/fiat-withdrawals/ui/useFiatWithdrawalRemoteState.ts"
+        ],
+        "tests": [
+          "tests/fiat-withdrawal-ui.test.mjs"
+        ]
+      }
+    },
+    {
       "id": "identity",
       "kind": "product",
       "description": "Owns registration, login, immutable profile identity, account security, and four-digit Fund PIN controls.",
@@ -669,6 +715,7 @@
           "src/domains/withdrawals/ui/UsdtBep20WithdrawalRequestForm.tsx",
           "src/domains/withdrawals/ui/UsdtBep20WithdrawalView.tsx",
           "src/domains/withdrawals/ui/useUsdtBep20Withdrawal.ts",
+          "src/domains/withdrawals/ui/WithdrawalHub.tsx",
           "src/lib/nowpayments-withdrawal-admin-ui.ts",
           "src/lib/nowpayments-withdrawal-ui.ts",
           "src/lib/server/withdrawals.ts",

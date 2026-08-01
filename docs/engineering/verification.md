@@ -71,7 +71,7 @@ other domain, application, infrastructure, server, and UI modules use the
 400-line warning unless a more specific rule applies.
 
 `tests/withdrawal-route-compatibility.test.mjs` freezes the matching withdrawal
-route contract: `/withdraw` remains the CBE, TeleBirr, and USDT hub,
+route contract: `/withdraw` remains a thin CBE, TeleBirr, and USDT hub,
 `/withdraw/crypto/usdt/bep20` is a non-nested child of the protected
 application layout, Back returns to the hub, and the thin route/client facade
 contain no server-only or sensitive URL state. It also pins the canonical
@@ -80,6 +80,22 @@ bridge. Source-characterization tests aggregate the extracted controller,
 view, form, and history so the established Fund PIN, auth isolation,
 idempotency, rolling 24-hour cross-rail policy, fixed-point calculations, and
 accounting boundary remain unchanged.
+
+`tests/fiat-withdrawal-ui.test.mjs` freezes the behavior-preserving Ethiopia
+fiat-withdrawal extraction: CBE and TeleBirr retain their exact labels, field
+order, account validation, 200 ETB minimum, 5% fee, four-digit Fund PIN,
+server-owned submission and history boundaries, wallet/security refresh, and
+shared cross-rail policy. It also requires the domain public facade and
+application bridge to remain client-safe and independent of crypto navigation.
+The same suite deterministically rejects late history, security, and submission
+effects after a user or access-token generation changes.
+
+`tests/wallet-auth-isolation.test.mjs` pins the shared wallet cache to one active
+authenticated user. It rejects fresh-cache reuse across users, stale in-flight
+commits and finalizers, unscoped balance writes, and consumer rendering of a
+balance owned by another session. It also binds the complete dashboard snapshot
+and its retry lifecycle to the exact user and access-token generation so a late
+response cannot populate a replacement session.
 
 ## Native PostgreSQL safety
 

@@ -67,6 +67,7 @@ const allTests = [
   "domain-ownership-registry.test.mjs",
   "fiat-deposit-global-pause-database.test.mjs",
   "fiat-deposit-ui.test.mjs",
+  "fiat-withdrawal-ui.test.mjs",
   "fund-pin-security-database.test.mjs",
   "native-crypto-database-retirement.test.mjs",
   "native-crypto-runtime-decommission.test.mjs",
@@ -78,6 +79,7 @@ const allTests = [
   "nowpayments-usdt-withdrawal-admin.test.mjs",
   "nowpayments-usdt-withdrawal-user.test.mjs",
   "unified-cross-rail-withdrawal-database.test.mjs",
+  "wallet-auth-isolation.test.mjs",
   "withdrawal-route-compatibility.test.mjs",
 ];
 
