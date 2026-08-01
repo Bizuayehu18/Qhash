@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository base `0090dd41443568f9fbf9b846f9f4be3bbf963c63`, plus this behavior-preserving transaction-history UI extraction and authentication-generation isolation
+**Scope:** Runtime baseline through repository base `2b202bfc7d17f3d880601680131bff23befe47a2`, plus this behavior-preserving dashboard UI and Support browser-boundary extraction
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -123,8 +123,9 @@ Dashboard support navigation consumes only the client-safe support facade.
 One support application bridge owns the new dashboard dependency on the
 existing read-only support-settings server function. Preload, ten-second
 timeout, visibility/online refresh, Telegram navigation, and `/support`
-fallback behavior remain unchanged; stale or unmounted requests cannot publish
-a replacement destination. The public `/support` route remains a documented
+fallback behavior remain unchanged. Passive refreshes cannot supersede a
+pending user click, while stale or unmounted requests cannot publish or control
+navigation. The public `/support` route remains a documented
 legacy direct bridge for a later support-specific extraction.
 
 `/transactions` is now a thin route through the same client-safe accounts

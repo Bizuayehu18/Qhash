@@ -3,7 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   createLatestSupportDestinationRequestGuard,
+  getSupportNavigationTarget,
   runLatestSupportDestinationRequest,
+  runPassiveSupportDestinationRequest,
 } from "../src/domains/support/application/support-destination-request-guard.ts";
 import {
   formatDashboardAmount,
@@ -78,7 +80,7 @@ test("support destination requests publish only from the latest live generation"
   assert.equal(newer.isCurrent(), false);
 });
 
-test("a background refresh prevents an older support click from returning a stale destination", async () => {
+test("an invalidated support request cannot control navigation", async () => {
   const guard = createLatestSupportDestinationRequestGuard();
   const published = [];
   let resolveClick;
@@ -105,12 +107,64 @@ test("a background refresh prevents an older support click from returning a stal
   });
 
   resolveClick("https://t.me/obsolete-support");
-  assert.equal(await clickRequest, null);
+  const staleClickResult = await clickRequest;
+  assert.deepEqual(staleClickResult, { status: "stale" });
+  assert.equal(getSupportNavigationTarget(staleClickResult), null);
   assert.deepEqual(published, []);
 
   resolveRefresh("https://t.me/current-support");
-  assert.equal(await refreshRequest, "https://t.me/current-support");
+  const refreshResult = await refreshRequest;
+  assert.deepEqual(refreshResult, {
+    status: "resolved",
+    url: "https://t.me/current-support",
+  });
   assert.deepEqual(published, ["https://t.me/current-support"]);
+});
+
+test("a passive refresh cannot supersede a pending support click navigation", async () => {
+  const guard = createLatestSupportDestinationRequestGuard();
+  const published = [];
+  let resolveClick;
+  let passiveLoadCalls = 0;
+  let interactivePending = true;
+  const clickLoad = new Promise((resolve) => {
+    resolveClick = resolve;
+  });
+  const requestOptions = {
+    guard,
+    isMounted: () => true,
+    publish: (url) => published.push(url),
+  };
+
+  const clickRequest = runLatestSupportDestinationRequest({
+    ...requestOptions,
+    load: () => clickLoad,
+  });
+  const passiveRefresh = runPassiveSupportDestinationRequest({
+    ...requestOptions,
+    isInteractivePending: () => interactivePending,
+    load: async () => {
+      passiveLoadCalls += 1;
+      return "https://t.me/newer-passive-support";
+    },
+  });
+
+  assert.deepEqual(await passiveRefresh, { status: "skipped" });
+  assert.equal(passiveLoadCalls, 0);
+
+  resolveClick("https://t.me/clicked-support");
+  const clickResult = await clickRequest;
+  interactivePending = false;
+
+  assert.deepEqual(clickResult, {
+    status: "resolved",
+    url: "https://t.me/clicked-support",
+  });
+  assert.equal(
+    getSupportNavigationTarget(clickResult),
+    "https://t.me/clicked-support",
+  );
+  assert.deepEqual(published, ["https://t.me/clicked-support"]);
 });
 
 test("dashboard UI preserves presentation, navigation, and support lifecycle contracts", async () => {
@@ -166,9 +220,12 @@ test("dashboard UI preserves presentation, navigation, and support lifecycle con
   assert.match(supportHook, /document\.addEventListener\("visibilitychange"/);
   assert.match(supportHook, /window\.addEventListener\("online"/);
   assert.match(supportHook, /window\.location\.assign\(supportUrl\)/);
-  assert.match(supportHook, /window\.location\.assign\("\/support"\)/);
+  assert.match(supportHook, /window\.location\.assign\(navigationTarget\)/);
   assert.match(supportHook, /requestGuardRef/);
+  assert.match(supportHook, /supportOpeningRef/);
   assert.match(supportHook, /runLatestSupportDestinationRequest/);
+  assert.match(supportHook, /runPassiveSupportDestinationRequest/);
+  assert.match(supportHook, /getSupportNavigationTarget/);
   assert.match(supportHook, /mountedRef/);
   assert.match(supportHook, /Opening\.\.\./);
 });
