@@ -115,10 +115,15 @@ route and other consumers cannot render a balance owned by a previous user or
 a dashboard snapshot owned by a previous authentication generation.
 
 Dashboard support navigation crosses domains only through the client-safe
-`support` public facade. One support application bridge owns the new dashboard
-dependency on the existing read-only settings server function. The public
-support redirect route remains a legacy support-owned direct bridge until a
-separate support-route extraction.
+`support` public facade. One support application bridge owns the extracted
+Dashboard and public `/support` dependencies on the existing read-only settings
+server function. The public Support route consumes that facade and renders a
+domain-owned redirect page while preserving its one-shot redirect and
+unavailable-state behavior.
+The dashboard's preload, timeout, passive refresh, interactive navigation, and
+fallback contract remain separate from the public redirect presentation.
+Profile and Admin remain documented legacy direct consumers for later
+domain-specific extractions.
 
 The transactions route also consumes only the accounts public facade. One
 accounts application bridge owns the browser dependency on the existing

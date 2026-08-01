@@ -135,6 +135,12 @@ balance owned by another session. It also binds the complete dashboard snapshot
 and its retry lifecycle to the exact user and access-token generation so a late
 response cannot populate a replacement session.
 
+`tests/support-route-compatibility.test.mjs` freezes `/support` as a thin route
+through the client-safe Support public surface. It keeps the existing one-shot
+Telegram `window.location.replace`, unavailable copy, error handling, and
+unmount guard while preventing the route from regaining a direct server import
+or silently adopting the dashboard's polling and fallback behavior.
+
 ## Native PostgreSQL safety
 
 Native tests require `TEST_DATABASE_URL`. The runner refuses the URL unless:
@@ -234,8 +240,8 @@ Netlify Database inventory.
 
 The boundary and complexity checks start from observed legacy debt:
 
-- 27 existing TanStack server-bridge imports; and
-- 31 current file-size warnings.
+- 26 existing TanStack server-bridge imports; and
+- 30 current file-size warnings.
 
 Those findings are report-only at their recorded values. New boundary leaks,
 new warning files, or growth in an existing warning fail verification. This

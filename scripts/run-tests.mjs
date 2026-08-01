@@ -84,6 +84,7 @@ const allTests = [
   "plans-ui.test.mjs",
   "referrals-route-compatibility.test.mjs",
   "referrals-ui.test.mjs",
+  "support-route-compatibility.test.mjs",
   "transactions-route-compatibility.test.mjs",
   "transactions-ui.test.mjs",
   "unified-cross-rail-withdrawal-database.test.mjs",

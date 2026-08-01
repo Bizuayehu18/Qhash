@@ -16,7 +16,7 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 | Phase 1 — Deterministic engineering baseline | Complete |
 | Phase 2 — Compatibility scaffolding | In progress: client-safe route/facade slices and cross-system ownership enforcement implemented; server-only entry points remain |
 | Phase 3 — Extract shared primitives | Not started |
-| Phase 4 — Extract domains one at a time | In progress: accounts transaction history, crypto-deposit, ordinary-user USDT-withdrawal, Ethiopia fiat-deposit, Ethiopia fiat-withdrawal, legacy ETB plans, and referrals UI decompositions implemented |
+| Phase 4 — Extract domains one at a time | In progress: accounts transaction history/dashboard, public Support redirect, crypto-deposit, ordinary-user USDT-withdrawal, Ethiopia fiat-deposit, Ethiopia fiat-withdrawal, legacy ETB plans, and referrals UI decompositions implemented |
 | Phase 5 and later | Not started |
 
 ## Invariants throughout the roadmap
@@ -361,6 +361,20 @@ Accounts dashboard UI extraction slice:
 - changes no schema, migration, Netlify Function, RPC, server query, wallet,
   ledger, plan, transaction, support setting, accounting, financial, or
   international-currency behavior.
+
+Public Support redirect extraction slice:
+
+- makes `/support` a thin route through `src/domains/support/public.ts`;
+- moves the existing redirect presentation behind the Support public facade
+  and reuses the single Support application bridge introduced by the dashboard
+  extraction;
+- preserves the one-shot Telegram `window.location.replace`, unavailable
+  message, error logging, and unmount guard without adopting dashboard polling
+  or fallback behavior;
+- ratchets the frozen TanStack server-bridge baseline from 27 to 26 without
+  introducing a new complexity warning; and
+- changes no support setting, server function, schema, migration, Supabase or
+  Netlify data, authentication, route URL, visible copy, or financial behavior.
 
 ## Phase 5 — Decompose administration
 

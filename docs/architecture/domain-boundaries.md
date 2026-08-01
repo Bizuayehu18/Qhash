@@ -1,7 +1,7 @@
 # QHash domain boundaries
 
 **Status:** Current boundary map with target recommendations
-**Scope:** Repository base `0090dd41443568f9fbf9b846f9f4be3bbf963c63` plus this behavior-preserving transaction-history UI extraction and authentication-generation isolation
+**Scope:** Repository base `3b89c0a74bcdf44d4cbd210e00c8c49784d4499c` plus this behavior-preserving public Support redirect extraction
 **Purpose:** Define ownership before files are moved. Current facts and target recommendations are intentionally separated.
 
 The exact current assignment of repository, Netlify, Supabase, test, and
@@ -33,7 +33,7 @@ See also:
 | Referrals | `/referrals`, `src/domains/referrals/public.ts`, referral UI/application/domain modules, existing referral server functions | referrals, reward logs, investments, profiles, ETB transactions | browser reads are authentication-generation scoped; current visible identity and referral lookup still use username |
 | Administration | `/admin`, `/admin-earnings` | profile role plus domain data | UI is concentrated; authorization must remain inside each server action |
 | Notifications | notification route and server module | Supabase `notifications` | financial notifications are secondary to authoritative ledger/state transitions |
-| Support and settings | public support route and admin settings | Supabase `app_settings` | current visible support is Telegram |
+| Support and settings | `/support`, `src/domains/support/public.ts`, Support UI/application modules, and admin settings | Supabase `app_settings` | the public redirect and dashboard navigation consume one client-safe facade and application bridge; current visible support is Telegram |
 | Legacy support tickets | no active visible product flow | separate Netlify Database through Drizzle | quarantined until authentication and database ownership are redesigned |
 | Deployment and schema | build scripts and migrations | Git, Netlify, Supabase migration ledger | operational boundary, not a product domain |
 
@@ -109,6 +109,23 @@ The existing server query, 50-row limit, legacy ETB values, shared transaction
 presentation helpers, wallet and ledger ownership, and all accounting writes
 remain unchanged. International USDT conversion is not part of this mechanical
 extraction.
+
+### Support
+
+The `/support` route composes only the client-safe Support public surface. The
+Support domain owns its redirect presentation, and one application bridge owns
+the extracted Dashboard and public `/support` dependencies on the existing
+read-only support-settings server function. The public route retains its
+one-shot Telegram `window.location.replace`, unavailable message, error
+handling, and unmount
+guard. Dashboard Support keeps its separate preload, timeout, passive refresh,
+click-navigation, and `/support` fallback contract through the same facade.
+
+Administrator Support settings and the Profile route's existing navigation
+remain legacy direct consumers. Those routes, dormant Netlify Database support
+tickets, and the stored setting remain at their current boundaries. This
+extraction changes no setting value, server function, database,
+authentication, route URL, or visible behavior.
 
 ### Plans and investments
 
