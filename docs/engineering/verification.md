@@ -108,6 +108,17 @@ best-effort referral reward behavior. They do not claim purchase-command
 idempotency; that guarantee remains deferred to a separate financial/server
 change before international cutover.
 
+`tests/referrals-route-compatibility.test.mjs` freezes `/referrals` as a thin
+route through the referrals public surface, rejects server logic in the route,
+and requires exactly one referral browser-to-server application bridge.
+`tests/referrals-ui.test.mjs` freezes the username referral link, legacy ETB
+presentation, team filters, six-member preview, 5%/3%/2% reward copy,
+transaction-history link, timeout/retry behavior, and exact
+user/access-token-generation isolation. Its deferred-request fixtures prove a
+replacement session can load while the older request remains unresolved and
+that late success or failure cannot expose the previous account's team or
+schedule a retry.
+
 `tests/wallet-auth-isolation.test.mjs` pins the shared wallet cache to one active
 authenticated user. It rejects fresh-cache reuse across users, stale in-flight
 commits and finalizers, unscoped balance writes, and consumer rendering of a
@@ -215,7 +226,7 @@ Netlify Database inventory.
 The boundary and complexity checks start from observed legacy debt:
 
 - 27 existing TanStack server-bridge imports; and
-- 35 current file-size warnings.
+- 32 current file-size warnings.
 
 Those findings are report-only at their recorded values. New boundary leaks,
 new warning files, or growth in an existing warning fail verification. This

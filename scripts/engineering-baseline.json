@@ -106,7 +106,6 @@
       "src/routes/_app/profile/security/fund-password.tsx": 295,
       "src/routes/_app/profile/security.tsx": 157,
       "src/routes/_app/profile.tsx": 216,
-      "src/routes/_app/referrals.tsx": 609,
       "src/routes/_app/transactions.tsx": 214,
       "src/routes/_auth/register.tsx": 167,
       "netlify/functions/lib/nowpayments-client.mts": 543,
