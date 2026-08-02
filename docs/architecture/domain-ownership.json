@@ -70,7 +70,19 @@
           "src/routes/_app/admin.tsx"
         ],
         "sourceModules": [
+          "src/domains/admin/application/admin-overview-auth-lifecycle.ts",
+          "src/domains/admin/application/admin-overview-browser-service.ts",
+          "src/domains/admin/ui/AdminEtbAmount.tsx",
+          "src/domains/admin/ui/AdminOverviewPanel.tsx",
+          "src/domains/admin/ui/useAdminOverview.ts",
           "src/lib/server/admin.ts"
+        ],
+        "tests": [
+          "tests/admin-overview-ui.test.mjs",
+          "tests/admin-route-compatibility.test.mjs"
+        ],
+        "publicSurfaces": [
+          "src/domains/admin/public.ts"
         ]
       }
     },

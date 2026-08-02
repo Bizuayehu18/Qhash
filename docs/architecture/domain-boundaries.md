@@ -1,7 +1,7 @@
 # QHash domain boundaries
 
 **Status:** Current boundary map with target recommendations
-**Scope:** Repository base `bf963f0a377216840edb23a80687ee8e45f06996` plus this shared non-null, non-array object-guard extraction
+**Scope:** Repository base `51b51d0481e2ac82183c2b392227612d6c284362` plus the first read-only Admin Overview extraction
 **Purpose:** Define ownership before files are moved. Current facts and target recommendations are intentionally separated.
 
 The exact current assignment of repository, Netlify, Supabase, test, and
@@ -36,7 +36,7 @@ See also:
 | Plans and investments | `/plans`, `src/domains/plans/public.ts`, plans UI/application modules, existing plan and investment server functions | `plans`, `investments`, ETB wallet/transactions | browser presentation and authentication-scoped orchestration are domain-owned; values and financial execution remain part of the legacy ETB model |
 | Earnings | dashboard/admin-earnings and scheduled Functions | earning logs, investments, ETB wallet/transactions | processing and administrator presentation remain in legacy modules |
 | Referrals | `/referrals`, `src/domains/referrals/public.ts`, referral UI/application/domain modules, existing referral server functions | referrals, reward logs, investments, profiles, ETB transactions | browser reads are authentication-generation scoped; current visible identity and referral lookup still use username |
-| Administration | `/admin`, `/admin-earnings` | profile role plus domain data | UI is concentrated; authorization must remain inside each server action |
+| Administration | `/admin`, `/admin-earnings`, `src/domains/admin/public.ts`, read-only Overview UI/application modules | profile role plus domain data | Overview composition is domain-owned and exact-auth-generation scoped; remaining panels are concentrated, and authorization remains inside each server action |
 | Notifications | `/notifications`, `src/domains/notifications/public.ts`, notification UI/application/domain modules, application-shell unread badge, and the existing notification server module | Supabase `notifications` | browser read/count/mark effects are exact-auth-generation scoped; notification records remain secondary to authoritative financial and referral state transitions |
 | Support and settings | `/support`, `src/domains/support/public.ts`, Support UI/application modules, and admin settings | Supabase `app_settings` | the public redirect and dashboard navigation consume one client-safe facade and application bridge; current visible support is Telegram |
 | Legacy support tickets | no active visible product flow | separate Netlify Database through Drizzle | quarantined until authentication and database ownership are redesigned |
@@ -251,6 +251,21 @@ The shared policy is:
 No individual rail may reimplement or weaken this policy.
 
 ### Administration
+
+The first bounded administration extraction moves only the read-only Overview
+composition behind `src/domains/admin/public.ts`. One admin application bridge
+owns its browser dependency on the existing administrator statistics server
+function. Snapshot visibility, retries, timers, and finalizers require the
+exact administrator and access-token generation, while the server continues to
+derive identity from that token and independently reject non-admin or frozen
+profiles.
+
+This composition ownership does not transfer authority over profiles,
+deposits, withdrawals, plans, balances, or financial transitions to the admin
+domain. The `/admin` route remains the compatibility shell and the other
+panels remain concentrated for later bounded extraction. Their existing
+actions, server authorization, response contracts, and domain ownership are
+unchanged.
 
 The current single administrator capability remains, but UI and authorization contracts should be grouped by domain:
 

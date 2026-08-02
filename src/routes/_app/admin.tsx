@@ -3,14 +3,11 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
-import { CurrencyUnit } from "@/components/ui/AmountText.js";
 import { Spinner } from "@/components/ui/Spinner.js";
 import {
   ShieldCheck,
-  Users,
   Settings,
   MessageSquare,
-  ArrowDownCircle,
   Building2,
   Smartphone,
   CheckCircle,
@@ -33,7 +30,10 @@ import { useAuthStore } from "@/store/authStore.js";
 import { supabase } from "@/lib/supabase.js";
 import { withTimeout } from "@/lib/async.js";
 import { NowpaymentsUsdtWithdrawalAdmin } from "@/components/admin/NowpaymentsUsdtWithdrawalAdmin.js";
-import { getAdminStatsFn } from "@/lib/server/admin.js";
+import {
+  AdminEtbAmount,
+  AdminOverviewPanel,
+} from "@/domains/admin/public.js";
 import {
   getPaymentMethodsFn,
   createPaymentMethodFn,
@@ -63,7 +63,6 @@ export const Route = createFileRoute("/_app/admin")({
   component: AdminPage,
 });
 
-type AdminStats = Awaited<ReturnType<typeof getAdminStatsFn>>;
 type AdminDeposit = Awaited<ReturnType<typeof getAdminDepositsFn>>[number];
 type PaymentMethod = Awaited<ReturnType<typeof getPaymentMethodsFn>>[number];
 type AuditLog = Awaited<ReturnType<typeof getDepositVerificationLogsFn>>[number];
@@ -125,7 +124,12 @@ function AdminPage() {
         ))}
       </div>
 
-      {activeTab === "overview" && <OverviewTab userId={user?.id} />}
+      {activeTab === "overview" && (
+        <AdminOverviewPanel
+          accessToken={session?.access_token ?? null}
+          userId={user?.id}
+        />
+      )}
       {activeTab === "deposits" && <DepositsTab userId={user?.id} />}
       {activeTab === "withdrawals" && <WithdrawalsTab userId={user?.id} />}
       {activeTab === "usdt-withdrawals" && (
@@ -137,195 +141,6 @@ function AdminPage() {
       {activeTab === "audit" && <AuditLogsTab userId={user?.id} />}
       {activeTab === "security" && <AdminSecurityTab userId={user?.id} />}
       {activeTab === "settings" && <SettingsTab userId={user?.id} />}
-    </div>
-  );
-}
-
-function OverviewTab({ userId }: { userId: string | undefined }) {
-  const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
-  const [stats, setStats] = useState<AdminStats | null>(null);
-  const [statsLoaded, setStatsLoaded] = useState(false);
-  const mountedRef = useRef(true);
-  const loadingRef = useRef(false);
-  const retryCountRef = useRef(0);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearRetryTimer = useCallback(() => {
-    if (retryTimerRef.current) {
-      clearTimeout(retryTimerRef.current);
-      retryTimerRef.current = null;
-    }
-  }, []);
-
-  const scheduleRetry = useCallback(
-    (loadFn: () => void) => {
-      clearRetryTimer();
-
-      if (retryCountRef.current >= ADMIN_MAX_AUTO_RETRIES) return;
-
-      retryCountRef.current += 1;
-      retryTimerRef.current = setTimeout(loadFn, ADMIN_AUTO_RETRY_DELAY_MS);
-    },
-    [clearRetryTimer],
-  );
-
-  const loadOverview = useCallback(
-    async (options?: { resetRetryCount?: boolean }) => {
-      if (loadingRef.current) return;
-
-      if (options?.resetRetryCount) {
-        retryCountRef.current = 0;
-      }
-
-      if (!userId) return;
-
-      if (!accessToken) {
-        scheduleRetry(() => {
-          void loadOverview();
-        });
-        return;
-      }
-
-      clearRetryTimer();
-      loadingRef.current = true;
-
-      try {
-        const result = await withTimeout(
-          getAdminStatsFn({
-            data: {
-              accessToken,
-            },
-          }),
-          ADMIN_TAB_LOAD_TIMEOUT_MS,
-          "Admin overview request timed out.",
-        );
-
-        if (!mountedRef.current) return;
-
-        setStats(result);
-        setStatsLoaded(true);
-        retryCountRef.current = 0;
-      } catch (err) {
-        console.error("[QHash] Admin overview background refresh failed:", err);
-
-        if (!mountedRef.current) return;
-
-        scheduleRetry(() => {
-          void loadOverview();
-        });
-      } finally {
-        loadingRef.current = false;
-      }
-    },
-    [accessToken, clearRetryTimer, scheduleRetry, userId],
-  );
-
-  useEffect(() => {
-    mountedRef.current = true;
-    void loadOverview({ resetRetryCount: true });
-
-    return () => {
-      mountedRef.current = false;
-      clearRetryTimer();
-    };
-  }, [clearRetryTimer, loadOverview]);
-
-  useEffect(() => {
-    const handleVisible = () => {
-      if (document.visibilityState === "visible") {
-        void loadOverview({ resetRetryCount: true });
-      }
-    };
-
-    const handleOnline = () => {
-      void loadOverview({ resetRetryCount: true });
-    };
-
-    document.addEventListener("visibilitychange", handleVisible);
-    window.addEventListener("online", handleOnline);
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisible);
-      window.removeEventListener("online", handleOnline);
-    };
-  }, [loadOverview]);
-
-  return (
-    <div className="space-y-4 lg:grid lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0">
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 gap-3 lg:col-span-12 lg:grid-cols-4">
-        {[
-          { label: "Total Users", value: stats?.totalUsers, icon: <Users size={14} /> },
-          { label: "Active Plans", value: stats?.activeInvestments, icon: <ShieldCheck size={14} /> },
-          { label: "Pending Deposits", value: stats?.pendingDeposits, icon: <ArrowDownCircle size={14} /> },
-          {
-            label: "Revenue",
-            value: stats?.totalRevenue !== undefined
-              ? <AdminEtbAmount value={stats.totalRevenue} />
-              : undefined,
-            icon: <Settings size={14} />,
-          },
-        ].map((s) => (
-          <div key={s.label} className="bg-[#111] rounded-xl border border-[#1a1a1a] p-3">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-[10px] text-gray-500">{s.label}</p>
-              <span className="text-gray-600">{s.icon}</span>
-            </div>
-            {!statsLoaded ? (
-              <span className="skeleton inline-block h-5 w-16 rounded" aria-label={`Loading ${s.label}`} />
-            ) : (
-              <p className="text-lg font-bold">{s.value ?? 0}</p>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* Recent Users */}
-      <div className="lg:col-span-8">
-        <h2 className="text-xs font-semibold text-gray-400 mb-2">Recent Users</h2>
-        {!statsLoaded ? (
-          <div className="space-y-2">{[1, 2, 3].map((i) => <div key={i} className="skeleton h-12 rounded-xl" />)}</div>
-        ) : !stats?.recentUsers.length ? (
-          <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-6 text-center text-xs text-gray-600">No users yet.</div>
-        ) : (
-          <div className="bg-[#111] rounded-xl border border-[#1a1a1a] divide-y divide-[#1a1a1a]">
-            {stats.recentUsers.map((u) => (
-              <div key={u.id} className="flex items-center justify-between px-4 py-2.5">
-                <div>
-                  <p className="text-xs font-medium text-gray-200">@{u.username}</p>
-                  <p className="text-[10px] text-gray-600">{u.phone}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {u.is_frozen ? <Badge variant="danger">Frozen</Badge> : u.is_admin ? <Badge variant="neon">Admin</Badge> : <Badge variant="default">User</Badge>}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Pending Withdrawals */}
-      <div className="lg:col-span-4">
-        <h2 className="text-xs font-semibold text-gray-400 mb-2">Pending Withdrawals</h2>
-        {!statsLoaded ? (
-          <div className="skeleton h-16 rounded-xl" />
-        ) : !stats?.pendingWithdrawalRecords.length ? (
-          <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-6 text-center text-xs text-gray-600">No pending requests.</div>
-        ) : (
-          <div className="bg-[#111] rounded-xl border border-[#1a1a1a] divide-y divide-[#1a1a1a]">
-            {stats.pendingWithdrawalRecords.map((w) => (
-              <div key={w.id} className="flex items-center justify-between px-4 py-2.5">
-                <div>
-                  <p className="text-xs font-medium text-gray-200">@{w.username}</p>
-                  <p className="text-[10px] text-gray-600">{new Date(w.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</p>
-                </div>
-                <span className="text-xs text-red-400 font-mono"><AdminEtbAmount value={w.amount} /></span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
     </div>
   );
 }
@@ -953,19 +768,6 @@ function WithdrawalStatusBadge({ status }: { status: string }) {
   };
   const sc = statusConfig[status] ?? { label: status, variant: "default" as const };
   return <Badge variant={sc.variant}>{sc.label}</Badge>;
-}
-
-function formatEtbNumber(value: number): string {
-  return Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function AdminEtbAmount({ value }: { value: number }) {
-  return (
-    <>
-      {formatEtbNumber(value)}
-      <CurrencyUnit />
-    </>
-  );
 }
 
 function PaymentMethodsTab({ userId }: { userId: string | undefined }) {

@@ -106,6 +106,17 @@ financial, database, and administrator boundaries remain owned by
 `withdrawals`; the extraction creates no new live fiat route or server trust
 boundary.
 
+The `admin` public facade owns the read-only Overview composition and its
+legacy ETB presentation primitive. One admin application bridge owns the
+browser dependency on the existing administrator statistics server function.
+Overview snapshots, retries, timers, and finalizers are exact-user/token-
+generation scoped, while the server continues to derive and authorize the
+administrator from the access token. This composition ownership does not move
+profile, deposit, withdrawal, plan, balance, or financial-transition authority
+into `admin`; those commands and data remain with their accountable domains.
+The `/admin` route continues as the compatibility shell for the remaining
+panels.
+
 The `accounts` public facade owns the browser dashboard page and remote-state
 hook. Its application bridge is the only accounts-domain dashboard dependency
 on legacy server functions. Dashboard snapshots and retries are keyed to the
@@ -122,8 +133,8 @@ domain-owned redirect page while preserving its one-shot redirect and
 unavailable-state behavior.
 The dashboard's preload, timeout, passive refresh, interactive navigation, and
 fallback contract remain separate from the public redirect presentation.
-Profile and Admin remain documented legacy direct consumers for later
-domain-specific extractions.
+Profile and the remaining Admin panels remain documented legacy direct
+consumers for later domain-specific extractions.
 
 The transactions route also consumes only the accounts public facade. One
 accounts application bridge owns the browser dependency on the existing

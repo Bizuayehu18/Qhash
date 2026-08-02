@@ -97,6 +97,20 @@ invalidation, scoped keys, bounded retry admission, compatibility adapters,
 and the continued ownership of Plans purchase-flight and Fiat Withdrawals
 null-state rules by their respective domains.
 
+`tests/admin-route-compatibility.test.mjs` freezes `/admin` as the unchanged
+compatibility shell while delegating only its read-only Overview through the
+client-safe admin public surface. It keeps all seven current tabs, the
+non-admin redirect/null behavior, the existing domain-owned panels, one
+explicit browser-to-server Overview bridge, and independent active-admin
+authorization at the server boundary.
+
+`tests/admin-overview-ui.test.mjs` freezes the four statistics cards, legacy
+ETB revenue and pending-withdrawal presentation, recent-user badges, loading
+and empty states, ten-second timeout, two 1.5-second retries, and visible/online
+refresh. Its deferred-request fixtures and shared lifecycle assertions prove
+that late success, failure, retry, or finalizer effects cannot cross an
+administrator or access-token generation.
+
 `tests/shared-date-time-formatting.test.mjs` freezes the application shell's
 cross-domain presentation formatter. It covers string and `Date` inputs,
 existing invalid-date behavior, the exact `en-US` locale and options, the
