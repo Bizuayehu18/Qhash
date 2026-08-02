@@ -341,7 +341,12 @@
           "tests/helpers/fiat-deposit-global-pause-fixture.mjs"
         ],
         "sourceModules": [
+          "src/domains/fiat-deposits/application/deposit-verification-audit-auth-lifecycle.ts",
+          "src/domains/fiat-deposits/application/deposit-verification-audit-browser-service.ts",
           "src/domains/fiat-deposits/server/require-fiat-deposit-admission.ts",
+          "src/domains/fiat-deposits/ui/admin/deposit-verification-audit-presentation.ts",
+          "src/domains/fiat-deposits/ui/admin/DepositVerificationAuditPanel.tsx",
+          "src/domains/fiat-deposits/ui/admin/useDepositVerificationAudit.ts",
           "src/domains/fiat-deposits/ui/fiat-deposit-provider.ts",
           "src/domains/fiat-deposits/ui/fiat-deposit-providers.ts",
           "src/domains/fiat-deposits/ui/fiat-deposit-types.ts",
@@ -387,6 +392,7 @@
           "public.payment_methods"
         ],
         "tests": [
+          "tests/admin-deposit-verification-audit-ui.test.mjs",
           "tests/deposit-approval-rpc-security.test.mjs",
           "tests/fiat-deposit-global-pause-database.test.mjs",
           "tests/fiat-deposit-ui.test.mjs"

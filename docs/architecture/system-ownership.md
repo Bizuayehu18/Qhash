@@ -117,6 +117,16 @@ into `admin`; those commands and data remain with their accountable domains.
 The `/admin` route continues as the compatibility shell for the remaining
 panels.
 
+The `fiat-deposits` public facade also owns the read-only administrator
+Verification Audit panel. One fiat-deposit application bridge is its only
+browser dependency on the existing administrator audit server function. Audit
+snapshots, retries, timers, and finalizers are keyed to the exact
+administrator, access-token generation, and All/CBE/TeleBirr filter, while the
+server independently authorizes the token and returns only its established
+sanitized latest-100 audit projection. This composition ownership adds no audit
+write and does not move deposit approval, payment-method configuration,
+verification execution, balances, or financial transitions into `admin`.
+
 The `accounts` public facade owns the browser dashboard page and remote-state
 hook. Its application bridge is the only accounts-domain dashboard dependency
 on legacy server functions. Dashboard snapshots and retries are keyed to the
