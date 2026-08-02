@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { Database } from "../../src/lib/database.types.ts";
 import { isUuidV1ToV5, isUuidV4 } from "../../src/shared/identifiers/uuid.ts";
+import { isParseableTimestampString } from "../../src/shared/validation/parseable-timestamp.ts";
 import { isPublishedProductionDeployContext } from "./lib/nowpayments-deploy-context.mts";
 
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
@@ -162,16 +163,12 @@ function createRequestId(requestIdFactory: RequestIdFactory): string {
   return randomBytesRequestId();
 }
 
-function isTimestamp(value: unknown): value is string {
-  return typeof value === "string" && Number.isFinite(new Date(value).getTime());
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function isNullableTimestamp(value: unknown): value is string | null {
-  return value === null || isTimestamp(value);
+  return value === null || isParseableTimestampString(value);
 }
 
 function isDecimal(value: unknown): value is string {
@@ -221,7 +218,7 @@ function validateSession(value: unknown, userId: string): SessionRow {
     || !isNullableTimestamp(row.terminal_at)
     || !isNullableDecimal(row.credited_amount_usdt)
     || !isNullableTimestamp(row.credited_at)
-    || !isTimestamp(row.created_at)
+    || !isParseableTimestampString(row.created_at)
   ) {
     throw new Error("invalid_session_read");
   }
@@ -242,7 +239,7 @@ function validateProviderPayment(value: unknown, userId: string): ProviderPaymen
     || !PROVIDER_STATUSES.has(row.provider_payment_status)
     || !isNullableDecimal(row.credited_amount_usdt)
     || !isNullableTimestamp(row.credited_at)
-    || !isTimestamp(row.created_at)
+    || !isParseableTimestampString(row.created_at)
   ) {
     throw new Error("invalid_provider_payment_read");
   }

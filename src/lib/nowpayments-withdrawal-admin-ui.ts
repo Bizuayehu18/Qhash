@@ -1,3 +1,5 @@
+import { isParseableTimestampString } from "../shared/validation/parseable-timestamp.ts";
+
 export const NOWPAYMENTS_ADMIN_WITHDRAWAL_STATUSES = [
   "pending",
   "completed",
@@ -77,10 +79,6 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function isTimestamp(value: unknown): value is string {
-  return typeof value === "string" && Number.isFinite(new Date(value).getTime());
-}
-
 function isDecimal(value: unknown): value is string {
   return typeof value === "string" && DECIMAL_PATTERN.test(value);
 }
@@ -104,7 +102,7 @@ function parseWithdrawal(value: unknown): NowpaymentsAdminWithdrawal {
     || !isDecimal(value.gross_amount_usdt)
     || !isDecimal(value.fee_amount_usdt)
     || !isDecimal(value.net_amount_usdt)
-    || !isTimestamp(value.requested_at)
+    || !isParseableTimestampString(value.requested_at)
     || (
       value.transaction_hash !== null
       && (

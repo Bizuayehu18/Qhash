@@ -1,6 +1,7 @@
 import type { Config, Context } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../../src/lib/database.types.ts";
+import { isParseableTimestampString } from "../../src/shared/validation/parseable-timestamp.ts";
 import { isPublishedProductionDeployContext } from "./lib/nowpayments-deploy-context.mts";
 
 const DECIMAL_PATTERN = /^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/;
@@ -38,10 +39,6 @@ function json(body: Record<string, unknown>, status: number): Response {
   });
 }
 
-function isTimestamp(value: unknown): value is string {
-  return typeof value === "string" && Number.isFinite(new Date(value).getTime());
-}
-
 function isDecimal(value: unknown): value is string {
   return typeof value === "string" && DECIMAL_PATTERN.test(value);
 }
@@ -76,7 +73,7 @@ function validateWithdrawal(value: unknown, userId: string): WithdrawalRow {
     || !isDecimal(row.net_amount_usdt)
     || typeof row.status !== "string"
     || !INTERNAL_STATUSES.has(row.status)
-    || !isTimestamp(row.requested_at)
+    || !isParseableTimestampString(row.requested_at)
   ) {
     throw new Error("invalid_withdrawal_read");
   }

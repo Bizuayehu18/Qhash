@@ -1,6 +1,7 @@
 import type { Config, Context } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../../src/lib/database.types.ts";
+import { isParseableTimestampString } from "../../src/shared/validation/parseable-timestamp.ts";
 import { isPublishedProductionDeployContext } from "./lib/nowpayments-deploy-context.mts";
 
 const MAX_BODY_BYTES = 4_096;
@@ -73,10 +74,6 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function isTimestamp(value: unknown): value is string {
-  return typeof value === "string" && Number.isFinite(new Date(value).getTime());
-}
-
 function isDecimal(value: unknown): value is string {
   return typeof value === "string" && DECIMAL_PATTERN.test(value);
 }
@@ -114,7 +111,7 @@ function validateWithdrawal(value: unknown): WithdrawalRow {
     || !isDecimal(value.net_amount_usdt)
     || typeof value.status !== "string"
     || !INTERNAL_STATUSES.has(value.status)
-    || !isTimestamp(value.requested_at)
+    || !isParseableTimestampString(value.requested_at)
     || (
       value.current_broadcast_id !== null
       && (
