@@ -1,4 +1,5 @@
 import { isUuidV4 } from "../shared/identifiers/uuid.ts";
+import { isParseableTimestampString } from "../shared/validation/parseable-timestamp.ts";
 import { normalizeWithdrawalNextAllowedAt } from "./withdrawal-policy.ts";
 
 export const NOWPAYMENTS_WITHDRAWAL_STATUSES = [
@@ -87,10 +88,6 @@ function canonicalDecimal(value: string): string {
   return trimmedFraction ? `${integer}.${trimmedFraction}` : integer;
 }
 
-function isTimestamp(value: unknown): value is string {
-  return typeof value === "string" && Number.isFinite(new Date(value).getTime());
-}
-
 function parseHistory(value: unknown): NowpaymentsWithdrawalHistoryView {
   if (!isObject(value)) throw new NowpaymentsWithdrawalUiError("unavailable");
   if (
@@ -101,7 +98,7 @@ function parseHistory(value: unknown): NowpaymentsWithdrawalHistoryView {
     || !isDecimal(value.gross_amount_usdt)
     || !isDecimal(value.fee_amount_usdt)
     || !isDecimal(value.net_amount_usdt)
-    || !isTimestamp(value.requested_at)
+    || !isParseableTimestampString(value.requested_at)
   ) {
     throw new NowpaymentsWithdrawalUiError("unavailable");
   }

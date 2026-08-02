@@ -112,6 +112,15 @@ requires all seven case-insensitive callers to import the shared primitive,
 preserves caller-owned lowercase output where already established, and guards
 the three lowercase-only withdrawal validators as distinct domain contracts.
 
+`tests/shared-timestamp-validation.test.mjs` freezes the platform-owned
+timestamp-string parseability boundary. It differentially covers the exact
+legacy JavaScript `Date` predicate across ISO-with-offset, date-only,
+human-readable, whitespace-bearing, quirky parseable, invalid, and non-string
+inputs. It requires all six equivalent crypto-deposit and USDT-withdrawal
+transport readers to import the shared predicate and prevents provider
+normalization, canonical withdrawal-policy timestamps, or Ethiopia receipt
+parsers from being silently folded into that permissive contract.
+
 `tests/plans-route-compatibility.test.mjs` freezes `/plans` as a thin route
 through the plans public surface, keeps the generated-route and deposit-link
 contracts intact, and rejects server logic in the route. `tests/plans-ui.test.mjs`

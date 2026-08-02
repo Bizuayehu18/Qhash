@@ -192,6 +192,15 @@ persist values; those behaviors remain with each caller. The PostgreSQL
 remain separate financial/database boundaries rather than aliases of the
 TypeScript helper.
 
+The platform domain also owns the dependency-free timestamp-string
+parseability predicate at `src/shared/validation/parseable-timestamp.ts`. Six
+crypto-deposit and USDT-withdrawal client/server transport readers consume the
+same established JavaScript `Date` parseability check. The helper performs no
+trimming, normalization, formatting, ISO/RFC enforcement, current-time
+comparison, authorization, or persistence. Nullable field rules, provider
+normalization, canonical withdrawal-policy timestamps, and Ethiopia receipt
+parsers remain with their current owners.
+
 ## Supabase contract
 
 Generated table and Data API function inventories come from

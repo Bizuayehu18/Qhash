@@ -15,7 +15,7 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 | Phase 0 — Architecture foundation | Complete |
 | Phase 1 — Deterministic engineering baseline | Complete |
 | Phase 2 — Compatibility scaffolding | In progress: client-safe route/facade slices and cross-system ownership enforcement implemented; server-only entry points remain |
-| Phase 3 — Extract shared primitives | In progress: authenticated request lifecycle, exact cross-domain date/time presentation, and shared UUID syntax extracted |
+| Phase 3 — Extract shared primitives | In progress: authenticated request lifecycle, exact cross-domain date/time presentation, shared UUID syntax, and shared timestamp parseability extracted |
 | Phase 4 — Extract domains one at a time | In progress: accounts transaction history/dashboard, public Support redirect, Notifications, crypto-deposit, ordinary-user USDT-withdrawal, Ethiopia fiat-deposit, Ethiopia fiat-withdrawal, legacy ETB plans, and referrals UI decompositions implemented |
 | Phase 5 and later | Not started |
 
@@ -202,6 +202,26 @@ identifiers. Existing caller normalization remains local. Three deliberately
 lowercase-only withdrawal validators and PostgreSQL
 `public.is_canonical_uuid_v4` remain outside the shared module because they
 enforce distinct financial/database contracts.
+
+The fourth bounded Phase 3 slice moves the exact timestamp-string
+parseability predicate into
+`src/shared/validation/parseable-timestamp.ts`. Six crypto-deposit and USDT-
+withdrawal browser/server transport readers consume the shared
+`isParseableTimestampString` predicate. It preserves permissive JavaScript
+`Date` parsing without trimming, normalization, ISO/RFC enforcement,
+formatting, current-time comparison, or returning a `Date` to callers.
+Nullable wrappers, provider normalization, canonical financial-policy
+timestamps, receipt parsing, and errors remain caller- or domain-owned.
+
+Phase 3 remains in progress. An exact loose non-null, non-array object guard is
+still duplicated across seven production consumers. It is deliberately
+deferred to a separately characterized slice because the established contract
+also accepts `Date`, `Map`, class instances, and null-prototype objects, so its
+API must not imply plain-record validation. Other remaining amount, error,
+single-flight, and validation lookalikes have different precision, trust,
+provider, or lifecycle contracts. They remain with their owners until a later
+domain or canonical-USDT phase proves an exact shared contract; avoiding a
+premature generic helper remains part of this phase.
 
 Exit criteria:
 

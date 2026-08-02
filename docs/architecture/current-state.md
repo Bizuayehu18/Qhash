@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository base `d6a603f200849b1c6c9e4db22280bc8f9b858625`, plus this shared UUID syntax extraction
+**Scope:** Runtime baseline through repository base `70dccf587110eda928a30c43edc0294d12dfc86c`, plus this shared timestamp-validation extraction
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -218,6 +218,17 @@ local normalization rules. Deliberately lowercase-only withdrawal and
 PostgreSQL validators remain domain-owned because they enforce a different
 contract. This extraction changes no identifier, route, request, database, or
 financial behavior.
+
+The platform domain also owns the exact timestamp-string parseability predicate
+at `src/shared/validation/parseable-timestamp.ts`. Six crypto-deposit and USDT-
+withdrawal browser/server transport readers use this dependency-free predicate
+instead of repeating `new Date(value).getTime()` checks. The contract remains
+JavaScript `Date` parseability: it does not trim, normalize, format, require ISO
+8601/RFC 3339, compare against current time, or return a `Date`. Nullable field
+rules, provider timestamp normalization, withdrawal-policy timestamps, receipt
+parsers, errors, and response contracts remain with their existing owners.
+This extraction changes no accepted timestamp, route, request, provider,
+database, or financial behavior.
 
 The canonical crypto routes are non-nested TanStack routes beneath the
 protected `_app` layout. They import the client-safe

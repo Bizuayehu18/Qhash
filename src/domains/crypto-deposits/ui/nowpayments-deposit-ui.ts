@@ -1,3 +1,5 @@
+import { isParseableTimestampString } from "../../../shared/validation/parseable-timestamp.ts";
+
 /**
  * Browser-safe NOWPayments deposit transport, validation, request lifecycle,
  * and presentation helpers for the USDT-BEP20 crypto-deposit capability.
@@ -167,16 +169,12 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function isTimestamp(value: unknown): value is string {
-  return typeof value === "string" && Number.isFinite(new Date(value).getTime());
-}
-
 function isDecimal(value: unknown): value is string {
   return typeof value === "string" && DECIMAL_PATTERN.test(value);
 }
 
 function isNullableTimestamp(value: unknown): value is string | null {
-  return value === null || isTimestamp(value);
+  return value === null || isParseableTimestampString(value);
 }
 
 function isNullableDecimal(value: unknown): value is string | null {
@@ -195,7 +193,7 @@ function parseSession(value: unknown): NowpaymentsDepositSessionView | null {
     || !ADDRESS_PATTERN.test(value.pay_address)
     || !isDecimal(value.minimum_deposit_usdt)
     || !isDecimal(value.provider_minimum_usdt)
-    || !isTimestamp(value.created_at)
+    || !isParseableTimestampString(value.created_at)
     || !["pending_activation", "permanently_activated"].includes(
       String(value.address_lifecycle),
     )
@@ -220,7 +218,7 @@ function parseHistory(value: unknown): NowpaymentsDepositHistoryView {
     || (value.pay_address !== null
       && (typeof value.pay_address !== "string" || !ADDRESS_PATTERN.test(value.pay_address)))
     || !isNullableDecimal(value.credited_amount_usdt)
-    || !isTimestamp(value.created_at)
+    || !isParseableTimestampString(value.created_at)
     || !isNullableTimestamp(value.valid_until)
     || !isNullableTimestamp(value.completed_at)
   ) {
