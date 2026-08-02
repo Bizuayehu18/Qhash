@@ -120,8 +120,12 @@
           "src/lib/format.ts",
           "src/router.tsx",
           "src/routeTree.gen.ts",
+          "src/shared/formatting/date-time.ts",
           "src/store/uiStore.ts",
           "src/styles.css"
+        ],
+        "tests": [
+          "tests/shared-date-time-formatting.test.mjs"
         ]
       }
     },

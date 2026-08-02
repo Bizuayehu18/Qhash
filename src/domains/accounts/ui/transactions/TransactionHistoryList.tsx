@@ -6,7 +6,7 @@ import {
   txSubtitle,
   txTitle,
 } from "@/components/ui/TransactionHelpers.js";
-import { formatDateTime } from "@/lib/format.js";
+import { formatDateTime } from "@/shared/formatting/date-time.js";
 import type { TransactionHistoryRow } from "../../application/transaction-history-browser-service.js";
 
 function StatusBadge({ status }: { status?: string }) {

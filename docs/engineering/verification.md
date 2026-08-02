@@ -97,6 +97,13 @@ invalidation, scoped keys, bounded retry admission, compatibility adapters,
 and the continued ownership of Plans purchase-flight and Fiat Withdrawals
 null-state rules by their respective domains.
 
+`tests/shared-date-time-formatting.test.mjs` freezes the application shell's
+cross-domain presentation formatter. It covers string and `Date` inputs,
+existing invalid-date behavior, the exact `en-US` locale and options, the
+legacy compatibility re-export, and direct shared imports in all 10 current
+consumers. It also prevents the distinct nullable administrator-earnings
+formatter from being silently folded into the shared contract.
+
 `tests/plans-route-compatibility.test.mjs` freezes `/plans` as a thin route
 through the plans public surface, keeps the generated-route and deposit-link
 contracts intact, and rejects server logic in the route. `tests/plans-ui.test.mjs`

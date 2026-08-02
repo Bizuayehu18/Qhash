@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
-import { formatDateTime } from "@/lib/format.js";
+import { formatDateTime } from "@/shared/formatting/date-time.js";
 import {
   createAdminWithdrawalActionLifecycle,
   createLatestAdminWithdrawalRequestGuard,

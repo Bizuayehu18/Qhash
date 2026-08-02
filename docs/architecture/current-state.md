@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository base `66f6533eb8d2f3634a02c56eed8701be201b27c8`, plus this shared authenticated-request lifecycle extraction
+**Scope:** Runtime baseline through repository base `e1e68a2d1d91a7710de40dbe5b34ce11d63040bf`, plus this shared date/time presentation extraction
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -198,6 +198,15 @@ flight and reconciliation policy, and Fiat Withdrawals retains its explicit
 null-to-null form-ownership rule; neither domain policy moved into `shared`.
 This extraction changes no route, request, server, database, or financial
 behavior.
+
+The application shell now owns the exact established cross-domain date/time
+presentation contract at `src/shared/formatting/date-time.ts`. Its `en-US`,
+device-local-timezone output is consumed directly by Admin, Accounts, Crypto
+Deposits, Fiat Deposits, Fiat Withdrawals, Notifications, and USDT Withdrawals.
+`src/lib/format.ts` remains a compatibility re-export. Nullable, date-only,
+explicit-UTC, and provider receipt timestamp rules remain with their existing
+domains because they are different contracts. This extraction changes no
+visible timestamp, locale, timezone, route, request, or financial behavior.
 
 The canonical crypto routes are non-nested TanStack routes beneath the
 protected `_app` layout. They import the client-safe

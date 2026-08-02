@@ -54,7 +54,7 @@ router, build configuration, and Netlify configuration.
 |---|---|
 | `accounts` | Dashboard remote state, wallet and ledger views, balances, transactions, and authentication-scoped accounting presentation |
 | `admin` | Administrator shell and composition; financial commands remain owned by their financial domain |
-| `app-shell` | Router, layouts, shared UI primitives, global UI state, and generated route integration |
+| `app-shell` | Router, layouts, shared UI and presentation primitives, global UI state, and generated route integration |
 | `crypto-deposits` | USDT rail enablement, addresses, provider evidence, settlement, and retired crypto evidence |
 | `deposits` | Provider-neutral cross-rail deposit admission, shared availability, history composition, and deposit navigation |
 | `earnings` | Investment earning execution and earning-run audit |
@@ -165,6 +165,14 @@ for deriving the caller identity from that token. Notification producer writes
 remain owned by the deposit, withdrawal, earning, and referral workflows that
 emit them; consuming a notification does not transfer ownership of the
 underlying financial transition.
+
+The application shell owns the shared date/time presentation primitive at
+`src/shared/formatting/date-time.ts`. Admin, Accounts, Crypto Deposits, Fiat
+Deposits, Fiat Withdrawals, Notifications, and USDT Withdrawals consume that
+exact formatter directly; `src/lib/format.ts` remains a compatibility bridge.
+The shared contract intentionally retains `en-US` output in the device's local
+timezone. Nullable, date-only, explicit-UTC, and provider-verification
+timestamp semantics remain with their existing domain owners.
 
 The platform domain owns the shared authenticated-request lifecycle primitive.
 Accounts, Plans, Referrals, Notifications, and Fiat Withdrawals retain their

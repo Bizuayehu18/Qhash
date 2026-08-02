@@ -15,7 +15,7 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 | Phase 0 — Architecture foundation | Complete |
 | Phase 1 — Deterministic engineering baseline | Complete |
 | Phase 2 — Compatibility scaffolding | In progress: client-safe route/facade slices and cross-system ownership enforcement implemented; server-only entry points remain |
-| Phase 3 — Extract shared primitives | In progress: authenticated request identity, generation, scope, and retry guards extracted |
+| Phase 3 — Extract shared primitives | In progress: authenticated request lifecycle and exact cross-domain date/time presentation extracted |
 | Phase 4 — Extract domains one at a time | In progress: accounts transaction history/dashboard, public Support redirect, Notifications, crypto-deposit, ordinary-user USDT-withdrawal, Ethiopia fiat-deposit, Ethiopia fiat-withdrawal, legacy ETB plans, and referrals UI decompositions implemented |
 | Phase 5 and later | Not started |
 
@@ -184,6 +184,15 @@ identity, latest-generation guard, scoped-request guard, and bounded retry
 admission already proven in five domains. Existing domain import paths remain
 compatibility adapters. Plans purchase-flight/reconciliation policy and Fiat
 Withdrawals form-ownership semantics remain domain-owned.
+
+The second bounded Phase 3 slice moves the exact established cross-domain
+`formatDateTime(string | Date)` presentation contract into
+`src/shared/formatting/date-time.ts`. Its 10 current consumers import the
+shared path directly, while `src/lib/format.ts` remains a compatibility
+re-export. The slice preserves `en-US`, device-local timezone, short month,
+numeric day/hour, two-digit minute, and existing invalid-date behavior.
+Nullable, date-only, explicit-UTC financial-policy, and provider receipt
+timestamp formatters remain domain-owned because their contracts differ.
 
 Exit criteria:
 

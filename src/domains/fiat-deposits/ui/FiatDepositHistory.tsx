@@ -6,7 +6,7 @@ import { EmptyState } from "@/components/ui/EmptyState.js";
 import { ListPanel } from "@/components/ui/ListPanel.js";
 import { ListRow } from "@/components/ui/ListRow.js";
 import { SectionHeader } from "@/components/ui/SectionHeader.js";
-import { formatDateTime } from "@/lib/format.js";
+import { formatDateTime } from "@/shared/formatting/date-time.js";
 import { getFiatDepositMethodMeta } from "./fiat-deposit-providers.js";
 import type { UserFiatDeposit } from "./fiat-deposit-types.js";
 
