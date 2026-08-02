@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository base `70dccf587110eda928a30c43edc0294d12dfc86c`, plus this shared timestamp-validation extraction
+**Scope:** Runtime baseline through repository base `bf963f0a377216840edb23a80687ee8e45f06996`, plus this shared non-null, non-array object-guard extraction
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -229,6 +229,19 @@ rules, provider timestamp normalization, withdrawal-policy timestamps, receipt
 parsers, errors, and response contracts remain with their existing owners.
 This extraction changes no accepted timestamp, route, request, provider,
 database, or financial behavior.
+
+The platform domain also owns the exact loose object predicate at
+`src/shared/validation/non-null-non-array-object.ts`. Seven crypto-deposit,
+deposit-admission, and USDT-withdrawal browser/server readers use the shared
+`isNonNullNonArrayObject` predicate instead of repeating the same check. The
+contract accepts every non-null object except an array, including `Date`,
+`Map`, `Set`, class instances, boxed primitives, and null-prototype objects. It
+does not claim plain-object or schema validation and performs no prototype,
+own-key, normalization, cloning, authorization, or persistence work. The
+strict deposit-audit sanitizer, NOWPayments IPN canonicalizer, and other
+parse/error-coupled object readers retain their existing domain-owned
+contracts. This extraction changes no accepted payload, error, route, request,
+provider, database, or financial behavior.
 
 The canonical crypto routes are non-nested TanStack routes beneath the
 protected `_app` layout. They import the client-safe

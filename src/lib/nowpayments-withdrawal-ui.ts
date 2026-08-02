@@ -1,4 +1,5 @@
 import { isUuidV4 } from "../shared/identifiers/uuid.ts";
+import { isNonNullNonArrayObject } from "../shared/validation/non-null-non-array-object.ts";
 import { isParseableTimestampString } from "../shared/validation/parseable-timestamp.ts";
 import { normalizeWithdrawalNextAllowedAt } from "./withdrawal-policy.ts";
 
@@ -74,10 +75,6 @@ export class NowpaymentsWithdrawalUiError extends Error {
   }
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
 function isDecimal(value: unknown): value is string {
   return typeof value === "string" && DECIMAL_PATTERN.test(value);
 }
@@ -89,7 +86,9 @@ function canonicalDecimal(value: string): string {
 }
 
 function parseHistory(value: unknown): NowpaymentsWithdrawalHistoryView {
-  if (!isObject(value)) throw new NowpaymentsWithdrawalUiError("unavailable");
+  if (!isNonNullNonArrayObject(value)) {
+    throw new NowpaymentsWithdrawalUiError("unavailable");
+  }
   if (
     typeof value.status !== "string"
     || !STATUS_SET.has(value.status)
@@ -115,7 +114,7 @@ function parseHistory(value: unknown): NowpaymentsWithdrawalHistoryView {
 export function parseNowpaymentsWithdrawalOverview(
   value: unknown,
 ): NowpaymentsWithdrawalOverview {
-  if (!isObject(value) || !Array.isArray(value.history)) {
+  if (!isNonNullNonArrayObject(value) || !Array.isArray(value.history)) {
     throw new NowpaymentsWithdrawalUiError("unavailable");
   }
   if (
@@ -145,7 +144,7 @@ export function parseNowpaymentsWithdrawalOverview(
 
 function parseRequestResult(value: unknown): NowpaymentsWithdrawalRequestResult {
   if (
-    !isObject(value)
+    !isNonNullNonArrayObject(value)
     || value.status !== "reserved"
     || !isDecimal(value.gross_amount_usdt)
     || !isDecimal(value.fee_amount_usdt)
@@ -175,12 +174,14 @@ async function readJson(response: Response): Promise<unknown> {
 
 function throwForResponse(response: Response, value: unknown): never {
   if (response.status === 401) throw new NowpaymentsWithdrawalUiError("authentication");
-  const error = isObject(value) && typeof value.error === "string" ? value.error : "";
+  const error = isNonNullNonArrayObject(value) && typeof value.error === "string"
+    ? value.error
+    : "";
   if (error === "crypto_withdrawals_disabled" || error === "crypto_runtime_unavailable") {
     throw new NowpaymentsWithdrawalUiError("disabled");
   }
   if (error === "withdrawal_cooldown_active") {
-    const nextAllowedAt = isObject(value)
+    const nextAllowedAt = isNonNullNonArrayObject(value)
       ? normalizeWithdrawalNextAllowedAt(value.next_allowed_at)
       : null;
     throw new NowpaymentsWithdrawalUiError("cooldown", nextAllowedAt);

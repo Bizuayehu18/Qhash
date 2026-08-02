@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { readGlobalDepositAdmission } from "../../src/domains/deposits/server.ts";
 import type { Database } from "../../src/lib/database.types.ts";
 import { isUuidV1ToV5 } from "../../src/shared/identifiers/uuid.ts";
+import { isNonNullNonArrayObject } from "../../src/shared/validation/non-null-non-array-object.ts";
 import { isPublishedProductionDeployContext } from "./lib/nowpayments-deploy-context.mts";
 import {
   createNowpaymentsClient,
@@ -52,14 +53,10 @@ function json(body: Record<string, unknown>, status: number): Response {
 }
 
 function asObject(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  if (!isNonNullNonArrayObject(value)) {
     throw new NowpaymentsDepositSessionError("database_invalid_response");
   }
-  return value as Record<string, unknown>;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+  return value;
 }
 
 function asString(value: unknown, pattern?: RegExp): string {
@@ -338,7 +335,7 @@ export default async (req: Request, context?: Context): Promise<Response> => {
   const profileRow = profile as unknown;
   if (
     profileError
-    || !isRecord(profileRow)
+    || !isNonNullNonArrayObject(profileRow)
     || typeof profileRow.is_frozen !== "boolean"
     || profileRow.is_frozen
   ) {
@@ -360,7 +357,7 @@ export default async (req: Request, context?: Context): Promise<Response> => {
   ]);
 
   const configValue = config as unknown;
-  const configRow = isRecord(configValue) ? configValue : null;
+  const configRow = isNonNullNonArrayObject(configValue) ? configValue : null;
   if (
     depositAdmission.status === "unavailable"
     || configError

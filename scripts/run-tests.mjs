@@ -88,6 +88,7 @@ const allTests = [
   "referrals-route-compatibility.test.mjs",
   "referrals-ui.test.mjs",
   "shared-date-time-formatting.test.mjs",
+  "shared-non-array-object-validation.test.mjs",
   "shared-timestamp-validation.test.mjs",
   "shared-uuid-identifiers.test.mjs",
   "support-route-compatibility.test.mjs",

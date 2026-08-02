@@ -121,6 +121,14 @@ transport readers to import the shared predicate and prevents provider
 normalization, canonical withdrawal-policy timestamps, or Ethiopia receipt
 parsers from being silently folded into that permissive contract.
 
+`tests/shared-non-array-object-validation.test.mjs` freezes the platform-owned
+loose object boundary. It differentially covers both established predicate
+spellings across plain objects, null-prototype objects, built-in objects, class
+instances, boxed primitives, arrays, functions, null, and primitive values. It
+requires all seven equivalent production readers to import the precisely named
+shared predicate and guards the strict deposit-audit sanitizer, NOWPayments IPN
+canonicalizer, and parse/error-coupled readers as distinct domain contracts.
+
 `tests/plans-route-compatibility.test.mjs` freezes `/plans` as a thin route
 through the plans public surface, keeps the generated-route and deposit-link
 contracts intact, and rejects server logic in the route. `tests/plans-ui.test.mjs`

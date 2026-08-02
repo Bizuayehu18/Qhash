@@ -1,3 +1,4 @@
+import { isNonNullNonArrayObject } from "../../../shared/validation/non-null-non-array-object.ts";
 import { isParseableTimestampString } from "../../../shared/validation/parseable-timestamp.ts";
 
 /**
@@ -165,10 +166,6 @@ export function isNowpaymentsAuthGenerationCurrent(
     && currentGeneration === candidateGeneration;
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
 function isDecimal(value: unknown): value is string {
   return typeof value === "string" && DECIMAL_PATTERN.test(value);
 }
@@ -183,7 +180,7 @@ function isNullableDecimal(value: unknown): value is string | null {
 
 function parseSession(value: unknown): NowpaymentsDepositSessionView | null {
   if (value === null) return null;
-  if (!isObject(value)) throw new NowpaymentsDepositUiError("unavailable");
+  if (!isNonNullNonArrayObject(value)) throw new NowpaymentsDepositUiError("unavailable");
   if (
     value.asset !== "USDT"
     || value.network !== "BEP20"
@@ -209,7 +206,7 @@ function parseSession(value: unknown): NowpaymentsDepositSessionView | null {
 }
 
 function parseHistory(value: unknown): NowpaymentsDepositHistoryView {
-  if (!isObject(value)) throw new NowpaymentsDepositUiError("unavailable");
+  if (!isNonNullNonArrayObject(value)) throw new NowpaymentsDepositUiError("unavailable");
   if (
     value.asset !== "USDT"
     || value.network !== "BEP20"
@@ -228,7 +225,11 @@ function parseHistory(value: unknown): NowpaymentsDepositHistoryView {
 }
 
 export function parseNowpaymentsDepositOverview(value: unknown): NowpaymentsDepositOverview {
-  if (!isObject(value) || !isObject(value.wallet) || !Array.isArray(value.history)) {
+  if (
+    !isNonNullNonArrayObject(value)
+    || !isNonNullNonArrayObject(value.wallet)
+    || !Array.isArray(value.history)
+  ) {
     throw new NowpaymentsDepositUiError("unavailable");
   }
   const activeSession = parseSession(value.active_session);
@@ -293,7 +294,7 @@ function throwForResponse(response: Response, body: unknown): never {
   if (response.status === 401) throw new NowpaymentsDepositUiError("authentication");
   if (
     response.status === 503
-    && isObject(body)
+    && isNonNullNonArrayObject(body)
     && body.error === "crypto_deposits_disabled"
   ) {
     throw new NowpaymentsDepositUiError("disabled");
@@ -329,7 +330,7 @@ export async function requestNowpaymentsDepositSession(
   const body = await readJson(response);
   if (!response.ok) throwForResponse(response, body);
   if (
-    !isObject(body)
+    !isNonNullNonArrayObject(body)
     || body.asset !== "USDT"
     || body.network !== "BEP20"
     || typeof body.pay_address !== "string"

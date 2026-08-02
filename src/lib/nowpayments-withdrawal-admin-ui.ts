@@ -1,3 +1,4 @@
+import { isNonNullNonArrayObject } from "../shared/validation/non-null-non-array-object.ts";
 import { isParseableTimestampString } from "../shared/validation/parseable-timestamp.ts";
 
 export const NOWPAYMENTS_ADMIN_WITHDRAWAL_STATUSES = [
@@ -75,10 +76,6 @@ export class NowpaymentsAdminWithdrawalError extends Error {
   }
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
 function isDecimal(value: unknown): value is string {
   return typeof value === "string" && DECIMAL_PATTERN.test(value);
 }
@@ -90,7 +87,7 @@ function decimalMicros(value: string): bigint {
 
 function parseWithdrawal(value: unknown): NowpaymentsAdminWithdrawal {
   if (
-    !isObject(value)
+    !isNonNullNonArrayObject(value)
     || typeof value.id !== "string"
     || !UUID_PATTERN.test(value.id)
     || typeof value.username !== "string"
@@ -136,7 +133,7 @@ export function parseNowpaymentsAdminWithdrawalOverview(
   value: unknown,
 ): NowpaymentsAdminWithdrawalOverview {
   if (
-    !isObject(value)
+    !isNonNullNonArrayObject(value)
     || typeof value.withdrawals_enabled !== "boolean"
     || value.asset !== "USDT"
     || value.network !== "BEP20"
@@ -158,7 +155,7 @@ export function parseNowpaymentsAdminWithdrawalOverview(
 
 function parseActionResult(value: unknown): NowpaymentsAdminActionResult {
   if (
-    !isObject(value)
+    !isNonNullNonArrayObject(value)
     || (value.status !== "completed" && value.status !== "rejected")
     || !isDecimal(value.available_balance_usdt)
     || !isDecimal(value.reserved_balance_usdt)
@@ -208,7 +205,9 @@ async function readJson(response: Response): Promise<unknown> {
 function throwForResponse(response: Response, value: unknown): never {
   if (response.status === 401) throw new NowpaymentsAdminWithdrawalError("authentication");
   if (response.status === 403) throw new NowpaymentsAdminWithdrawalError("authorization");
-  const error = isObject(value) && typeof value.error === "string" ? value.error : "";
+  const error = isNonNullNonArrayObject(value) && typeof value.error === "string"
+    ? value.error
+    : "";
   if (error === "idempotency_conflict" || error === "withdrawal_state_conflict") {
     throw new NowpaymentsAdminWithdrawalError("conflict");
   }

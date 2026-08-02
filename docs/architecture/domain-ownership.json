@@ -672,6 +672,7 @@
           "src/lib/server/supabase-admin.ts",
           "src/shared/identifiers/uuid.ts",
           "src/shared/requests/authenticated-request-lifecycle.ts",
+          "src/shared/validation/non-null-non-array-object.ts",
           "src/shared/validation/parseable-timestamp.ts"
         ],
         "supabaseFunctions": [
@@ -691,6 +692,7 @@
         "tests": [
           "tests/authenticated-request-lifecycle.test.mjs",
           "tests/domain-ownership-registry.test.mjs",
+          "tests/shared-non-array-object-validation.test.mjs",
           "tests/shared-timestamp-validation.test.mjs",
           "tests/shared-uuid-identifiers.test.mjs"
         ]

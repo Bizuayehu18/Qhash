@@ -1,7 +1,7 @@
 # QHash domain boundaries
 
 **Status:** Current boundary map with target recommendations
-**Scope:** Repository base `70dccf587110eda928a30c43edc0294d12dfc86c` plus this shared timestamp-validation extraction
+**Scope:** Repository base `bf963f0a377216840edb23a80687ee8e45f06996` plus this shared non-null, non-array object-guard extraction
 **Purpose:** Define ownership before files are moved. Current facts and target recommendations are intentionally separated.
 
 The exact current assignment of repository, Netlify, Supabase, test, and
@@ -26,6 +26,7 @@ See also:
 | Shared date/time presentation | `src/shared/formatting/date-time.ts` plus the `src/lib/format.ts` compatibility bridge | browser `Date` and `toLocaleString`; no authoritative data | exact existing `en-US`, device-local presentation used across seven product areas; nullable, date-only, UTC financial-policy, and provider receipt timestamp rules remain domain-owned |
 | Shared UUID syntax | `src/shared/identifiers/uuid.ts` | runtime values only; no authoritative data | platform-owned, dependency-free UUID versions 1-5 and UUID v4 predicates; validation performs no normalization, authorization, generation, or persistence, and lowercase-only financial/database contracts remain domain-owned |
 | Shared timestamp parseability | `src/shared/validation/parseable-timestamp.ts` | runtime values only; no authoritative data | platform-owned, dependency-free string predicate preserving permissive JavaScript `Date` parseability across six transport readers; nullable rules, normalization, ISO policy, formatting, and provider receipt parsing remain domain-owned |
+| Shared loose object guard | `src/shared/validation/non-null-non-array-object.ts` | runtime values only; no authoritative data | platform-owned predicate preserving the exact non-null-object, non-array boundary across seven readers; it deliberately accepts built-in and class instances and does not imply plain-object, schema, authorization, or normalization guarantees |
 | Accounts | `/dashboard`, `/transactions`, `src/domains/accounts/public.ts`, accounts UI/application/domain modules, wallet store and server readers | ETB wallet/transactions plus the separately owned USDT ledger | dashboard snapshots are user/token scoped; transaction snapshots and retries are user/token/filter scoped; wallet cache, in-flight work, polling, and writes are scoped to the active user ID; accounting writes remain server-owned |
 | Shared deposits | `/deposit`, `src/domains/deposits/public.ts`, `src/domains/deposits/ui/DepositHub.tsx`, `src/domains/deposits/server.ts` | `app_settings.deposits_paused` plus rail-owned history sources | the provider-neutral admission boundary and cross-rail browser composition are implemented; shared composition imports rail public surfaces rather than rail internals |
 | Fiat deposits | `src/domains/fiat-deposits/public.ts`, `src/domains/fiat-deposits/ui`, `src/lib/server/deposits.ts`, CBE/TeleBirr verifiers | Supabase `deposits`, `payment_methods`, ETB wallet/transactions | the Ethiopia CBE/TeleBirr browser flow is domain-owned and provider-specific presentation is split under `ui/providers/et`; verification and approval code remains distributed across large server modules and Functions |
