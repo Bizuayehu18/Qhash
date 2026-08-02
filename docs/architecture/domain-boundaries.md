@@ -1,7 +1,7 @@
 # QHash domain boundaries
 
 **Status:** Current boundary map with target recommendations
-**Scope:** Repository base `51b51d0481e2ac82183c2b392227612d6c284362` plus the first read-only Admin Overview extraction
+**Scope:** Repository base `1667ed283e0e602849a113ba170c21192775bfd5` plus the read-only Fiat Deposit Verification Audit extraction
 **Purpose:** Define ownership before files are moved. Current facts and target recommendations are intentionally separated.
 
 The exact current assignment of repository, Netlify, Supabase, test, and
@@ -29,14 +29,14 @@ See also:
 | Shared loose object guard | `src/shared/validation/non-null-non-array-object.ts` | runtime values only; no authoritative data | platform-owned predicate preserving the exact non-null-object, non-array boundary across seven readers; it deliberately accepts built-in and class instances and does not imply plain-object, schema, authorization, or normalization guarantees |
 | Accounts | `/dashboard`, `/transactions`, `src/domains/accounts/public.ts`, accounts UI/application/domain modules, wallet store and server readers | ETB wallet/transactions plus the separately owned USDT ledger | dashboard snapshots are user/token scoped; transaction snapshots and retries are user/token/filter scoped; wallet cache, in-flight work, polling, and writes are scoped to the active user ID; accounting writes remain server-owned |
 | Shared deposits | `/deposit`, `src/domains/deposits/public.ts`, `src/domains/deposits/ui/DepositHub.tsx`, `src/domains/deposits/server.ts` | `app_settings.deposits_paused` plus rail-owned history sources | the provider-neutral admission boundary and cross-rail browser composition are implemented; shared composition imports rail public surfaces rather than rail internals |
-| Fiat deposits | `src/domains/fiat-deposits/public.ts`, `src/domains/fiat-deposits/ui`, `src/lib/server/deposits.ts`, CBE/TeleBirr verifiers | Supabase `deposits`, `payment_methods`, ETB wallet/transactions | the Ethiopia CBE/TeleBirr browser flow is domain-owned and provider-specific presentation is split under `ui/providers/et`; verification and approval code remains distributed across large server modules and Functions |
+| Fiat deposits | `src/domains/fiat-deposits/public.ts`, `src/domains/fiat-deposits/application`, `src/domains/fiat-deposits/ui`, `src/lib/server/deposits.ts`, CBE/TeleBirr verifiers | Supabase `deposits`, `payment_methods`, ETB wallet/transactions | the Ethiopia CBE/TeleBirr browser flow and read-only administrator verification-audit panel are domain-owned; provider-specific presentation is split under `ui/providers/et`, while approval commands and verifier code remain distributed across large server modules and Functions |
 | Crypto deposits | `/deposit/crypto/usdt/bep20`, `src/domains/crypto-deposits/public.ts`, `src/domains/crypto-deposits/ui`, NOWPayments deposit Functions | NOWPayments plus `nowpayments_usdt_*` deposit tables | the USDT-BEP20 browser component is decomposed into domain-owned state, orchestration, address-presentation, and view modules; old source paths are compatibility bridges, while provider communication and financial settlement remain distinct responsibilities |
 | Fiat withdrawals | `/withdraw`, `src/domains/fiat-withdrawals/public.ts`, `src/domains/fiat-withdrawals/ui`, `src/lib/server/withdrawals.ts` | Supabase `withdrawals`, ETB wallet/transactions | Ethiopia CBE/TeleBirr browser presentation and orchestration are domain-owned; the financial boundary, Fund PIN, and cross-rail policy remain shared with USDT |
 | USDT withdrawals | `/withdraw`, `/withdraw/crypto/usdt/bep20`, `src/domains/withdrawals/public.ts`, `src/domains/withdrawals/ui`, NOWPayments withdrawal admin component and Functions | `nowpayments_usdt_withdrawals`, events, wallet, ledger | the ordinary-user USDT-BEP20 component is decomposed into domain-owned request orchestration, view, form, and history modules; the old component path is a compatibility bridge, while the legacy browser transport and manual administrator Complete/Reject flow remain unchanged with no automatic payout/signing |
 | Plans and investments | `/plans`, `src/domains/plans/public.ts`, plans UI/application modules, existing plan and investment server functions | `plans`, `investments`, ETB wallet/transactions | browser presentation and authentication-scoped orchestration are domain-owned; values and financial execution remain part of the legacy ETB model |
 | Earnings | dashboard/admin-earnings and scheduled Functions | earning logs, investments, ETB wallet/transactions | processing and administrator presentation remain in legacy modules |
 | Referrals | `/referrals`, `src/domains/referrals/public.ts`, referral UI/application/domain modules, existing referral server functions | referrals, reward logs, investments, profiles, ETB transactions | browser reads are authentication-generation scoped; current visible identity and referral lookup still use username |
-| Administration | `/admin`, `/admin-earnings`, `src/domains/admin/public.ts`, read-only Overview UI/application modules | profile role plus domain data | Overview composition is domain-owned and exact-auth-generation scoped; remaining panels are concentrated, and authorization remains inside each server action |
+| Administration | `/admin`, `/admin-earnings`, `src/domains/admin/public.ts`, read-only Overview UI/application modules, and domain-owned panels composed through public facades | profile role plus domain data | Overview composition is admin-owned; Fiat Deposit Verification Audit is fiat-deposit-owned and exact administrator/token/filter-generation scoped; remaining panels are concentrated, and authorization remains inside each server action |
 | Notifications | `/notifications`, `src/domains/notifications/public.ts`, notification UI/application/domain modules, application-shell unread badge, and the existing notification server module | Supabase `notifications` | browser read/count/mark effects are exact-auth-generation scoped; notification records remain secondary to authoritative financial and referral state transitions |
 | Support and settings | `/support`, `src/domains/support/public.ts`, Support UI/application modules, and admin settings | Supabase `app_settings` | the public redirect and dashboard navigation consume one client-safe facade and application bridge; current visible support is Telegram |
 | Legacy support tickets | no active visible product flow | separate Netlify Database through Drizzle | quarantined until authentication and database ownership are redesigned |
@@ -266,6 +266,21 @@ domain. The `/admin` route remains the compatibility shell and the other
 panels remain concentrated for later bounded extraction. Their existing
 actions, server authorization, response contracts, and domain ownership are
 unchanged.
+
+The second bounded extraction moves only the read-only Fiat Deposit
+Verification Audit panel behind `src/domains/fiat-deposits/public.ts`. One
+fiat-deposit application bridge owns its browser dependency on the existing
+administrator audit server function. Snapshot visibility, retries, timers, and
+finalizers require the exact administrator, access-token generation, and
+All/CBE/TeleBirr filter; the server still derives identity from the token and
+independently rejects non-admin or frozen profiles. The latest-100 query,
+sanitized audit columns, display masking, visible/online refresh, and legacy ETB
+presentation remain unchanged.
+
+This read-only composition does not move deposit approval, payment-method
+configuration, verifier execution, balances, or financial transitions into the
+admin domain. Those commands remain at their existing fiat-deposit and server
+boundaries, and the route continues to own only compatibility tab composition.
 
 The current single administrator capability remains, but UI and authorization contracts should be grouped by domain:
 

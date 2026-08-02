@@ -18,10 +18,11 @@ async function listRepositoryFiles(path) {
   return files.flat();
 }
 
-test("admin route delegates its overview through the client-safe admin surface", async () => {
-  const [route, publicSurface] = await Promise.all([
+test("admin route delegates overview and verification audit through client-safe surfaces", async () => {
+  const [route, adminPublicSurface, fiatDepositPublicSurface] = await Promise.all([
     readRepositoryFile("src/routes/_app/admin.tsx"),
     readRepositoryFile("src/domains/admin/public.ts"),
+    readRepositoryFile("src/domains/fiat-deposits/public.ts"),
   ]);
 
   assert.match(route, /createFileRoute\("\/_app\/admin"\)/);
@@ -30,9 +31,13 @@ test("admin route delegates its overview through the client-safe admin surface",
     /from "@\/domains\/admin\/public\.js"/,
   );
   assert.match(route, /<AdminOverviewPanel/);
+  assert.match(route, /<DepositVerificationAuditPanel/);
   assert.match(route, /accessToken=\{session\?\.access_token \?\? null\}/);
   assert.match(route, /userId=\{user\?\.id\}/);
-  assert.doesNotMatch(route, /getAdminStatsFn|function OverviewTab/);
+  assert.doesNotMatch(
+    route,
+    /getAdminStatsFn|getDepositVerificationLogsFn|function OverviewTab|function AuditLogsTab/,
+  );
 
   for (const label of [
     "Overview",
@@ -51,23 +56,27 @@ test("admin route delegates its overview through the client-safe admin surface",
   assert.match(route, /<NowpaymentsUsdtWithdrawalAdmin/);
   assert.match(route, /<DepositsTab/);
   assert.match(route, /<WithdrawalsTab/);
-  assert.match(route, /<AuditLogsTab/);
   assert.match(route, /<AdminSecurityTab/);
   assert.match(route, /<SettingsTab/);
 
   assert.match(
-    publicSurface,
+    adminPublicSurface,
     /export \{ AdminEtbAmount \} from "\.\/ui\/AdminEtbAmount\.js";/,
   );
   assert.match(
-    publicSurface,
+    adminPublicSurface,
     /export \{ AdminOverviewPanel \} from "\.\/ui\/AdminOverviewPanel\.js";/,
   );
-  assert.doesNotMatch(publicSurface, /export \*/);
+  assert.doesNotMatch(adminPublicSurface, /export \*/);
   assert.doesNotMatch(
-    publicSurface,
+    adminPublicSurface,
     /lib\/server|netlify\/functions|supabase-admin|service.role|createClient|\.from\(|\.rpc\(|fetch\(/i,
   );
+  assert.match(
+    fiatDepositPublicSurface,
+    /export \{ DepositVerificationAuditPanel \} from "\.\/ui\/admin\/DepositVerificationAuditPanel\.js";/,
+  );
+  assert.doesNotMatch(fiatDepositPublicSurface, /export \*/);
 });
 
 test("admin domain has one explicit browser-to-server overview bridge", async () => {
