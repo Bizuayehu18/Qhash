@@ -1,6 +1,7 @@
 import type { Config, Context } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../../src/lib/database.types.ts";
+import { isNonNullNonArrayObject } from "../../src/shared/validation/non-null-non-array-object.ts";
 import { isParseableTimestampString } from "../../src/shared/validation/parseable-timestamp.ts";
 import { isPublishedProductionDeployContext } from "./lib/nowpayments-deploy-context.mts";
 
@@ -70,10 +71,6 @@ function errorResponse(error: string, message: string, status: number): Response
   return json({ error, message }, status);
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
 function isDecimal(value: unknown): value is string {
   return typeof value === "string" && DECIMAL_PATTERN.test(value);
 }
@@ -96,7 +93,7 @@ function publicStatus(status: string): PublicStatus {
 }
 
 function validateWithdrawal(value: unknown): WithdrawalRow {
-  if (!isObject(value)) throw new Error("invalid_withdrawal_read");
+  if (!isNonNullNonArrayObject(value)) throw new Error("invalid_withdrawal_read");
   if (
     typeof value.id !== "string"
     || !UUID_PATTERN.test(value.id)
@@ -133,7 +130,7 @@ function validateWithdrawal(value: unknown): WithdrawalRow {
 
 function validateProfile(value: unknown): ProfileRow {
   if (
-    !isObject(value)
+    !isNonNullNonArrayObject(value)
     || typeof value.id !== "string"
     || !UUID_PATTERN.test(value.id)
     || typeof value.username !== "string"
@@ -147,7 +144,7 @@ function validateProfile(value: unknown): ProfileRow {
 
 function validateBroadcast(value: unknown): BroadcastRow {
   if (
-    !isObject(value)
+    !isNonNullNonArrayObject(value)
     || typeof value.id !== "string"
     || !UUID_PATTERN.test(value.id)
     || typeof value.withdrawal_id !== "string"
@@ -324,7 +321,7 @@ async function parseBody(req: Request): Promise<AdminActionBody | null> {
   } catch {
     return null;
   }
-  if (!isObject(value)) return null;
+  if (!isNonNullNonArrayObject(value)) return null;
   if (
     typeof value.withdrawal_id !== "string"
     || !UUID_PATTERN.test(value.withdrawal_id)
@@ -406,7 +403,7 @@ function rpcErrorResponse(error: { message?: string } | null): Response {
 }
 
 function sanitizeActionResult(value: unknown, body: AdminActionBody): Record<string, unknown> | null {
-  if (!isObject(value)) return null;
+  if (!isNonNullNonArrayObject(value)) return null;
   if (
     value.status !== (body.action === "complete" ? "completed" : "rejected")
     || typeof value.withdrawal_id !== "string"

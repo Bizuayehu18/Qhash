@@ -1,3 +1,5 @@
+import { isNonNullNonArrayObject } from "../../../shared/validation/non-null-non-array-object.ts";
+
 export const GLOBAL_DEPOSIT_PAUSE_SETTING_KEY = "deposits_paused" as const;
 export const GLOBAL_DEPOSIT_PAUSE_SETTING_LIMIT = 2 as const;
 
@@ -9,14 +11,14 @@ export type DepositAdmissionDecision =
       reason: "read_failed" | "invalid_configuration";
     }>;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 export function parseGlobalDepositAdmission(
   rows: unknown,
 ): DepositAdmissionDecision {
-  if (!Array.isArray(rows) || rows.length !== 1 || !isRecord(rows[0])) {
+  if (
+    !Array.isArray(rows)
+    || rows.length !== 1
+    || !isNonNullNonArrayObject(rows[0])
+  ) {
     return { status: "unavailable", reason: "invalid_configuration" };
   }
 

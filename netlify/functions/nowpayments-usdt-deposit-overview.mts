@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { Database } from "../../src/lib/database.types.ts";
 import { isUuidV1ToV5, isUuidV4 } from "../../src/shared/identifiers/uuid.ts";
+import { isNonNullNonArrayObject } from "../../src/shared/validation/non-null-non-array-object.ts";
 import { isParseableTimestampString } from "../../src/shared/validation/parseable-timestamp.ts";
 import { isPublishedProductionDeployContext } from "./lib/nowpayments-deploy-context.mts";
 
@@ -161,10 +162,6 @@ function createRequestId(requestIdFactory: RequestIdFactory): string {
     // A request ID remains available without exposing generator failures.
   }
   return randomBytesRequestId();
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function isNullableTimestamp(value: unknown): value is string | null {
@@ -395,7 +392,7 @@ async function handleOverview(
   const profileRow = profile as unknown;
   if (
     profileError
-    || !isRecord(profileRow)
+    || !isNonNullNonArrayObject(profileRow)
     || typeof profileRow.is_frozen !== "boolean"
     || profileRow.is_frozen
   ) {
@@ -415,7 +412,7 @@ async function handleOverview(
   );
   if (snapshotResult.error) {
     const rpcErrorValue = snapshotResult.error as unknown;
-    const rpcFailure = isRecord(rpcErrorValue)
+    const rpcFailure = isNonNullNonArrayObject(rpcErrorValue)
       && typeof rpcErrorValue["message"] === "string"
       ? rpcErrorValue["message"]
       : "";
@@ -439,7 +436,7 @@ async function handleOverview(
 
   const snapshot = snapshotResult.data as unknown;
   if (
-    !isRecord(snapshot)
+    !isNonNullNonArrayObject(snapshot)
     || typeof snapshot.feature_enabled !== "boolean"
     || !isDecimal(snapshot.minimum_deposit_usdt)
     || canonicalDecimal(snapshot.minimum_deposit_usdt) !== "1"
@@ -459,7 +456,7 @@ async function handleOverview(
 
   invocation.currentStage = "wallet_validation";
   const walletValue = snapshot.wallet;
-  const walletRow = isRecord(walletValue) ? walletValue : null;
+  const walletRow = isNonNullNonArrayObject(walletValue) ? walletValue : null;
   if (
     walletValue !== null
     && (

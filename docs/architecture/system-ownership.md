@@ -201,6 +201,16 @@ comparison, authorization, or persistence. Nullable field rules, provider
 normalization, canonical withdrawal-policy timestamps, and Ethiopia receipt
 parsers remain with their current owners.
 
+The platform domain also owns the dependency-free loose object predicate at
+`src/shared/validation/non-null-non-array-object.ts`. Seven crypto-deposit,
+deposit-admission, and USDT-withdrawal client/server readers consume the exact
+established non-null-object, non-array boundary. The helper intentionally
+accepts built-in objects, class instances, boxed primitives, and
+null-prototype objects; it performs no prototype, own-key, schema,
+normalization, cloning, authorization, or persistence work. The stricter
+deposit-audit sanitizer, NOWPayments IPN canonicalizer, and parse/error-coupled
+readers remain with their current owners.
+
 ## Supabase contract
 
 Generated table and Data API function inventories come from
