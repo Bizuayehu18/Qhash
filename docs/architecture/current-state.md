@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository base `e1e68a2d1d91a7710de40dbe5b34ce11d63040bf`, plus this shared date/time presentation extraction
+**Scope:** Runtime baseline through repository base `d6a603f200849b1c6c9e4db22280bc8f9b858625`, plus this shared UUID syntax extraction
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -207,6 +207,17 @@ Deposits, Fiat Deposits, Fiat Withdrawals, Notifications, and USDT Withdrawals.
 explicit-UTC, and provider receipt timestamp rules remain with their existing
 domains because they are different contracts. This extraction changes no
 visible timestamp, locale, timezone, route, request, or financial behavior.
+
+The platform domain now owns the exact case-insensitive UUID syntax predicates
+at `src/shared/identifiers/uuid.ts`. `isUuidV1ToV5` preserves the existing
+canonical-hyphen, RFC-variant, version-1-through-5 boundary, while `isUuidV4`
+preserves the narrower request-identifier boundary. The predicates validate
+only: they do not trim, lowercase, coerce, generate, authorize, or persist
+values. Existing provider, administrator, and request callers retain their
+local normalization rules. Deliberately lowercase-only withdrawal and
+PostgreSQL validators remain domain-owned because they enforce a different
+contract. This extraction changes no identifier, route, request, database, or
+financial behavior.
 
 The canonical crypto routes are non-nested TanStack routes beneath the
 protected `_app` layout. They import the client-safe

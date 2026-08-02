@@ -5,10 +5,10 @@ import {
   CROSS_RAIL_WITHDRAWAL_POLICY_MESSAGE,
   parseWithdrawalCooldownDetail,
 } from "../../src/lib/withdrawal-policy.ts";
+import { isUuidV4 } from "../../src/shared/identifiers/uuid.ts";
 import { isPublishedProductionDeployContext } from "./lib/nowpayments-deploy-context.mts";
 
 const MAX_BODY_BYTES = 4_096;
-const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DECIMAL_PATTERN = /^(?:0|[1-9]\d{0,29})(?:\.\d{1,6})?$/;
 const RESPONSE_DECIMAL_PATTERN = /^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/;
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
@@ -84,8 +84,7 @@ async function parseBody(req: Request): Promise<RequestBody | null> {
     || !ADDRESS_PATTERN.test(body.destination_address)
     || typeof body.fund_password !== "string"
     || !/^[0-9]{4}$/.test(body.fund_password)
-    || typeof body.idempotency_key !== "string"
-    || !UUID_V4_PATTERN.test(body.idempotency_key)
+    || !isUuidV4(body.idempotency_key)
   ) {
     return null;
   }
@@ -211,8 +210,7 @@ function sanitizeResult(
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
   if (
-    typeof row.withdrawal_id !== "string"
-    || !UUID_V4_PATTERN.test(row.withdrawal_id)
+    !isUuidV4(row.withdrawal_id)
     || row.status !== "reserved"
     || typeof row.destination_address !== "string"
     || !/^0x[0-9a-f]{40}$/.test(row.destination_address)

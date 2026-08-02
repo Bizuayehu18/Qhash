@@ -1,3 +1,5 @@
+import { isUuidV1ToV5 } from "../../../src/shared/identifiers/uuid.ts";
+
 const NOWPAYMENTS_API_BASE = "https://api.nowpayments.io/v1";
 const PROVIDER_CURRENCY = "usdtbsc";
 const ACTIVE_PAYMENT_STATUSES = new Set([
@@ -212,9 +214,7 @@ function normalizeNullableProviderPaymentId(value: unknown, code: string): strin
 function normalizeNullableOrderId(value: unknown, code: string): string | null {
   if (value === null || value === undefined || value === "") return null;
   const normalized = normalizeIdentifier(value, code);
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized)) {
-    throw new NowpaymentsClientError(code);
-  }
+  if (!isUuidV1ToV5(normalized)) throw new NowpaymentsClientError(code);
   return normalized.toLowerCase();
 }
 

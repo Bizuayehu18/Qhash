@@ -670,6 +670,7 @@
           "src/lib/database.generated.ts",
           "src/lib/database.types.ts",
           "src/lib/server/supabase-admin.ts",
+          "src/shared/identifiers/uuid.ts",
           "src/shared/requests/authenticated-request-lifecycle.ts"
         ],
         "supabaseFunctions": [
@@ -688,7 +689,8 @@
         ],
         "tests": [
           "tests/authenticated-request-lifecycle.test.mjs",
-          "tests/domain-ownership-registry.test.mjs"
+          "tests/domain-ownership-registry.test.mjs",
+          "tests/shared-uuid-identifiers.test.mjs"
         ]
       }
     },

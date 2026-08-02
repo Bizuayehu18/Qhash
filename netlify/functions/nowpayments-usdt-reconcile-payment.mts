@@ -1,6 +1,7 @@
 import type { Config, Context } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../../src/lib/database.types.ts";
+import { isUuidV1ToV5 } from "../../src/shared/identifiers/uuid.ts";
 import {
   createNowpaymentsClient,
   normalizeExactPositiveDecimal,
@@ -21,7 +22,6 @@ import { isPublishedProductionDeployContext } from "./lib/nowpayments-deploy-con
 
 const RECOVERY_MAX_BODY_BYTES = 4_096;
 const PROVIDER_PAYMENT_ID_PATTERN = /^[0-9]{1,200}$/;
-const QHASH_ORDER_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PAY_ADDRESS_PATTERN = /^0x[0-9A-Fa-f]{40}$/;
 
 type AdminAuthorization = "authorized" | "unauthorized" | "forbidden";
@@ -139,7 +139,7 @@ function requireFinishedUsdtbscPayment(
     )
     || (
       payment.qhashOrderId !== null
-      && !QHASH_ORDER_ID_PATTERN.test(payment.qhashOrderId)
+      && !isUuidV1ToV5(payment.qhashOrderId)
     )
     || !PAY_ADDRESS_PATTERN.test(payment.payAddress)
     || payment.payCurrency !== "usdtbsc"

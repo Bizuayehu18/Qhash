@@ -2,10 +2,9 @@ import type { Config, Context } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { Database } from "../../src/lib/database.types.ts";
+import { isUuidV1ToV5, isUuidV4 } from "../../src/shared/identifiers/uuid.ts";
 import { isPublishedProductionDeployContext } from "./lib/nowpayments-deploy-context.mts";
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const REQUEST_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const PROVIDER_ID_PATTERN = /^\d{1,200}$/;
 const DECIMAL_PATTERN = /^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/;
@@ -156,7 +155,7 @@ function randomBytesRequestId(): string {
 function createRequestId(requestIdFactory: RequestIdFactory): string {
   try {
     const requestId = requestIdFactory();
-    if (REQUEST_ID_PATTERN.test(requestId)) return requestId;
+    if (isUuidV4(requestId)) return requestId;
   } catch {
     // A request ID remains available without exposing generator failures.
   }
@@ -195,8 +194,7 @@ function validateSession(value: unknown, userId: string): SessionRow {
   if (
     !row
     || typeof row !== "object"
-    || typeof row.id !== "string"
-    || !UUID_PATTERN.test(row.id)
+    || !isUuidV1ToV5(row.id)
     || row.user_id !== userId
     || !["provisioning", "ready", "manual_recovery", "terminal"].includes(
       String(row.session_status),
@@ -235,8 +233,7 @@ function validateProviderPayment(value: unknown, userId: string): ProviderPaymen
   if (
     !row
     || typeof row !== "object"
-    || typeof row.session_id !== "string"
-    || !UUID_PATTERN.test(row.session_id)
+    || !isUuidV1ToV5(row.session_id)
     || row.user_id !== userId
     || typeof row.provider_payment_id !== "string"
     || !PROVIDER_ID_PATTERN.test(row.provider_payment_id)
