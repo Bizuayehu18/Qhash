@@ -71,6 +71,7 @@ test("accounts and support domains keep browser-to-server dependencies behind ap
     "src/domains/accounts/application/transaction-history-browser-service.ts",
   ]);
   assert.deepEqual(supportServerImporters, [
+    "src/domains/support/application/admin-support-settings-browser-service.ts",
     "src/domains/support/application/support-settings-browser-service.ts",
   ]);
 
@@ -84,6 +85,10 @@ test("accounts and support domains keep browser-to-server dependencies behind ap
 
   const supportPublic = sources.find(({ path }) => path === "src/domains/support/public.ts")?.source;
   assert.ok(supportPublic);
+  assert.match(
+    supportPublic,
+    /export \{ AdminSupportSettingsPanel \} from "\.\/ui\/admin\/AdminSupportSettingsPanel\.js";/,
+  );
   assert.match(
     supportPublic,
     /export \{ useSupportDestination \} from "\.\/ui\/useSupportDestination\.js";/,

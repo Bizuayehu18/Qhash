@@ -100,10 +100,13 @@ null-state rules by their respective domains.
 `tests/admin-route-compatibility.test.mjs` freezes `/admin` as the unchanged
 compatibility shell while delegating its read-only Overview through the
 client-safe admin public surface and its Fiat Deposit Verification Audit panel
-through the client-safe fiat-deposit public surface. It keeps all seven current
-tabs, the non-admin redirect/null behavior, the existing domain-owned panels,
-one explicit browser-to-server bridge per extracted panel, and independent
-active-admin authorization at each server boundary.
+through the client-safe fiat-deposit public surface and Administrator Support
+Settings through the client-safe Support public surface. It keeps all seven
+current tabs, the Settings Support/Payment composition, Payment Methods panel,
+non-admin redirect/null behavior, existing domain-owned panels, and one
+explicit browser-to-server bridge per extracted panel. Mutation boundaries
+retain independent active-administrator authorization; the Support settings
+read remains the established sanitized public contract.
 
 `tests/admin-overview-ui.test.mjs` freezes the four statistics cards, legacy
 ETB revenue and pending-withdrawal presentation, recent-user badges, loading
@@ -120,6 +123,14 @@ deferred-request fixtures prove that late success, failure, retry, or finalizer
 effects cannot cross an administrator, access-token generation, or selected
 filter, and that the browser bridge never supplies a user identity separately
 from the access token.
+
+`tests/admin-support-settings-ui.test.mjs` freezes the established Support
+Settings copy, Telegram link behavior, exact public sanitized read and
+active/non-frozen-admin-authorized update bridge, and update-authorization
+anchors. Its lifecycle fixtures prove that browser loads and single-flight
+saves are scoped to the exact administrator and access-token generation, so
+stale results, notices, or finalizers cannot affect a replacement session or
+overwrite a newer draft.
 
 `tests/shared-date-time-formatting.test.mjs` freezes the application shell's
 cross-domain presentation formatter. It covers string and `Date` inputs,
@@ -203,6 +214,8 @@ through the client-safe Support public surface. It keeps the existing one-shot
 Telegram `window.location.replace`, unavailable copy, error handling, and
 unmount guard while preventing the route from regaining a direct server import
 or silently adopting the dashboard's polling and fallback behavior.
+That public contract remains a separate one-shot read-only redirect even though
+the same facade now explicitly exports the administrator settings panel.
 
 `tests/notifications-route-compatibility.test.mjs` freezes `/notifications` as
 a thin route through the client-safe Notifications public surface, confines

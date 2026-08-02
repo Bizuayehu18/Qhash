@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository base `1667ed283e0e602849a113ba170c21192775bfd5`, plus the read-only Fiat Deposit Verification Audit extraction
+**Scope:** Runtime baseline through repository base `492f63be1fc3a1aecbc0b71f02994961c7b755d7`, plus the Admin Support Settings extraction
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -59,7 +59,7 @@ The repository is organized mainly by technical layer, with several business dom
 | Area | Current role | Observed concentration |
 |---|---|---|
 | `src/routes` | TanStack route entry points and substantial page logic | 6 route files remain over the 150-nonblank-line warning; `deposit.tsx`, `withdraw.tsx`, `plans.tsx`, `referrals.tsx`, `transactions.tsx`, and `notifications.tsx` are now thin composition entries while `admin.tsx` remains concentrated |
-| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Account transaction history, deposit, withdrawal, plans, referrals, Notifications, Support redirect/navigation, Admin Overview, Fiat Deposit Verification Audit, crypto-rail, and Ethiopia fiat-rail UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
+| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Account transaction history, deposit, withdrawal, plans, referrals, Notifications, Support redirect/navigation/settings, Admin Overview, Fiat Deposit Verification Audit, crypto-rail, and Ethiopia fiat-rail UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
 | `src/components` | Shared UI plus extracted crypto compatibility bridges | Only the administrator NOWPayments withdrawal component remains over the 300-nonblank-line warning after the user deposit and withdrawal UI decompositions |
 | `src/lib/server` | TanStack server functions for many domains in one flat folder | Large deposit, verification, withdrawal, earning, security, and admin modules |
 | `netlify/functions` | provider-facing, scheduled, verification, and admin Functions | NOWPayments handlers are partly decomposed through `netlify/functions/lib` |
@@ -130,8 +130,9 @@ The public `/support` route is now a thin adapter over the same facade and its
 domain-owned redirect page. It preserves the one-shot Telegram
 `window.location.replace` behavior, unavailable state, error handling, and
 unmount guard without adopting the dashboard's polling or fallback behavior.
-The Profile route and the remaining Admin panels remain documented legacy
-direct consumers for later identity/profile and administration extractions.
+The Profile route remains a documented legacy direct consumer for a later
+identity/profile extraction. Administrator Support Settings now consumes the
+same Support facade through its own update-capable application bridge.
 
 The read-only `/admin` Overview panel is the first bounded Phase 5 extraction.
 `src/domains/admin/public.ts` exposes its browser-safe composition and legacy
@@ -152,6 +153,16 @@ columns, masking, legacy ETB presentation, visible/online refresh, tab order,
 and server-side administrator authorization are unchanged. The extraction adds
 no audit write, deposit approval, payment-method configuration, database,
 Function, provider, or financial behavior.
+
+Administrator Support Settings is the third bounded Phase 5 extraction.
+`src/domains/support/public.ts` exposes the panel, while one support application
+bridge owns the established public sanitized read and active, non-frozen
+administrator-authorized update calls. Browser loads and saves are bound to the
+exact administrator and access-token generation; stale successes, failures,
+notices, and finalizers cannot affect a replacement session. The Settings tab
+shell, Support/Payment tab order, Telegram copy, public `/support` behavior,
+update authorization, Payment Methods panel, setting value, schema, and
+financial state are unchanged.
 
 `/transactions` is now a thin route through the same client-safe accounts
 facade. The accounts domain owns transaction filters, list presentation, and

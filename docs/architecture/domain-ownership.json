@@ -774,7 +774,7 @@
     {
       "id": "support",
       "kind": "product",
-      "description": "Owns user support presentation and server-owned support configuration reads.",
+      "description": "Owns user support presentation and server-owned support configuration reads and administrator updates.",
       "assets": {
         "publicSurfaces": [
           "src/domains/support/public.ts"
@@ -783,14 +783,19 @@
           "src/routes/support.tsx"
         ],
         "sourceModules": [
+          "src/domains/support/application/admin-support-settings-auth-lifecycle.ts",
+          "src/domains/support/application/admin-support-settings-browser-service.ts",
           "src/domains/support/application/support-destination-request-guard.ts",
           "src/domains/support/application/support-settings-browser-service.ts",
+          "src/domains/support/ui/admin/AdminSupportSettingsPanel.tsx",
+          "src/domains/support/ui/admin/useAdminSupportSettings.ts",
           "src/domains/support/ui/SupportRedirectPage.tsx",
           "src/domains/support/ui/useSupportDestination.ts",
           "src/lib/server/support-settings.ts",
           "src/lib/server/support.ts"
         ],
         "tests": [
+          "tests/admin-support-settings-ui.test.mjs",
           "tests/support-route-compatibility.test.mjs"
         ]
       }
