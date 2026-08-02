@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository base `aa737e2d499dbca7b5c56c538615ead1fa5546b4`, plus this Notifications UI extraction and browser authentication-generation correction
+**Scope:** Runtime baseline through repository base `66f6533eb8d2f3634a02c56eed8701be201b27c8`, plus this shared authenticated-request lifecycle extraction
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -187,6 +187,17 @@ visible/online refresh, immediate plus 60-second badge polling, and existing
 server-derived caller identity remain unchanged. Notification storage and
 producer writes remain at their existing financial and referral boundaries;
 this extraction does not consolidate producers or alter authoritative state.
+
+Accounts, Plans, Referrals, Notifications, and Fiat Withdrawals now consume one
+domain-neutral authenticated-request lifecycle at
+`src/shared/requests/authenticated-request-lifecycle.ts`. It owns only exact
+`{userId, accessToken}` identity comparison, latest-request generation guards,
+optional request scopes, and bounded retry admission. The established domain
+paths remain compatibility adapters. Plans retains its user-scoped purchase
+flight and reconciliation policy, and Fiat Withdrawals retains its explicit
+null-to-null form-ownership rule; neither domain policy moved into `shared`.
+This extraction changes no route, request, server, database, or financial
+behavior.
 
 The canonical crypto routes are non-nested TanStack routes beneath the
 protected `_app` layout. They import the client-safe

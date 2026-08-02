@@ -1,77 +1,31 @@
-export type NotificationsAuthIdentity = Readonly<{
-  accessToken: string;
-  userId: string;
-}>;
+import {
+  createAuthenticatedRequestIdentity,
+  createLatestAuthenticatedRequestGuard,
+  createRequestRetryPolicy,
+  isSameAuthenticatedRequestIdentity,
+  type AuthenticatedRequestIdentity,
+} from "../../../shared/requests/authenticated-request-lifecycle.ts";
+
+export type NotificationsAuthIdentity = AuthenticatedRequestIdentity;
 
 export function createNotificationsAuthIdentity(
   userId: string | null | undefined,
   accessToken: string | null | undefined,
 ): NotificationsAuthIdentity | null {
-  return userId && accessToken ? { accessToken, userId } : null;
+  return createAuthenticatedRequestIdentity(userId, accessToken);
 }
 
 export function isSameNotificationsAuthIdentity(
   current: NotificationsAuthIdentity | null,
   expected: NotificationsAuthIdentity | null,
 ): boolean {
-  return current !== null
-    && expected !== null
-    && current.userId === expected.userId
-    && current.accessToken === expected.accessToken;
+  return isSameAuthenticatedRequestIdentity(current, expected);
 }
 
 export function createLatestNotificationsRequestGuard() {
-  let generation = 0;
-  let active: {
-    generation: number;
-    identity: NotificationsAuthIdentity;
-  } | null = null;
-
-  return {
-    begin(identity: NotificationsAuthIdentity) {
-      generation += 1;
-      const requestGeneration = generation;
-      active = { generation: requestGeneration, identity };
-
-      return {
-        isCurrent: (currentIdentity: NotificationsAuthIdentity | null) => (
-          active?.generation === requestGeneration
-          && isSameNotificationsAuthIdentity(active.identity, identity)
-          && isSameNotificationsAuthIdentity(currentIdentity, identity)
-        ),
-      };
-    },
-    invalidate() {
-      generation += 1;
-      active = null;
-    },
-  };
+  return createLatestAuthenticatedRequestGuard();
 }
 
-type NotificationsLoadAdmission = Readonly<{
-  coalescesWithActiveFlight: boolean;
-  resetRetryCount?: boolean;
-}>;
-
 export function createNotificationsRetryPolicy(maxAutoRetries: number) {
-  let retryCount = 0;
-
-  return {
-    admitLoad({
-      coalescesWithActiveFlight,
-      resetRetryCount = false,
-    }: NotificationsLoadAdmission): boolean {
-      if (coalescesWithActiveFlight) return false;
-      if (resetRetryCount) retryCount = 0;
-      return true;
-    },
-    reset() {
-      retryCount = 0;
-    },
-    reserveRetry(): boolean {
-      if (retryCount >= maxAutoRetries) return false;
-      retryCount += 1;
-      return true;
-    },
-  };
+  return createRequestRetryPolicy(maxAutoRetries);
 }
