@@ -90,6 +90,13 @@ application bridge to remain client-safe and independent of crypto navigation.
 The same suite deterministically rejects late history, security, and submission
 effects after a user or access-token generation changes.
 
+`tests/authenticated-request-lifecycle.test.mjs` freezes the domain-neutral
+request primitive used by Accounts, Plans, Referrals, Notifications, and Fiat
+Withdrawals. It covers exact user/token identity, latest-generation
+invalidation, scoped keys, bounded retry admission, compatibility adapters,
+and the continued ownership of Plans purchase-flight and Fiat Withdrawals
+null-state rules by their respective domains.
+
 `tests/plans-route-compatibility.test.mjs` freezes `/plans` as a thin route
 through the plans public surface, keeps the generated-route and deposit-link
 contracts intact, and rejects server logic in the route. `tests/plans-ui.test.mjs`

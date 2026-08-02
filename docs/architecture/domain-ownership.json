@@ -583,7 +583,7 @@
     {
       "id": "platform",
       "kind": "platform",
-      "description": "Owns repository governance, generated database contracts, deployment context, migration runner provenance, shared settings, and architecture documentation.",
+      "description": "Owns repository governance, generated database contracts, deployment context, migration runner provenance, shared settings, domain-neutral application primitives, and architecture documentation.",
       "assets": {
         "documents": [
           "docs/architecture/current-state.md",
@@ -665,7 +665,8 @@
         "sourceModules": [
           "src/lib/database.generated.ts",
           "src/lib/database.types.ts",
-          "src/lib/server/supabase-admin.ts"
+          "src/lib/server/supabase-admin.ts",
+          "src/shared/requests/authenticated-request-lifecycle.ts"
         ],
         "supabaseFunctions": [
           "public.is_canonical_uuid_v4"
@@ -682,6 +683,7 @@
           "public.app_settings"
         ],
         "tests": [
+          "tests/authenticated-request-lifecycle.test.mjs",
           "tests/domain-ownership-registry.test.mjs"
         ]
       }

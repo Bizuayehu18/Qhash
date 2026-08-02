@@ -1,7 +1,7 @@
 # QHash domain boundaries
 
 **Status:** Current boundary map with target recommendations
-**Scope:** Repository base `aa737e2d499dbca7b5c56c538615ead1fa5546b4` plus this Notifications UI extraction and browser authentication-generation correction
+**Scope:** Repository base `66f6533eb8d2f3634a02c56eed8701be201b27c8` plus this shared authenticated-request lifecycle extraction
 **Purpose:** Define ownership before files are moved. Current facts and target recommendations are intentionally separated.
 
 The exact current assignment of repository, Netlify, Supabase, test, and
@@ -22,6 +22,7 @@ See also:
 |---|---|---|---|
 | Identity and access | auth routes, `authStore`, `src/lib/server/auth.ts` | Supabase Auth and `profiles` | username and Ethiopian phone are currently coupled to Auth and referrals |
 | Profile and security | profile/security routes, `src/lib/server/security.ts` | `profiles`, `user_security_settings`, Supabase Auth | Fund PIN is a protected server/database workflow |
+| Shared request lifecycle | `src/shared/requests/authenticated-request-lifecycle.ts` plus domain compatibility adapters | in-memory user/token identities, request generations, scopes, and retry budgets only | proven domain-neutral primitive used by Accounts, Plans, Referrals, Notifications, and Fiat Withdrawals; domain-specific purchase and form-ownership policy remains with its domain |
 | Accounts | `/dashboard`, `/transactions`, `src/domains/accounts/public.ts`, accounts UI/application/domain modules, wallet store and server readers | ETB wallet/transactions plus the separately owned USDT ledger | dashboard snapshots are user/token scoped; transaction snapshots and retries are user/token/filter scoped; wallet cache, in-flight work, polling, and writes are scoped to the active user ID; accounting writes remain server-owned |
 | Shared deposits | `/deposit`, `src/domains/deposits/public.ts`, `src/domains/deposits/ui/DepositHub.tsx`, `src/domains/deposits/server.ts` | `app_settings.deposits_paused` plus rail-owned history sources | the provider-neutral admission boundary and cross-rail browser composition are implemented; shared composition imports rail public surfaces rather than rail internals |
 | Fiat deposits | `src/domains/fiat-deposits/public.ts`, `src/domains/fiat-deposits/ui`, `src/lib/server/deposits.ts`, CBE/TeleBirr verifiers | Supabase `deposits`, `payment_methods`, ETB wallet/transactions | the Ethiopia CBE/TeleBirr browser flow is domain-owned and provider-specific presentation is split under `ui/providers/et`; verification and approval code remains distributed across large server modules and Functions |

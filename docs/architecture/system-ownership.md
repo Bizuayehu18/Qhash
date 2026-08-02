@@ -64,7 +64,7 @@ router, build configuration, and Netlify configuration.
 | `legacy-netlify-database` | Quarantined Netlify Database history; never production Supabase authority |
 | `notifications` | User notification records and presentation |
 | `plans` | Plan catalog presentation, eligibility, authentication-scoped purchase orchestration, investment records, and contract rules; financial execution remains server-owned |
-| `platform` | Repository governance, generated database contracts, migration runner, shared settings, and architecture docs |
+| `platform` | Repository governance, generated database contracts, migration runner, shared settings, domain-neutral application primitives, and architecture docs |
 | `referrals` | Referral graph, authentication-scoped team presentation, reward posting, and reward audit |
 | `support` | User support presentation and server-owned support configuration |
 | `withdrawals` | Fiat and USDT requests, reservation, cross-rail policy, and manual administrator resolution |
@@ -165,6 +165,15 @@ for deriving the caller identity from that token. Notification producer writes
 remain owned by the deposit, withdrawal, earning, and referral workflows that
 emit them; consuming a notification does not transfer ownership of the
 underlying financial transition.
+
+The platform domain owns the shared authenticated-request lifecycle primitive.
+Accounts, Plans, Referrals, Notifications, and Fiat Withdrawals retain their
+established import paths as compatibility adapters, while new consumers may use
+the shared path directly. The shared module compares exact user/token
+generations and coordinates only in-memory request ownership, optional scopes,
+and retry admission. Plans purchase locking and reconciliation, Fiat
+Withdrawals null-state matching, abort-controller ownership, server
+authentication, and every business policy remain with their existing owners.
 
 ## Supabase contract
 
