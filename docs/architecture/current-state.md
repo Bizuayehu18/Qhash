@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository base `bf963f0a377216840edb23a80687ee8e45f06996`, plus this shared non-null, non-array object-guard extraction
+**Scope:** Runtime baseline through repository base `51b51d0481e2ac82183c2b392227612d6c284362`, plus the first read-only Admin Overview extraction
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -59,7 +59,7 @@ The repository is organized mainly by technical layer, with several business dom
 | Area | Current role | Observed concentration |
 |---|---|---|
 | `src/routes` | TanStack route entry points and substantial page logic | 6 route files remain over the 150-nonblank-line warning; `deposit.tsx`, `withdraw.tsx`, `plans.tsx`, `referrals.tsx`, `transactions.tsx`, and `notifications.tsx` are now thin composition entries while `admin.tsx` remains concentrated |
-| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Account transaction history, deposit, withdrawal, plans, referrals, Notifications, Support redirect/navigation, crypto-rail, and Ethiopia fiat-rail UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
+| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Account transaction history, deposit, withdrawal, plans, referrals, Notifications, Support redirect/navigation, Admin Overview, crypto-rail, and Ethiopia fiat-rail UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
 | `src/components` | Shared UI plus extracted crypto compatibility bridges | Only the administrator NOWPayments withdrawal component remains over the 300-nonblank-line warning after the user deposit and withdrawal UI decompositions |
 | `src/lib/server` | TanStack server functions for many domains in one flat folder | Large deposit, verification, withdrawal, earning, security, and admin modules |
 | `netlify/functions` | provider-facing, scheduled, verification, and admin Functions | NOWPayments handlers are partly decomposed through `netlify/functions/lib` |
@@ -130,8 +130,17 @@ The public `/support` route is now a thin adapter over the same facade and its
 domain-owned redirect page. It preserves the one-shot Telegram
 `window.location.replace` behavior, unavailable state, error handling, and
 unmount guard without adopting the dashboard's polling or fallback behavior.
-The Profile and Admin routes remain documented legacy direct consumers for
-later identity/profile and administration extractions.
+The Profile route and the remaining Admin panels remain documented legacy
+direct consumers for later identity/profile and administration extractions.
+
+The read-only `/admin` Overview panel is the first bounded Phase 5 extraction.
+`src/domains/admin/public.ts` exposes its browser-safe composition and legacy
+ETB presentation primitive, while one application bridge owns the dependency
+on the existing administrator statistics server function. Overview snapshots,
+retries, timers, and finalizers are bound to the exact administrator and
+access-token generation. The `/admin` route remains the compatibility shell;
+its other panels, tab order, server actions, and financial-domain ownership are
+unchanged.
 
 `/transactions` is now a thin route through the same client-safe accounts
 facade. The accounts domain owns transaction filters, list presentation, and
@@ -259,7 +268,7 @@ remains at its existing client-library path. No provider, database, accounting,
 Fund PIN, cross-rail policy, authorization logic, endpoint, or route URL moved
 in these slices.
 
-`src/components/layout/AppLayout.tsx` also hard-codes the navigation and route labels. The admin experience is a single large route rather than grouped Users, Deposits, Withdrawals, Plans, and Settings sections.
+`src/components/layout/AppLayout.tsx` also hard-codes the navigation and route labels. The admin experience remains a large compatibility route rather than grouped Users, Deposits, Withdrawals, Plans, and Settings sections, although its read-only Overview is now domain-owned.
 
 ### Generated route tree
 

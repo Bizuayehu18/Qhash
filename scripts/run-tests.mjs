@@ -57,6 +57,8 @@ async function verifyNativeDatabase(databaseUrl) {
 }
 
 const allTests = [
+  "admin-overview-ui.test.mjs",
+  "admin-route-compatibility.test.mjs",
   "authenticated-request-lifecycle.test.mjs",
   "bsc-address-rotation.test.mjs",
   "bsc-user-deposit-exposure.test.mjs",

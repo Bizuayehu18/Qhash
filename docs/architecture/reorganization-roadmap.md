@@ -17,7 +17,8 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 | Phase 2 — Compatibility scaffolding | In progress: client-safe route/facade slices and cross-system ownership enforcement implemented; server-only entry points remain |
 | Phase 3 — Extract shared primitives | In progress: authenticated request lifecycle, exact cross-domain date/time presentation, shared UUID syntax, shared timestamp parseability, and the loose non-null/non-array object guard extracted |
 | Phase 4 — Extract domains one at a time | In progress: accounts transaction history/dashboard, public Support redirect, Notifications, crypto-deposit, ordinary-user USDT-withdrawal, Ethiopia fiat-deposit, Ethiopia fiat-withdrawal, legacy ETB plans, and referrals UI decompositions implemented |
-| Phase 5 and later | Not started |
+| Phase 5 — Decompose administration | In progress: first read-only Admin Overview slice implemented |
+| Phase 6 and later | Not started |
 
 ## Invariants throughout the roadmap
 
@@ -468,6 +469,22 @@ domain-owned panels:
 Retain the single existing administrator role initially. Introduce a permission
 vocabulary and server-owned capability checks so future Super Admin, Finance,
 and Support roles can be added without replacing the UI structure.
+
+The first bounded Admin Overview slice:
+
+- exposes read-only overview composition through the client-safe
+  `src/domains/admin/public.ts` surface;
+- confines its legacy administrator-statistics server dependency to one
+  application bridge;
+- preserves the `/admin` URL, flat tab order, visible statistics, legacy ETB
+  presentation, timeout, bounded retry, and visible/online refresh behavior;
+- binds snapshot publication, retries, active-flight cleanup, and finalizers to
+  the exact administrator and access-token generation; and
+- changes no schema, migration, server query, administrator action, financial
+  rule, provider boundary, feature flag, or production state.
+
+The remaining panels stay in the compatibility route until they are extracted
+by their accountable product domains in separately reviewed slices.
 
 Exit criteria:
 
