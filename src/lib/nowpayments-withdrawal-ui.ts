@@ -1,3 +1,4 @@
+import { isUuidV4 } from "../shared/identifiers/uuid.ts";
 import { normalizeWithdrawalNextAllowedAt } from "./withdrawal-policy.ts";
 
 export const NOWPAYMENTS_WITHDRAWAL_STATUSES = [
@@ -40,7 +41,6 @@ export type NowpaymentsWithdrawalRequestResult = {
 const DECIMAL_PATTERN = /^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/;
 const INPUT_DECIMAL_PATTERN = /^(?:0|[1-9]\d{0,29})(?:\.\d{1,6})?$/;
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
-const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const STATUS_SET = new Set<string>(NOWPAYMENTS_WITHDRAWAL_STATUSES);
 const MICROS_PER_USDT = 1_000_000n;
 const MINIMUM_MICROS = 2n * MICROS_PER_USDT;
@@ -365,7 +365,7 @@ export function createWithdrawalAttemptKeyManager(
       const nextFingerprint = `${grossAmount}|${destination.toLowerCase()}|${fundPassword}`;
       if (nextFingerprint !== fingerprint || key === null) {
         const nextKey = createKey();
-        if (!UUID_V4_PATTERN.test(nextKey)) throw new Error("invalid_idempotency_key_factory");
+        if (!isUuidV4(nextKey)) throw new Error("invalid_idempotency_key_factory");
         fingerprint = nextFingerprint;
         key = nextKey.toLowerCase();
       }

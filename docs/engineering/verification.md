@@ -104,6 +104,14 @@ legacy compatibility re-export, and direct shared imports in all 10 current
 consumers. It also prevents the distinct nullable administrator-earnings
 formatter from being silently folded into the shared contract.
 
+`tests/shared-uuid-identifiers.test.mjs` freezes the platform-owned UUID syntax
+boundary. It covers canonical UUID versions 1-5, the narrower UUID v4 contract,
+RFC variants, uppercase acceptance, malformed and unsupported identifiers, and
+the absence of trimming or case normalization inside the predicates. It also
+requires all seven case-insensitive callers to import the shared primitive,
+preserves caller-owned lowercase output where already established, and guards
+the three lowercase-only withdrawal validators as distinct domain contracts.
+
 `tests/plans-route-compatibility.test.mjs` freezes `/plans` as a thin route
 through the plans public surface, keeps the generated-route and deposit-link
 contracts intact, and rejects server logic in the route. `tests/plans-ui.test.mjs`

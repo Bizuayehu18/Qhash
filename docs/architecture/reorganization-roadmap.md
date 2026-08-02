@@ -15,7 +15,7 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 | Phase 0 — Architecture foundation | Complete |
 | Phase 1 — Deterministic engineering baseline | Complete |
 | Phase 2 — Compatibility scaffolding | In progress: client-safe route/facade slices and cross-system ownership enforcement implemented; server-only entry points remain |
-| Phase 3 — Extract shared primitives | In progress: authenticated request lifecycle and exact cross-domain date/time presentation extracted |
+| Phase 3 — Extract shared primitives | In progress: authenticated request lifecycle, exact cross-domain date/time presentation, and shared UUID syntax extracted |
 | Phase 4 — Extract domains one at a time | In progress: accounts transaction history/dashboard, public Support redirect, Notifications, crypto-deposit, ordinary-user USDT-withdrawal, Ethiopia fiat-deposit, Ethiopia fiat-withdrawal, legacy ETB plans, and referrals UI decompositions implemented |
 | Phase 5 and later | Not started |
 
@@ -193,6 +193,15 @@ re-export. The slice preserves `en-US`, device-local timezone, short month,
 numeric day/hour, two-digit minute, and existing invalid-date behavior.
 Nullable, date-only, explicit-UTC financial-policy, and provider receipt
 timestamp formatters remain domain-owned because their contracts differ.
+
+The third bounded Phase 3 slice moves the exact case-insensitive UUID syntax
+contracts into `src/shared/identifiers/uuid.ts`. The dependency-free
+`isUuidV1ToV5` and `isUuidV4` predicates replace seven duplicated validators
+without trimming, lowercasing, coercing, generating, authorizing, or persisting
+identifiers. Existing caller normalization remains local. Three deliberately
+lowercase-only withdrawal validators and PostgreSQL
+`public.is_canonical_uuid_v4` remain outside the shared module because they
+enforce distinct financial/database contracts.
 
 Exit criteria:
 

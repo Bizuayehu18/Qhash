@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { randomInt } from "node:crypto";
+import { isUuidV1ToV5 } from "../../shared/identifiers/uuid.ts";
 import { getAdminClient } from "./supabase-admin.js";
 import { throwSafe } from "../errors.js";
 
@@ -79,8 +80,6 @@ type AdminSecurityResetAuditClient = {
   };
 };
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 function safeDbMessage(error: DbError | null): string {
   if (!error) return "Unknown database error";
 
@@ -102,11 +101,12 @@ function normalizeAccessToken(value: unknown): string {
 }
 
 function normalizeTargetUserId(value: unknown): string {
-  if (typeof value !== "string" || !UUID_PATTERN.test(value.trim())) {
+  const normalized = typeof value === "string" ? value.trim() : value;
+  if (!isUuidV1ToV5(normalized)) {
     throwSafe("ADMIN", "Please select a valid user.", "Invalid target user id");
   }
 
-  return value.trim();
+  return normalized;
 }
 
 function normalizeReason(value: unknown): string {

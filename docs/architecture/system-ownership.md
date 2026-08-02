@@ -183,6 +183,15 @@ and retry admission. Plans purchase locking and reconciliation, Fiat
 Withdrawals null-state matching, abort-controller ownership, server
 authentication, and every business policy remain with their existing owners.
 
+The platform domain also owns the dependency-free UUID syntax predicates at
+`src/shared/identifiers/uuid.ts`. They recognize the exact case-insensitive,
+canonical-hyphen UUID versions 1-5 and UUID v4 contracts already shared by
+seven callers. They do not trim, lowercase, coerce, generate, authorize, or
+persist values; those behaviors remain with each caller. The PostgreSQL
+`public.is_canonical_uuid_v4` function and lowercase-only withdrawal validators
+remain separate financial/database boundaries rather than aliases of the
+TypeScript helper.
+
 ## Supabase contract
 
 Generated table and Data API function inventories come from

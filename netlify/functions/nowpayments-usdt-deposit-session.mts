@@ -2,6 +2,7 @@ import type { Config, Context } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 import { readGlobalDepositAdmission } from "../../src/domains/deposits/server.ts";
 import type { Database } from "../../src/lib/database.types.ts";
+import { isUuidV1ToV5 } from "../../src/shared/identifiers/uuid.ts";
 import { isPublishedProductionDeployContext } from "./lib/nowpayments-deploy-context.mts";
 import {
   createNowpaymentsClient,
@@ -25,7 +26,6 @@ type SessionRpcClient = {
   ): Promise<{ data: unknown; error: RpcError | null }>;
 };
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SESSION_STATUSES = new Set([
   "provisioning",
   "ready",
@@ -74,6 +74,13 @@ function asNullableString(value: unknown, pattern?: RegExp): string | null {
   return asString(value, pattern);
 }
 
+function asUuid(value: unknown): string {
+  if (!isUuidV1ToV5(value)) {
+    throw new NowpaymentsDepositSessionError("database_invalid_response");
+  }
+  return value;
+}
+
 function asTimestamp(value: unknown): string {
   const raw = asString(value);
   const parsed = new Date(raw);
@@ -96,7 +103,7 @@ function decodeSession(
   expectedUserId: string,
 ): NowpaymentsDepositSession {
   const row = asObject(value);
-  const userId = asString(row.user_id, UUID_PATTERN);
+  const userId = asUuid(row.user_id);
   const sessionStatus = asString(row.session_status);
   const providerStatus = asNullableString(row.provider_payment_status);
   const technicalReferenceAmount = asNullablePositiveDecimal(
@@ -115,9 +122,9 @@ function decodeSession(
   }
 
   return {
-    id: asString(row.id, UUID_PATTERN),
+    id: asUuid(row.id),
     user_id: userId,
-    qhash_order_id: asString(row.qhash_order_id, UUID_PATTERN),
+    qhash_order_id: asUuid(row.qhash_order_id),
     session_status: sessionStatus as NowpaymentsDepositSession["session_status"],
     provider_payment_id: asNullableString(row.provider_payment_id, /^\d{1,200}$/),
     provider_payment_status: providerStatus as NowpaymentsProviderStatus | null,
