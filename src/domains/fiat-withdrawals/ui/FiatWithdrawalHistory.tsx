@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { ArrowUpCircle, CheckCircle, Clock, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/Badge.js";
-import { formatDateTime } from "@/lib/format.js";
+import { formatDateTime } from "@/shared/formatting/date-time.js";
 import { getFiatWithdrawalMethodLabel } from "./fiat-withdrawal-providers.js";
 import type { UserFiatWithdrawal } from "./fiat-withdrawal-types.js";
 import { EtbWithdrawalAmount } from "./FiatWithdrawalSummary.js";

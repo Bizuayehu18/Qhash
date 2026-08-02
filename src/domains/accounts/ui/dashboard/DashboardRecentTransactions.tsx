@@ -11,7 +11,7 @@ import {
   txSubtitle,
   txTitle,
 } from "@/components/ui/TransactionHelpers.js";
-import { formatDateTime } from "@/lib/format.js";
+import { formatDateTime } from "@/shared/formatting/date-time.js";
 import type { DashboardData } from "../../application/dashboard-browser-service.js";
 import { getRecentDashboardTransactions } from "./dashboard-format.js";
 

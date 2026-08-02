@@ -87,6 +87,7 @@ const allTests = [
   "plans-ui.test.mjs",
   "referrals-route-compatibility.test.mjs",
   "referrals-ui.test.mjs",
+  "shared-date-time-formatting.test.mjs",
   "support-route-compatibility.test.mjs",
   "transactions-route-compatibility.test.mjs",
   "transactions-ui.test.mjs",

@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { getSafeErrorMessage } from "@/lib/errors.js";
-import { formatDateTime } from "@/lib/format.js";
+import { formatDateTime } from "@/shared/formatting/date-time.js";
 import { useAuthStore } from "@/store/authStore.js";
 import { supabase } from "@/lib/supabase.js";
 import { withTimeout } from "@/lib/async.js";
