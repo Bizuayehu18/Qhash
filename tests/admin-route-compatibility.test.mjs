@@ -72,7 +72,14 @@ test("admin route delegates extracted panels through client-safe domain surfaces
   assert.match(route, /\{ key: "payment", label: "Payment" \}/);
   assert.match(route, /hidden=\{activeSettingsTab !== "support"\}/);
   assert.match(route, /activeSettingsTab === "payment" &&/);
-  assert.match(route, /<PaymentMethodsTab userId=\{userId\} \/>/);
+  assert.match(
+    route,
+    /<AdminFiatPaymentMethodsPanel accessToken=\{accessToken\} userId=\{userId\} \/>/,
+  );
+  assert.doesNotMatch(
+    route,
+    /function PaymentMethodsTab|getPaymentMethodsFn|createPaymentMethodFn|updatePaymentMethodFn|archivePaymentMethodFn|type PaymentMethod\b|PaymentMethodType/,
+  );
 
   assert.match(
     adminPublicSurface,
@@ -90,6 +97,10 @@ test("admin route delegates extracted panels through client-safe domain surfaces
   assert.match(
     fiatDepositPublicSurface,
     /export \{ DepositVerificationAuditPanel \} from "\.\/ui\/admin\/DepositVerificationAuditPanel\.js";/,
+  );
+  assert.match(
+    fiatDepositPublicSurface,
+    /export \{ AdminFiatPaymentMethodsPanel \} from "\.\/ui\/admin\/AdminFiatPaymentMethodsPanel\.js";/,
   );
   assert.doesNotMatch(fiatDepositPublicSurface, /export \*/);
   assert.match(

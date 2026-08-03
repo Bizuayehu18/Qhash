@@ -279,7 +279,7 @@ test("admin settings keeps the support controller mounted across Support and Pay
   );
   assert.match(
     route,
-    /\{activeSettingsTab === "payment" && <PaymentMethodsTab userId=\{userId\} \/>\}/,
+    /\{activeSettingsTab === "payment" && \(\s*<AdminFiatPaymentMethodsPanel accessToken=\{accessToken\} userId=\{userId\} \/>\s*\)\}/s,
   );
   assert.doesNotMatch(
     route,
