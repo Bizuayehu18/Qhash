@@ -539,9 +539,12 @@ The fifth bounded Admin Fiat Deposit Operations slice:
   filters, latest-100 catalog, current-filter pending count, loading and empty
   states, detail fields, receipt link, verified ETB amount, review note, copy,
   and approval/rejection request contract;
-- scopes catalog publication, retry admission, selection, drafts, notices,
-  mutation single-flight state, cleanup, and finalizers to the exact
-  administrator, access-token generation, and selected filter; and
+- scopes catalog publication, retry admission, selection, drafts, and catalog
+  cleanup to the exact administrator, access-token generation, and selected
+  filter; clears selection and drafts when the filter changes; scopes review
+  single-flight state, notices, cleanup, and finalizers to the exact
+  administrator and access-token generation; refreshes the currently
+  selected catalog after an accepted review; and
 - changes no list server function, approval Function or RPC, authorization
   rule, notification behavior, schema, migration, database row, provider
   boundary, financial rule, feature flag, or production state. The approval

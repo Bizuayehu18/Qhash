@@ -318,9 +318,12 @@ The fifth bounded extraction moves Administrator Fiat Deposit Operations
 behind `src/domains/fiat-deposits/public.ts`. One fiat-deposit application
 bridge owns the browser dependencies on the existing administrator deposit-list
 server function and `/api/admin/approve-deposit` endpoint. Catalog, selection,
-review-draft, retry, notice, and mutation effects are scoped to the exact
+review-draft, retry, and catalog-cleanup effects are scoped to the exact
 administrator, access-token generation, and All/Pending/Approved/Rejected
-filter. The server list continues to derive and authorize the active,
+filter; filter changes clear the selection and drafts. Review single-flight
+state, notices, and mutation finalizers are scoped to the exact administrator
+and access-token generation, and an accepted review refreshes the currently
+selected catalog. The server list continues to derive and authorize the active,
 non-frozen administrator from the token, while the existing Netlify adapter
 continues to authenticate the bearer token and delegates financial
 authorization and the atomic transition to `approve_deposit_tx`.

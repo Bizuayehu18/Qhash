@@ -141,9 +141,12 @@ route owns only Settings Support/Payment composition and conditional mounting.
 The same `fiat-deposits` facade owns the administrator Fiat Deposit Operations
 panel. One fiat-deposit application bridge is the browser's only dependency on
 the existing administrator deposit-list server function and approval HTTP
-endpoint. Catalog snapshots, selection, review drafts, retries, notices, and
-mutation finalizers are scoped to the exact administrator, access-token
-generation, and All/Pending/Approved/Rejected filter. The list server function
+endpoint. Catalog snapshots, selection, review drafts, retries, and catalog
+cleanup are scoped to the exact administrator, access-token generation, and
+All/Pending/Approved/Rejected filter; filter changes clear the selection and
+drafts. Review single-flight state, notices, and mutation finalizers are scoped
+to the exact administrator and access-token generation, and an accepted review
+refreshes the currently selected catalog. The list server function
 continues to authorize the active, non-frozen administrator, while
 `netlify/functions/admin-approve-deposit.mts` continues to authenticate the
 bearer token and delegate financial authorization and the atomic transition to

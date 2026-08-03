@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+import { tsImport } from "tsx/esm/api";
 import {
   createAdminFiatDepositAuthIdentity,
   createAdminFiatDepositCatalogKey,
@@ -20,6 +22,14 @@ import {
   parseAdminFiatDepositVerifiedAmount,
   requiresManualFiatDepositReview,
 } from "../src/domains/fiat-deposits/ui/admin/admin-fiat-deposit-operations-presentation.ts";
+
+const { reviewAdminFiatDeposit } = await tsImport(
+  "../src/domains/fiat-deposits/application/admin-fiat-deposit-operations-browser-service.ts",
+  {
+    parentURL: import.meta.url,
+    tsconfig: fileURLToPath(new URL("../tsconfig.json", import.meta.url)),
+  },
+);
 
 const repositoryRoot = new URL("../", import.meta.url);
 
@@ -218,14 +228,23 @@ test("global review flights coalesce exact commands and whenIdle awaits every ac
   const idlePromise = flights.whenIdle().then(() => {
     idle = true;
   });
+  let catalogReads = 0;
+  const catalogRead = (async () => {
+    await flights.whenIdle();
+    catalogReads += 1;
+  })();
+  await Promise.resolve();
+  assert.equal(catalogReads, 0);
   approve.resolve("approved");
   assert.equal(await firstApprove, "approved");
   await Promise.resolve();
   assert.equal(idle, false);
+  assert.equal(catalogReads, 0);
   reject.resolve("rejected");
   assert.equal(await independentReject, "rejected");
-  await idlePromise;
+  await Promise.all([idlePromise, catalogRead]);
   assert.equal(idle, true);
+  assert.equal(catalogReads, 1);
 
   await Promise.resolve();
   const afterIdle = await flights.run(approveKey, async () => {
@@ -275,22 +294,92 @@ test("browser service owns only the exact catalog and review HTTP contracts", as
   assert.doesNotMatch(service, /userId|user_id|supabase|service.role/i);
 
   assert.match(service, /request\("\/api\/admin\/approve-deposit", \{/);
-  assert.match(service, /method: "POST"/);
-  assert.match(service, /Authorization: `Bearer \$\{accessToken\}`/);
-  assert.match(service, /"Content-Type": "application\/json"/);
-  assert.match(service, /body: JSON\.stringify\(\{[\s\S]*depositId: input\.depositId,[\s\S]*action: input\.action,[\s\S]*adminNote: input\.adminNote,/);
-  assert.match(
-    service,
-    /input\.action === "approve"[\s\S]*\{ verifiedAmount: input\.verifiedAmount \}[\s\S]*: \{\}/,
-  );
-  assert.doesNotMatch(
-    service,
-    /body: JSON\.stringify\(\{[\s\S]*verifiedAmount: input\.verifiedAmount,[\s\S]*\}\)/,
-  );
   assert.match(service, /const result = await response\.json\(\)/);
   assert.match(service, /!response\.ok \|\| result\.success !== true/);
   assert.match(service, /result\.message \|\| "Failed to review deposit\."/);
   assert.doesNotMatch(service, /AbortController|abort\(|signal:/);
+});
+
+test("review service sends exact approve and reject HTTP contracts", async () => {
+  const calls = [];
+  const request = async (url, init) => {
+    calls.push({ init, url });
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { "Content-Type": "application/json" },
+      status: 200,
+    });
+  };
+
+  await reviewAdminFiatDeposit("token-a", {
+    action: "approve",
+    adminNote: "verified",
+    depositId: "deposit-a",
+    verifiedAmount: 125.5,
+  }, request);
+  await reviewAdminFiatDeposit("token-a", {
+    action: "reject",
+    adminNote: null,
+    depositId: "deposit-b",
+    verifiedAmount: 999,
+  }, request);
+
+  assert.equal(calls.length, 2);
+  for (const call of calls) {
+    assert.equal(call.url, "/api/admin/approve-deposit");
+    assert.equal(call.init.method, "POST");
+    assert.deepEqual(call.init.headers, {
+      Authorization: "Bearer token-a",
+      "Content-Type": "application/json",
+    });
+  }
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    action: "approve",
+    adminNote: "verified",
+    depositId: "deposit-a",
+    verifiedAmount: 125.5,
+  });
+  const rejectBody = JSON.parse(calls[1].init.body);
+  assert.deepEqual(rejectBody, {
+    action: "reject",
+    adminNote: null,
+    depositId: "deposit-b",
+  });
+  assert.equal(Object.hasOwn(rejectBody, "verifiedAmount"), false);
+});
+
+test("review service fails closed for rejected and malformed responses", async () => {
+  const input = {
+    action: "reject",
+    adminNote: "duplicate",
+    depositId: "deposit-c",
+  };
+  await assert.rejects(
+    reviewAdminFiatDeposit("token-a", input, async () => new Response(
+      JSON.stringify({ message: "Review denied.", success: false }),
+      { status: 403 },
+    )),
+    /Review denied\./,
+  );
+  await assert.rejects(
+    reviewAdminFiatDeposit("token-a", input, async () => new Response(
+      JSON.stringify({ success: false }),
+      { status: 200 },
+    )),
+    /Failed to review deposit\./,
+  );
+  await assert.rejects(
+    reviewAdminFiatDeposit("token-a", input, async () => {
+      throw new Error("network unavailable");
+    }),
+    /network unavailable/,
+  );
+  await assert.rejects(
+    reviewAdminFiatDeposit("token-a", input, async () => new Response(
+      "not-json",
+      { status: 200 },
+    )),
+    SyntaxError,
+  );
 });
 
 test("catalog waits for durable reviews and keeps timeout, coalescing, and stale-publication guards", async () => {
@@ -310,10 +399,10 @@ test("catalog waits for durable reviews and keeps timeout, coalescing, and stale
   assert.match(catalog, /Symbol\("admin-fiat-deposit-catalog-flight"\)/);
   assert.match(catalog, /activeLoadRef\.current\?\.token === flightToken/);
 
-  const waitIndex = catalog.indexOf("adminFiatDepositGlobalReviewFlights.whenIdle()");
-  const loadIndex = catalog.indexOf("loadAdminFiatDeposits(", waitIndex);
-  assert.ok(waitIndex >= 0, "catalog must wait for accepted review commands");
-  assert.ok(loadIndex > waitIndex, "catalog read must start after reviews become idle");
+  assert.match(
+    catalog,
+    /await adminFiatDepositGlobalReviewFlights\.whenIdle\(\);[\s\S]*?const deposits = await withTimeout\([\s\S]*?loadAdminFiatDeposits\(/,
+  );
   assert.ok(
     [...catalog.matchAll(/request\.isCurrent\(requestKeyRef\.current\)/g)].length >= 3,
     "wait, success, and failure publication must be generation guarded",

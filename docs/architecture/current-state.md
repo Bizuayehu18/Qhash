@@ -182,9 +182,12 @@ Administrator Fiat Deposit Operations is the fifth bounded Phase 5
 extraction. `src/domains/fiat-deposits/public.ts` exposes the panel, while one
 fiat-deposit application bridge owns its dependency on the existing
 administrator deposit-list server function and approval HTTP endpoint.
-Catalog snapshots, bounded retries, visible/online refresh, selection, review
-drafts, notices, and mutation finalizers are bound to the exact administrator,
-access-token generation, and All/Pending/Approved/Rejected filter. The existing
+Catalog snapshots, bounded retries, visible/online refresh, selection, and
+review drafts are bound to the exact administrator, access-token generation,
+and All/Pending/Approved/Rejected filter; filter changes clear the selection and
+drafts. Review single-flight state, notices, and mutation finalizers are bound
+to the exact administrator and access-token generation, and an accepted review
+refreshes the currently selected catalog. The existing
 latest-100 list, CBE/TeleBirr presentation, receipt link, verified ETB amount,
 approval/rejection payload, and visible behavior are unchanged. The list server
 function still authorizes the active, non-frozen administrator, and the

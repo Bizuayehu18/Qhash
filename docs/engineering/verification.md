@@ -149,9 +149,12 @@ All/Pending/Approved/Rejected filters, latest-100 deposit catalog, current-filte
 pending badge, CBE/TeleBirr presentation, loading and empty states, detail and
 receipt-link behavior, verified ETB amount, copy, review note, and exact
 approval/rejection HTTP contract. Its lifecycle and deferred-request fixtures
-prove that catalog, selection, retry, draft, notice, single-flight, and
-finalizer effects cannot cross an administrator, access-token generation, or
-selected filter. The focused UI contract keeps `getAdminDepositsFn` and the
+prove that catalog, selection, retry, draft, and catalog-cleanup effects cannot
+cross an administrator, access-token generation, or selected filter, while
+review notice, single-flight, and finalizer effects cannot cross an
+administrator or access-token generation. Filter changes clear selection and
+drafts, and an accepted review refreshes the currently selected catalog. The
+focused UI contract keeps `getAdminDepositsFn` and the
 existing `/api/admin/approve-deposit` adapter behind one browser bridge; the
 server function, Netlify adapter, and `approve_deposit_tx` authorization and
 financial boundaries remain unchanged. This test does not close the Netlify
