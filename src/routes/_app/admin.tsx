@@ -3,23 +3,15 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Badge } from "@/components/ui/Badge.js";
 import { Button } from "@/components/ui/Button.js";
 import { Input } from "@/components/ui/Input.js";
-import { Spinner } from "@/components/ui/Spinner.js";
 import {
   ShieldCheck,
   Settings,
-  Building2,
-  Smartphone,
   CheckCircle,
   XCircle,
-  Plus,
-  Power,
-  Pencil,
   ExternalLink,
   Copy,
   Clock,
   AlertTriangle,
-  Archive,
-  ArchiveRestore,
 } from "lucide-react";
 import { toast } from "sonner";
 import { getSafeErrorMessage } from "@/lib/errors.js";
@@ -32,14 +24,11 @@ import {
   AdminEtbAmount,
   AdminOverviewPanel,
 } from "@/domains/admin/public.js";
-import { DepositVerificationAuditPanel } from "@/domains/fiat-deposits/public.js";
-import { AdminSupportSettingsPanel } from "@/domains/support/public.js";
 import {
-  getPaymentMethodsFn,
-  createPaymentMethodFn,
-  updatePaymentMethodFn,
-  archivePaymentMethodFn,
-} from "@/lib/server/payment-methods.js";
+  AdminFiatPaymentMethodsPanel,
+  DepositVerificationAuditPanel,
+} from "@/domains/fiat-deposits/public.js";
+import { AdminSupportSettingsPanel } from "@/domains/support/public.js";
 import { getAdminDepositsFn } from "@/lib/server/deposits.js";
 import {
   getAdminWithdrawalsFn,
@@ -51,14 +40,12 @@ import {
   resetUserFundPasswordFn,
   resetUserLoginPasswordFn,
 } from "@/lib/server/admin-security-resets.js";
-import type { PaymentMethodType } from "@/lib/database.types.js";
 
 export const Route = createFileRoute("/_app/admin")({
   component: AdminPage,
 });
 
 type AdminDeposit = Awaited<ReturnType<typeof getAdminDepositsFn>>[number];
-type PaymentMethod = Awaited<ReturnType<typeof getPaymentMethodsFn>>[number];
 type AdminWithdrawal = Awaited<ReturnType<typeof getAdminWithdrawalsFn>>[number];
 type AdminSecurityUser = Awaited<ReturnType<typeof getAdminSecurityUsersFn>>[number];
 
@@ -773,426 +760,6 @@ function WithdrawalStatusBadge({ status }: { status: string }) {
   return <Badge variant={sc.variant}>{sc.label}</Badge>;
 }
 
-function PaymentMethodsTab({ userId }: { userId: string | undefined }) {
-  const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
-  const [methods, setMethods] = useState<PaymentMethod[]>([]);
-  const [methodsLoaded, setMethodsLoaded] = useState(false);
-  const [showAdd, setShowAdd] = useState(false);
-  const [newType, setNewType] = useState<PaymentMethodType>("cbe");
-  const [newName, setNewName] = useState("");
-  const [newNumber, setNewNumber] = useState("");
-  const [newInstructions, setNewInstructions] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [togglingId, setTogglingId] = useState<string | null>(null);
-  const [archivingId, setArchivingId] = useState<string | null>(null);
-  const [archiveFilter, setArchiveFilter] = useState<"visible" | "archived" | "all">("visible");
-  const [editingMethod, setEditingMethod] = useState<PaymentMethod | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editNumber, setEditNumber] = useState("");
-  const [editInstructions, setEditInstructions] = useState("");
-  const [editSaving, setEditSaving] = useState(false);
-
-  const mountedRef = useRef(true);
-  const loadingRef = useRef(false);
-  const retryCountRef = useRef(0);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearRetryTimer = useCallback(() => {
-    if (retryTimerRef.current) {
-      clearTimeout(retryTimerRef.current);
-      retryTimerRef.current = null;
-    }
-  }, []);
-
-  const scheduleRetry = useCallback(
-    (loadFn: () => void) => {
-      clearRetryTimer();
-
-      if (retryCountRef.current >= ADMIN_MAX_AUTO_RETRIES) return;
-
-      retryCountRef.current += 1;
-      retryTimerRef.current = setTimeout(loadFn, ADMIN_AUTO_RETRY_DELAY_MS);
-    },
-    [clearRetryTimer],
-  );
-
-  const loadMethods = useCallback(
-    async (options?: { resetRetryCount?: boolean; resetLoaded?: boolean }) => {
-      if (loadingRef.current) return;
-
-      if (options?.resetRetryCount) {
-        retryCountRef.current = 0;
-      }
-
-      if (options?.resetLoaded) {
-        setMethodsLoaded(false);
-        setMethods([]);
-      }
-
-      if (!userId) return;
-
-      if (!accessToken) {
-        scheduleRetry(() => {
-          void loadMethods();
-        });
-        return;
-      }
-
-      clearRetryTimer();
-      loadingRef.current = true;
-
-      try {
-        const rows = await withTimeout(
-          getPaymentMethodsFn({
-            data: {
-              activeOnly: false,
-              accessToken,
-              archiveFilter,
-            },
-          }),
-          ADMIN_TAB_LOAD_TIMEOUT_MS,
-          "Admin payment methods request timed out.",
-        );
-
-        if (!mountedRef.current) return;
-
-        setMethods(rows as PaymentMethod[]);
-        setMethodsLoaded(true);
-        retryCountRef.current = 0;
-      } catch (err) {
-        console.error("[QHash] Admin payment methods background refresh failed:", err);
-
-        if (!mountedRef.current) return;
-
-        scheduleRetry(() => {
-          void loadMethods();
-        });
-      } finally {
-        loadingRef.current = false;
-      }
-    },
-    [accessToken, archiveFilter, clearRetryTimer, scheduleRetry, userId],
-  );
-
-  useEffect(() => {
-    mountedRef.current = true;
-
-    return () => {
-      mountedRef.current = false;
-      clearRetryTimer();
-    };
-  }, [clearRetryTimer]);
-
-  useEffect(() => {
-    setEditingMethod(null);
-    setMethods([]);
-    setMethodsLoaded(false);
-    retryCountRef.current = 0;
-    void loadMethods({ resetRetryCount: true });
-  }, [archiveFilter, loadMethods]);
-
-  useEffect(() => {
-    const handleVisible = () => {
-      if (document.visibilityState === "visible") {
-        void loadMethods({ resetRetryCount: true });
-      }
-    };
-
-    const handleOnline = () => {
-      void loadMethods({ resetRetryCount: true });
-    };
-
-    document.addEventListener("visibilitychange", handleVisible);
-    window.addEventListener("online", handleOnline);
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisible);
-      window.removeEventListener("online", handleOnline);
-    };
-  }, [loadMethods]);
-
-
-  const handleAdd = async () => {
-    if (!userId || !newName.trim() || !newNumber.trim()) return;
-    setSaving(true);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-
-      if (!accessToken) {
-        toast.error("Session expired. Please sign in again.");
-        setSaving(false);
-        return;
-      }
-
-      await createPaymentMethodFn({
-        data: {
-          accessToken,
-          type: newType,
-          accountName: newName.trim(),
-          accountNumber: newNumber.trim(),
-          instructions: newInstructions.trim() || null,
-        },
-      });
-      toast.success("Payment method created.");
-      setShowAdd(false);
-      setNewName(""); setNewNumber(""); setNewInstructions("");
-      void loadMethods({ resetRetryCount: true });
-    } catch (err) {
-      toast.error(getSafeErrorMessage(err, "PAYMENT").message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const startEdit = (m: PaymentMethod) => {
-    setEditingMethod(m);
-    setEditName(m.account_name);
-    setEditNumber(m.account_number);
-    setEditInstructions(m.instructions ?? "");
-  };
-
-  const handleEdit = async () => {
-    if (!userId || !editingMethod || !editName.trim() || !editNumber.trim()) return;
-    setEditSaving(true);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-
-      if (!accessToken) {
-        toast.error("Session expired. Please sign in again.");
-        setEditSaving(false);
-        return;
-      }
-
-      await updatePaymentMethodFn({
-        data: {
-          accessToken,
-          methodId: editingMethod.id,
-          accountName: editName.trim(),
-          accountNumber: editNumber.trim(),
-          instructions: editInstructions.trim() || null,
-        },
-      });
-      toast.success("Payment method updated.");
-      setEditingMethod(null);
-      void loadMethods({ resetRetryCount: true });
-    } catch (err) {
-      toast.error(getSafeErrorMessage(err, "PAYMENT").message);
-    } finally {
-      setEditSaving(false);
-    }
-  };
-
-  const toggleActive = async (method: PaymentMethod) => {
-    if (!userId) return;
-    setTogglingId(method.id);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-
-      if (!accessToken) {
-        toast.error("Session expired. Please sign in again.");
-        setTogglingId(null);
-        return;
-      }
-
-      await updatePaymentMethodFn({ data: { accessToken, methodId: method.id, isActive: !method.is_active } });
-      toast.success(method.is_active ? "Disabled." : "Enabled.");
-      void loadMethods({ resetRetryCount: true });
-    } catch (err) {
-      toast.error(getSafeErrorMessage(err, "PAYMENT").message);
-    } finally {
-      setTogglingId(null);
-    }
-  };
-
-  const archiveMethod = async (method: PaymentMethod, archived: boolean) => {
-    if (!userId) return;
-
-    const actionLabel = archived ? "archive" : "restore";
-    if (!window.confirm(`Are you sure you want to ${actionLabel} this payment account?`)) return;
-
-    setArchivingId(method.id);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-
-      if (!accessToken) {
-        toast.error("Session expired. Please sign in again.");
-        setArchivingId(null);
-        return;
-      }
-
-      await archivePaymentMethodFn({ data: { accessToken, methodId: method.id, archived } });
-      toast.success(archived ? "Payment account archived." : "Payment account restored.");
-      if (!archived) setArchiveFilter("visible");
-      void loadMethods({ resetRetryCount: true });
-    } catch (err) {
-      toast.error(getSafeErrorMessage(err, "PAYMENT").message);
-    } finally {
-      setArchivingId(null);
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-[11px] text-gray-500">Manage deposit accounts</p>
-        <Button size="sm" onClick={() => setShowAdd(!showAdd)}>
-          <Plus size={13} /> Add
-        </Button>
-      </div>
-
-      <div className="flex gap-2 overflow-x-auto hide-scrollbar -mx-4 px-4 pb-1">
-        {([
-          { key: "visible", label: "Visible" },
-          { key: "archived", label: "Archived" },
-          { key: "all", label: "All" },
-        ] as const).map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setArchiveFilter(f.key)}
-            className={`shrink-0 px-3 py-1.5 rounded-full text-[11px] border transition-colors card-press ${
-              archiveFilter === f.key
-                ? "bg-[rgba(0,255,65,0.08)] text-[#00ff41] border-[rgba(0,255,65,0.3)]"
-                : "text-gray-500 border-[#1f1f1f]"
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
-
-      {showAdd && (
-        <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4 space-y-3">
-          <span className="text-xs font-semibold">New Payment Account</span>
-          <div className="flex gap-2">
-            {(["cbe", "telebirr"] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setNewType(t)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs border transition-all card-press ${
-                  newType === t ? "border-[rgba(0,255,65,0.4)] bg-[rgba(0,255,65,0.08)] text-[#00ff41]" : "border-[#1f1f1f] text-gray-400"
-                }`}
-              >
-                {t === "cbe" ? <Building2 size={13} /> : <Smartphone size={13} />}
-                {METHOD_LABELS[t]}
-              </button>
-            ))}
-          </div>
-          <Input label="Account Name" placeholder="e.g. QHash Trading PLC" value={newName} onChange={(e) => setNewName(e.target.value)} />
-          <Input label="Account Number" placeholder="e.g. 1000123456789" value={newNumber} onChange={(e) => setNewNumber(e.target.value)} />
-          {newType === "cbe" && (
-            <p className="text-[10px] text-gray-500 -mt-1">
-              Last 8 digits are generated automatically from the CBE account number.
-            </p>
-          )}
-          <Input label="Instructions (optional)" placeholder="e.g. Use username as remark" value={newInstructions} onChange={(e) => setNewInstructions(e.target.value)} />
-          <div className="flex gap-2">
-            <Button size="sm" loading={saving} disabled={!newName.trim() || !newNumber.trim()} onClick={handleAdd}>Create</Button>
-            <Button variant="ghost" size="sm" onClick={() => setShowAdd(false)}>Cancel</Button>
-          </div>
-        </div>
-      )}
-
-      {editingMethod && (
-        <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold">Edit {METHOD_LABELS[editingMethod.type]} Account</span>
-            <button onClick={() => setEditingMethod(null)} className="text-[10px] text-gray-500">Cancel</button>
-          </div>
-          <Input label="Account Name" value={editName} onChange={(e) => setEditName(e.target.value)} />
-          <Input label="Account Number" value={editNumber} onChange={(e) => setEditNumber(e.target.value)} />
-          {editingMethod.type === "cbe" && (
-            <p className="text-[10px] text-gray-500 -mt-1">
-              Last 8 digits are generated automatically from the CBE account number.
-            </p>
-          )}
-          <Input label="Instructions (optional)" value={editInstructions} onChange={(e) => setEditInstructions(e.target.value)} />
-          <Button size="sm" loading={editSaving} disabled={!editName.trim() || !editNumber.trim()} onClick={handleEdit}>Save Changes</Button>
-        </div>
-      )}
-
-      {!methodsLoaded ? (
-        <div className="space-y-2">{[1, 2].map((i) => <div key={i} className="skeleton h-16 rounded-xl" />)}</div>
-      ) : methods.length === 0 ? (
-        <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-8 text-center text-xs text-gray-600">{archiveFilter === "archived" ? "No archived payment methods." : "No payment methods configured."}</div>
-      ) : (
-        <div className="space-y-2">
-          {methods.map((m) => (
-            <div
-              key={m.id}
-              className={`flex items-center gap-3 bg-[#111] rounded-xl border p-3 ${
-                (m as PaymentMethod & { is_archived?: boolean }).is_archived
-                  ? "border-[#1a1a1a] opacity-50"
-                  : m.is_active
-                    ? "border-[#1a1a1a]"
-                    : "border-[#1a1a1a] opacity-70"
-              }`}
-            >
-              <span className="text-gray-500">
-                {m.type === "cbe" ? <Building2 size={16} /> : <Smartphone size={16} />}
-              </span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-medium text-gray-200 truncate">{m.account_name}</span>
-                  {(m as PaymentMethod & { is_archived?: boolean }).is_archived ? (
-                    <Badge variant="default">Archived</Badge>
-                  ) : (
-                    <Badge variant={m.is_active ? "neon" : "default"}>{m.is_active ? "Active" : "Off"}</Badge>
-                  )}
-                </div>
-                <p className="text-[10px] text-gray-500 font-mono mt-0.5">{METHOD_LABELS[m.type]} — {m.account_number}</p>
-              </div>
-              {!(m as PaymentMethod & { is_archived?: boolean }).is_archived && (
-                <>
-                  <button
-                    onClick={() => startEdit(m)}
-                    className="p-2 rounded-lg text-gray-600 hover:text-gray-300 transition-colors card-press"
-                  >
-                    <Pencil size={13} />
-                  </button>
-                  <button
-                    onClick={() => toggleActive(m)}
-                    disabled={togglingId === m.id}
-                    className={`p-2 rounded-lg transition-colors card-press ${
-                      m.is_active ? "text-gray-500 hover:text-red-400" : "text-gray-600 hover:text-[#00ff41]"
-                    }`}
-                    title={m.is_active ? "Disable" : "Enable"}
-                  >
-                    {togglingId === m.id ? <Spinner size="sm" /> : <Power size={14} />}
-                  </button>
-                </>
-              )}
-              <button
-                onClick={() => archiveMethod(m, !(m as PaymentMethod & { is_archived?: boolean }).is_archived)}
-                disabled={archivingId === m.id}
-                className={`p-2 rounded-lg transition-colors card-press ${
-                  (m as PaymentMethod & { is_archived?: boolean }).is_archived
-                    ? "text-gray-600 hover:text-[#00ff41]"
-                    : "text-gray-500 hover:text-red-400"
-                }`}
-                title={(m as PaymentMethod & { is_archived?: boolean }).is_archived ? "Restore" : "Archive"}
-              >
-                {archivingId === m.id ? (
-                  <Spinner size="sm" />
-                ) : (m as PaymentMethod & { is_archived?: boolean }).is_archived ? (
-                  <ArchiveRestore size={14} />
-                ) : (
-                  <Archive size={14} />
-                )}
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-
-
 function AdminSecurityTab({ userId }: { userId: string | undefined }) {
   const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
   const [users, setUsers] = useState<AdminSecurityUser[]>([]);
@@ -1638,7 +1205,9 @@ function SettingsTab({
         <AdminSupportSettingsPanel accessToken={accessToken} userId={userId} />
       </div>
 
-      {activeSettingsTab === "payment" && <PaymentMethodsTab userId={userId} />}
+      {activeSettingsTab === "payment" && (
+        <AdminFiatPaymentMethodsPanel accessToken={accessToken} userId={userId} />
+      )}
     </div>
   );
 }

@@ -100,9 +100,10 @@ null-state rules by their respective domains.
 `tests/admin-route-compatibility.test.mjs` freezes `/admin` as the unchanged
 compatibility shell while delegating its read-only Overview through the
 client-safe admin public surface and its Fiat Deposit Verification Audit panel
-through the client-safe fiat-deposit public surface and Administrator Support
-Settings through the client-safe Support public surface. It keeps all seven
-current tabs, the Settings Support/Payment composition, Payment Methods panel,
+and Payment Methods panel through the client-safe fiat-deposit public surface,
+and Administrator Support Settings through the client-safe Support public
+surface. It keeps all seven current tabs, the Settings Support/Payment
+composition, Support default and continuous mount, Payment conditional remount,
 non-admin redirect/null behavior, existing domain-owned panels, and one
 explicit browser-to-server bridge per extracted panel. Mutation boundaries
 retain independent active-administrator authorization; the Support settings
@@ -131,6 +132,16 @@ anchors. Its lifecycle fixtures prove that browser loads and single-flight
 saves are scoped to the exact administrator and access-token generation, so
 stale results, notices, or finalizers cannot affect a replacement session or
 overwrite a newer draft.
+
+`tests/admin-payment-methods-ui.test.mjs` freezes the established CBE/TeleBirr
+Payment Methods fields, copy, Visible/Archived/All filters, loading and empty
+states, bounded retry and visible/online refresh, add/edit/enable/archive/restore
+commands, CBE last-eight derivation, and archive/restore semantics. Its lifecycle
+and mutation-flight fixtures prove that catalog effects cannot cross an
+administrator, access-token generation, or archive filter, while editor and
+action effects cannot cross an administrator or token generation. Exact
+concurrent mutations coalesce, filter changes clear edit selection, and every
+server mutation retains independent active-administrator authorization.
 
 `tests/shared-date-time-formatting.test.mjs` freezes the application shell's
 cross-domain presentation formatter. It covers string and `Date` inputs,

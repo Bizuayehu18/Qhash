@@ -17,7 +17,7 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 | Phase 2 — Compatibility scaffolding | In progress: client-safe route/facade slices and cross-system ownership enforcement implemented; server-only entry points remain |
 | Phase 3 — Extract shared primitives | In progress: authenticated request lifecycle, exact cross-domain date/time presentation, shared UUID syntax, shared timestamp parseability, and the loose non-null/non-array object guard extracted |
 | Phase 4 — Extract domains one at a time | In progress: accounts transaction history/dashboard, public Support redirect, Notifications, crypto-deposit, ordinary-user USDT-withdrawal, Ethiopia fiat-deposit, Ethiopia fiat-withdrawal, legacy ETB plans, and referrals UI decompositions implemented |
-| Phase 5 — Decompose administration | In progress: read-only Admin Overview, Fiat Deposit Verification Audit, and Admin Support Settings slices implemented |
+| Phase 5 — Decompose administration | In progress: read-only Admin Overview, Fiat Deposit Verification Audit, Admin Support Settings, and Admin Fiat Payment Methods slices implemented |
 | Phase 6 and later | Not started |
 
 ## Invariants throughout the roadmap
@@ -512,6 +512,22 @@ The third bounded Admin Support Settings slice:
 - changes no setting value, Payment Methods behavior, server authorization,
   schema, migration, provider boundary, financial rule, feature flag, or
   production state.
+
+The fourth bounded Admin Fiat Payment Methods slice:
+
+- exposes CBE/TeleBirr payment-method configuration through the client-safe
+  `src/domains/fiat-deposits/public.ts` surface;
+- confines its existing list, create, update, archive, and restore server
+  dependencies to one fiat-deposit application bridge;
+- preserves the `/admin` URL, Settings default, Support/Payment order, Payment
+  conditional remount, Visible/Archived/All filters, fields, copy, loading and
+  empty states, CBE last-eight derivation, and archive/restore semantics;
+- scopes catalog publication, retry admission, refreshes, and cleanup to the
+  exact administrator, access-token generation, and selected archive filter;
+  scopes editor and mutation effects to the exact identity; clears edit
+  selection when the filter changes; and
+- changes no server function, authorization rule, schema, migration, database
+  row, provider boundary, financial rule, feature flag, or production state.
 
 The remaining panels stay in the compatibility route until they are extracted
 by their accountable product domains in separately reviewed slices.

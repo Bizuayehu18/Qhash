@@ -62,6 +62,12 @@ test("traditional deposit flows remain while retired native-crypto UI stays remo
     "src/components/deposit/NowpaymentsUsdtDeposit.tsx",
   );
   const adminRoute = await readRepositoryFile("src/routes/_app/admin.tsx");
+  const fiatDepositSurface = await readRepositoryFile(
+    "src/domains/fiat-deposits/public.ts",
+  );
+  const paymentMethodsBridge = await readRepositoryFile(
+    "src/domains/fiat-deposits/application/admin-payment-methods-browser-service.ts",
+  );
 
   assert.match(depositRoute, /@\/domains\/deposits\/public\.js/);
   assert.match(fiatDepositUi, /getPaymentMethodsFn/);
@@ -84,8 +90,20 @@ test("traditional deposit flows remain while retired native-crypto UI stays remo
   assert.doesNotMatch(cryptoDepositRoute, /TRC20|crypto_deposit_addresses|crypto_deposits/);
   assert.doesNotMatch(nowpaymentsDepositUi, /TRC20|crypto_deposit_addresses|crypto_deposits/);
 
-  assert.match(adminRoute, /getPaymentMethodsFn/);
-  assert.match(adminRoute, /PaymentMethodsTab/);
+  assert.match(adminRoute, /AdminFiatPaymentMethodsPanel/);
+  assert.doesNotMatch(
+    adminRoute,
+    /getPaymentMethodsFn|PaymentMethodsTab|createPaymentMethodFn|updatePaymentMethodFn|archivePaymentMethodFn/,
+  );
+  assert.match(fiatDepositSurface, /AdminFiatPaymentMethodsPanel/);
+  assert.match(paymentMethodsBridge, /getPaymentMethodsFn/);
+  assert.match(paymentMethodsBridge, /createPaymentMethodFn/);
+  assert.match(paymentMethodsBridge, /updatePaymentMethodFn/);
+  assert.match(paymentMethodsBridge, /archivePaymentMethodFn/);
+  assert.doesNotMatch(
+    paymentMethodsBridge,
+    /AdminCrypto|TRC20|crypto_deposit_addresses|crypto_deposits/,
+  );
   assert.doesNotMatch(adminRoute, /AdminCrypto|label: "Crypto"/);
 });
 

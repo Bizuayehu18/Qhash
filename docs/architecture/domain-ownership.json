@@ -291,7 +291,7 @@
     {
       "id": "fiat-deposits",
       "kind": "product",
-      "description": "Owns country-specific fiat rail enablement, browser-facing CBE and TeleBirr provider collection, verification, approval, and rail-specific database enforcement.",
+      "description": "Owns country-specific fiat rail enablement, browser-facing CBE and TeleBirr provider collection, administrator payment-account configuration, verification, approval, and rail-specific database enforcement.",
       "assets": {
         "netlifySupportModules": [
           "netlify/functions/lib/verifier-auth.mts"
@@ -341,11 +341,22 @@
           "tests/helpers/fiat-deposit-global-pause-fixture.mjs"
         ],
         "sourceModules": [
+          "src/domains/fiat-deposits/application/admin-payment-methods-auth-lifecycle.ts",
+          "src/domains/fiat-deposits/application/admin-payment-methods-browser-service.ts",
           "src/domains/fiat-deposits/application/deposit-verification-audit-auth-lifecycle.ts",
           "src/domains/fiat-deposits/application/deposit-verification-audit-browser-service.ts",
           "src/domains/fiat-deposits/server/require-fiat-deposit-admission.ts",
+          "src/domains/fiat-deposits/ui/admin/admin-payment-methods-editor-state.ts",
+          "src/domains/fiat-deposits/ui/admin/admin-payment-methods-presentation.ts",
+          "src/domains/fiat-deposits/ui/admin/AdminFiatPaymentMethodsPanel.tsx",
+          "src/domains/fiat-deposits/ui/admin/AdminPaymentMethodEditor.tsx",
+          "src/domains/fiat-deposits/ui/admin/AdminPaymentMethodList.tsx",
           "src/domains/fiat-deposits/ui/admin/deposit-verification-audit-presentation.ts",
           "src/domains/fiat-deposits/ui/admin/DepositVerificationAuditPanel.tsx",
+          "src/domains/fiat-deposits/ui/admin/useAdminPaymentMethodEditorActions.ts",
+          "src/domains/fiat-deposits/ui/admin/useAdminPaymentMethodRowActions.ts",
+          "src/domains/fiat-deposits/ui/admin/useAdminPaymentMethods.ts",
+          "src/domains/fiat-deposits/ui/admin/useAdminPaymentMethodsCatalog.ts",
           "src/domains/fiat-deposits/ui/admin/useDepositVerificationAudit.ts",
           "src/domains/fiat-deposits/ui/fiat-deposit-provider.ts",
           "src/domains/fiat-deposits/ui/fiat-deposit-providers.ts",
@@ -393,6 +404,7 @@
         ],
         "tests": [
           "tests/admin-deposit-verification-audit-ui.test.mjs",
+          "tests/admin-payment-methods-ui.test.mjs",
           "tests/deposit-approval-rpc-security.test.mjs",
           "tests/fiat-deposit-global-pause-database.test.mjs",
           "tests/fiat-deposit-ui.test.mjs"

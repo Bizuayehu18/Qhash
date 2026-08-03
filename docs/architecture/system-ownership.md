@@ -58,7 +58,7 @@ router, build configuration, and Netlify configuration.
 | `crypto-deposits` | USDT rail enablement, addresses, provider evidence, settlement, and retired crypto evidence |
 | `deposits` | Provider-neutral cross-rail deposit admission, shared availability, history composition, and deposit navigation |
 | `earnings` | Investment earning execution and earning-run audit |
-| `fiat-deposits` | Country fiat rail enablement, CBE/TeleBirr collection and verification, deposit approval, and fiat-table enforcement |
+| `fiat-deposits` | Country fiat rail enablement, CBE/TeleBirr collection and verification, administrator payment-account configuration, deposit approval, and fiat-table enforcement |
 | `fiat-withdrawals` | Ethiopia CBE/TeleBirr browser presentation and legacy ETB request orchestration; shared financial policy remains in `withdrawals` |
 | `identity` | Registration, login, immutable profile identity, account security, and Fund PIN |
 | `legacy-netlify-database` | Quarantined Netlify Database history; never production Supabase authority |
@@ -126,6 +126,17 @@ server independently authorizes the token and returns only its established
 sanitized latest-100 audit projection. This composition ownership adds no audit
 write and does not move deposit approval, payment-method configuration,
 verification execution, balances, or financial transitions into `admin`.
+
+The same `fiat-deposits` facade owns the administrator CBE/TeleBirr Payment
+Methods panel. One fiat-deposit application bridge is this panel's only browser
+dependency on the existing list, create, update, archive, and restore server
+functions. Catalog snapshots are keyed to the exact administrator, access-token
+generation, and Visible/Archived/All filter; editor and mutation effects are
+identity-scoped, and filter changes clear edit selection. The server
+independently authorizes every mutation. CBE last-eight derivation,
+archive-forces-inactive and restore-without-enable semantics, database and
+provider boundaries, and financial behavior remain unchanged. The `/admin`
+route owns only Settings Support/Payment composition and conditional mounting.
 
 The `accounts` public facade owns the browser dashboard page and remote-state
 hook. Its application bridge is the only accounts-domain dashboard dependency
