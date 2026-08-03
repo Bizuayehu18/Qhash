@@ -93,7 +93,6 @@
   },
   "complexity": {
     "warnings": {
-      "src/components/admin/NowpaymentsUsdtWithdrawalAdmin.tsx": 517,
       "src/lib/server/cbe-verify.ts": 1179,
       "src/lib/server/deposits.ts": 1112,
       "src/lib/server/security.ts": 461,

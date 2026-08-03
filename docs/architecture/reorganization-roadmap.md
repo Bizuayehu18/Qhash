@@ -17,7 +17,7 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 | Phase 2 — Compatibility scaffolding | In progress: client-safe route/facade slices and cross-system ownership enforcement implemented; server-only entry points remain |
 | Phase 3 — Extract shared primitives | In progress: authenticated request lifecycle, exact cross-domain date/time presentation, shared UUID syntax, shared timestamp parseability, and the loose non-null/non-array object guard extracted |
 | Phase 4 — Extract domains one at a time | In progress: accounts transaction history/dashboard, public Support redirect, Notifications, crypto-deposit, ordinary-user USDT-withdrawal, Ethiopia fiat-deposit, Ethiopia fiat-withdrawal, legacy ETB plans, and referrals UI decompositions implemented |
-| Phase 5 — Decompose administration | In progress: read-only Admin Overview, Fiat Deposit Verification Audit, Admin Support Settings, Admin Fiat Payment Methods, Admin Fiat Deposit Operations, and Admin Fiat Withdrawal Operations slices implemented |
+| Phase 5 — Decompose administration | In progress: read-only Admin Overview, Fiat Deposit Verification Audit, Admin Support Settings, Admin Fiat Payment Methods, Admin Fiat Deposit Operations, Admin Fiat Withdrawal Operations, and Admin USDT-BEP20 Withdrawal Operations slices implemented |
 | Phase 6 and later | Not started |
 
 ## Invariants throughout the roadmap
@@ -572,6 +572,25 @@ The sixth bounded Admin Fiat Withdrawal Operations slice:
   rule; schema; migration; database row; provider boundary; financial rule;
   feature flag; notification behavior; or production state. Shared Fund PIN,
   cooldown, active-request, and financial authority remain in `withdrawals`.
+
+The seventh bounded Admin USDT-BEP20 Withdrawal Operations slice:
+
+- exposes administrator USDT-BEP20 withdrawal listing and manual resolution
+  through the client-safe `src/domains/withdrawals/public.ts` surface;
+- moves the established authenticated overview transport, strict response
+  parsing, Complete/Reject action transport, request guard, and administrator
+  action lifecycle into withdrawals-owned application modules;
+- preserves the `/admin` URL, flat tab order, All/Pending/Completed/Rejected
+  filters, loading and unavailable states, disabled-new-requests warning,
+  exact six-decimal gross/fee/net amounts, destination display, optional
+  administrator-only transaction hash, and manual Complete/Reject dialogs;
+- keeps catalog publication, refreshes, dialog state, stable action keys,
+  single-flight state, notices, cleanup, and finalizers scoped to the exact
+  administrator and access-token generation; retains the old component and
+  browser-transport paths as temporary compatibility re-exports; and
+- changes no Netlify handler, protected database function, RPC, authorization
+  rule, schema, migration, financial rule, provider request, payout/signing
+  behavior, database row, feature flag, or production state.
 
 The remaining panels stay in the compatibility route until they are extracted
 by their accountable product domains in separately reviewed slices.

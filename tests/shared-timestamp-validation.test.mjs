@@ -57,7 +57,7 @@ test("all six equivalent transport readers import the shared predicate", async (
     "netlify/functions/nowpayments-usdt-withdrawal-admin.mts",
     "netlify/functions/nowpayments-usdt-withdrawal-overview.mts",
     "src/domains/crypto-deposits/ui/nowpayments-deposit-ui.ts",
-    "src/lib/nowpayments-withdrawal-admin-ui.ts",
+    "src/domains/withdrawals/application/admin-usdt-withdrawal-browser-service.ts",
     "src/lib/nowpayments-withdrawal-ui.ts",
   ];
 

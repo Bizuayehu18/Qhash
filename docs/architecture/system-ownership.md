@@ -67,7 +67,7 @@ router, build configuration, and Netlify configuration.
 | `platform` | Repository governance, generated database contracts, migration runner, shared settings, domain-neutral application primitives, and architecture docs |
 | `referrals` | Referral graph, authentication-scoped team presentation, reward posting, and reward audit |
 | `support` | User support presentation and server-owned support configuration reads and administrator updates |
-| `withdrawals` | Fiat and USDT requests, reservation, cross-rail policy, and manual administrator resolution |
+| `withdrawals` | Fiat and USDT requests, reservation, cross-rail policy, USDT administrator browser composition, and manual administrator resolution |
 
 ## Netlify Function contract
 
@@ -171,6 +171,23 @@ Fund PIN, cooldown, active-request, wallet, database, and financial authority
 remain owned by `withdrawals`; this extraction changes no server function, RPC,
 schema, provider, notification producer, database row, or financial state. The
 `/admin` route owns only the stable ETB Withdrawals-tab composition.
+
+The `withdrawals` public facade also owns the Administrator USDT-BEP20
+Withdrawal Operations panel. Withdrawal-owned application modules contain the
+existing authenticated overview transport, strict response parsing,
+Complete/Reject submission transport, request guard, and administrator action
+lifecycle. Catalog publication, filters, dialogs, stable action keys,
+single-flight state, notices, cleanup, and finalizers remain scoped to the
+exact administrator and access-token generation. The old administrator
+component and browser-transport paths are compatibility re-exports, not
+independent implementations. The existing Netlify handler continues to
+authenticate and authorize the active, non-frozen administrator, and the
+protected database functions retain the financial transitions. Optional
+administrator-only transaction-hash evidence and manual Complete/Reject
+behavior remain unchanged; no handler, RPC, schema, migration, financial rule,
+provider request, payout/signing behavior, database row, feature flag, or
+production state changes. The `/admin` route owns only the stable USDT
+Withdrawals-tab composition.
 
 The `accounts` public facade owns the browser dashboard page and remote-state
 hook. Its application bridge is the only accounts-domain dashboard dependency

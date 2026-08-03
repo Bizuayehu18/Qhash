@@ -588,10 +588,34 @@ test("single-flight permits only one active POST-equivalent operation", async ()
   assert.equal(await first, "done");
 });
 
-test("source exposes only Complete and Reject and contains no provider, signing, or direct-write path", async () => {
-  const [handler, component, userOverview, migration] = await Promise.all([
+test("canonical source exposes only Complete and Reject and contains no provider, signing, or direct-write path", async () => {
+  const [handler, panel, card, dialog, controller, userOverview, migration] = await Promise.all([
     readFile(new URL("netlify/functions/nowpayments-usdt-withdrawal-admin.mts", root), "utf8"),
-    readFile(new URL("src/components/admin/NowpaymentsUsdtWithdrawalAdmin.tsx", root), "utf8"),
+    readFile(
+      new URL(
+        "src/domains/withdrawals/ui/admin/AdminUsdtBep20WithdrawalOperationsPanel.tsx",
+        root,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL("src/domains/withdrawals/ui/admin/AdminUsdtWithdrawalCard.tsx", root),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "src/domains/withdrawals/ui/admin/AdminUsdtWithdrawalActionDialog.tsx",
+        root,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "src/domains/withdrawals/ui/admin/useAdminUsdtWithdrawalOperations.ts",
+        root,
+      ),
+      "utf8",
+    ),
     readFile(new URL("netlify/functions/nowpayments-usdt-withdrawal-overview.mts", root), "utf8"),
     readFile(
       new URL(
@@ -603,9 +627,20 @@ test("source exposes only Complete and Reject and contains no provider, signing,
   ]);
   assert.match(handler, /complete_nowpayments_usdt_withdrawal_manual/);
   assert.match(handler, /reject_nowpayments_usdt_withdrawal_manual/);
-  assert.doesNotMatch(component, /begin_review|send_lock|record_broadcast|confirmations|block_number|log_index/);
+  assert.match(panel, /AdminUsdtWithdrawalList/);
+  assert.match(panel, /AdminUsdtWithdrawalActionDialog/);
+  assert.match(card, /withdrawal\.status === "pending"/);
+  assert.match(card, />\s*Complete\s*</);
+  assert.match(card, />\s*Reject\s*</);
+  assert.match(dialog, /Public BSC transaction hash \(optional\)/);
+  assert.match(controller, /action: "complete"/);
+  assert.match(controller, /action: "reject"/);
   assert.doesNotMatch(
-    `${handler}\n${component}`,
+    `${panel}\n${card}\n${dialog}\n${controller}`,
+    /begin_review|send_lock|record_broadcast|confirmations|block_number|log_index/,
+  );
+  assert.doesNotMatch(
+    `${handler}\n${panel}\n${card}\n${dialog}\n${controller}`,
     /api\.nowpayments|bscscan|etherscan|private[_ -]?key|seed phrase|mnemonic|signTransaction|payout/i,
   );
   assert.doesNotMatch(

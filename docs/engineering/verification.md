@@ -104,6 +104,8 @@ and its Deposit Operations and Payment Methods panels through the client-safe
 fiat-deposit public surface,
 its Fiat Withdrawal Operations panel through the client-safe fiat-withdrawal
 public surface,
+its USDT-BEP20 Withdrawal Operations panel through the client-safe withdrawals
+public surface,
 and Administrator Support Settings through the client-safe Support public
 surface. It keeps all seven current tabs, the Settings Support/Payment
 composition, Support default and continuous mount, Payment conditional remount,
@@ -177,6 +179,19 @@ contract keeps `getAdminWithdrawalsFn`, `approveWithdrawalFn`, and
 `rejectWithdrawalFn` behind one browser bridge; the server functions,
 `approve_withdrawal_tx`, `reject_withdrawal_tx`, and shared withdrawal
 authorization and financial boundaries remain unchanged.
+
+`tests/admin-usdt-withdrawal-operations-ui.test.mjs` freezes the established
+All/Pending/Completed/Rejected filters, USDT-BEP20 heading, enabled-state
+warning, loading and unavailable states, exact six-decimal gross/fee/net
+presentation, destination display, optional administrator-only transaction
+hash, and manual Complete/Reject confirmation contracts. Its transport and
+lifecycle fixtures prove strict fail-closed overview parsing, latest-request
+publication, stable action-key reuse for exact retries, action single-flight,
+and rejection of late catalog, dialog, notice, busy-state, or finalizer effects
+after an administrator or access-token generation changes. The focused
+contract keeps the existing GET/POST handler boundary and protected financial
+functions unchanged; it exercises no payout, signing, provider request, RPC,
+schema, migration, feature flag, database row, or production state.
 
 `tests/shared-date-time-formatting.test.mjs` freezes the application shell's
 cross-domain presentation formatter. It covers string and `Date` inputs,

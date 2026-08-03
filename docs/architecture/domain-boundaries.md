@@ -1,7 +1,7 @@
 # QHash domain boundaries
 
 **Status:** Current boundary map with target recommendations
-**Scope:** Repository base `87a1b678ccb28bdfa69a3cfbc13025a67c5a16d4` plus the Admin Fiat Withdrawal Operations extraction
+**Scope:** Repository base `58d1c632e9d3f56695e0030da85338dfa38eb251` plus the Admin USDT-BEP20 Withdrawal Operations extraction
 **Purpose:** Define ownership before files are moved. Current facts and target recommendations are intentionally separated.
 
 The exact current assignment of repository, Netlify, Supabase, test, and
@@ -32,11 +32,11 @@ See also:
 | Fiat deposits | `src/domains/fiat-deposits/public.ts`, `src/domains/fiat-deposits/application`, `src/domains/fiat-deposits/ui`, `src/lib/server/deposits.ts`, `src/lib/server/payment-methods.ts`, CBE/TeleBirr verifiers | Supabase `deposits`, `payment_methods`, ETB wallet/transactions | the Ethiopia CBE/TeleBirr browser flow, read-only administrator verification-audit panel, administrator deposit-operations panel, and administrator payment-method configuration panel are domain-owned; provider-specific presentation is split under `ui/providers/et`, while the list server function, approval adapter/RPC, and verifier code remain at their existing server and Function boundaries |
 | Crypto deposits | `/deposit/crypto/usdt/bep20`, `src/domains/crypto-deposits/public.ts`, `src/domains/crypto-deposits/ui`, NOWPayments deposit Functions | NOWPayments plus `nowpayments_usdt_*` deposit tables | the USDT-BEP20 browser component is decomposed into domain-owned state, orchestration, address-presentation, and view modules; old source paths are compatibility bridges, while provider communication and financial settlement remain distinct responsibilities |
 | Fiat withdrawals | `/withdraw`, `src/domains/fiat-withdrawals/public.ts`, `src/domains/fiat-withdrawals/application`, `src/domains/fiat-withdrawals/ui`, `src/lib/server/withdrawals.ts` | Supabase `withdrawals`, ETB wallet/transactions | Ethiopia CBE/TeleBirr ordinary-user presentation and request orchestration plus administrator listing and review composition are domain-owned; the financial boundary, Fund PIN, cross-rail policy, approval/rejection server functions, and RPCs remain shared with USDT |
-| USDT withdrawals | `/withdraw`, `/withdraw/crypto/usdt/bep20`, `src/domains/withdrawals/public.ts`, `src/domains/withdrawals/ui`, NOWPayments withdrawal admin component and Functions | `nowpayments_usdt_withdrawals`, events, wallet, ledger | the ordinary-user USDT-BEP20 component is decomposed into domain-owned request orchestration, view, form, and history modules; the old component path is a compatibility bridge, while the legacy browser transport and manual administrator Complete/Reject flow remain unchanged with no automatic payout/signing |
+| USDT withdrawals | `/withdraw`, `/withdraw/crypto/usdt/bep20`, `src/domains/withdrawals/public.ts`, `src/domains/withdrawals/application`, `src/domains/withdrawals/ui`, and NOWPayments withdrawal Functions | `nowpayments_usdt_withdrawals`, events, wallet, ledger | ordinary-user and administrator USDT-BEP20 composition, validated browser transport, and exact-auth-generation orchestration are domain-owned; old component and browser-transport paths are compatibility bridges, while the manual Complete/Reject handler and financial functions remain unchanged with no automatic payout/signing |
 | Plans and investments | `/plans`, `src/domains/plans/public.ts`, plans UI/application modules, existing plan and investment server functions | `plans`, `investments`, ETB wallet/transactions | browser presentation and authentication-scoped orchestration are domain-owned; values and financial execution remain part of the legacy ETB model |
 | Earnings | dashboard/admin-earnings and scheduled Functions | earning logs, investments, ETB wallet/transactions | processing and administrator presentation remain in legacy modules |
 | Referrals | `/referrals`, `src/domains/referrals/public.ts`, referral UI/application/domain modules, existing referral server functions | referrals, reward logs, investments, profiles, ETB transactions | browser reads are authentication-generation scoped; current visible identity and referral lookup still use username |
-| Administration | `/admin`, `/admin-earnings`, `src/domains/admin/public.ts`, read-only Overview UI/application modules, and domain-owned panels composed through public facades | profile role plus domain data | Overview composition is admin-owned; Fiat Deposit Verification Audit, Deposit Operations, and Payment Methods are fiat-deposit-owned; Fiat Withdrawal Operations is fiat-withdrawal-owned; Support Settings is support-owned; remaining panels are concentrated, and authorization remains inside each server action |
+| Administration | `/admin`, `/admin-earnings`, `src/domains/admin/public.ts`, read-only Overview UI/application modules, and domain-owned panels composed through public facades | profile role plus domain data | Overview composition is admin-owned; Fiat Deposit Verification Audit, Deposit Operations, and Payment Methods are fiat-deposit-owned; Fiat Withdrawal Operations is fiat-withdrawal-owned; USDT-BEP20 Withdrawal Operations is withdrawals-owned; Support Settings is support-owned; remaining panels are concentrated, and authorization remains inside each server action |
 | Notifications | `/notifications`, `src/domains/notifications/public.ts`, notification UI/application/domain modules, application-shell unread badge, and the existing notification server module | Supabase `notifications` | browser read/count/mark effects are exact-auth-generation scoped; notification records remain secondary to authoritative financial and referral state transitions |
 | Support and settings | `/support`, `src/domains/support/public.ts`, Support UI/application modules, and administrator Support Settings | Supabase `app_settings` | public reads and administrator reads/updates use separate application bridges behind one client-safe facade; current visible support is Telegram |
 | Legacy support tickets | no active visible product flow | separate Netlify Database through Drizzle | quarantined until authentication and database ownership are redesigned |
@@ -357,6 +357,27 @@ copy, confirmation dialogs, approval/rejection request contract, and visible
 behavior remain unchanged. This UI extraction does not move the shared Fund
 PIN, cooldown, active-request, database, or financial authority into the
 browser, fiat-withdrawal, or admin domain.
+
+The seventh bounded extraction moves Administrator USDT-BEP20 Withdrawal
+Operations behind `src/domains/withdrawals/public.ts`. Withdrawal-owned
+application modules contain the existing authenticated overview transport,
+strict response validation, Complete/Reject action submission, request guard,
+and administrator action lifecycle. Catalog publication, filters, dialogs,
+notices, action keys, busy state, cleanup, and mutation finalizers remain scoped
+to the exact administrator and access-token generation. The old administrator
+component and browser-transport paths remain compatibility re-exports rather
+than second implementations.
+
+The `/admin` route owns only the stable USDT Withdrawals-tab composition. The
+All/Pending/Completed/Rejected filters, manual Complete/Reject flow, optional
+administrator-only public transaction hash, exact six-decimal amounts,
+destination presentation, disabled-new-requests warning, HTTP request
+contracts, and visible behavior remain unchanged. The existing Netlify handler
+continues to authenticate and authorize the active, non-frozen administrator,
+while the protected database functions retain financial authority. This UI and
+application extraction changes no handler, RPC, schema, migration, financial
+rule, provider request, payout/signing behavior, feature flag, database row, or
+production state.
 
 The current single administrator capability remains, but UI and authorization contracts should be grouped by domain:
 

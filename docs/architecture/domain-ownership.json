@@ -853,6 +853,14 @@
         "sourceModules": [
           "src/components/admin/NowpaymentsUsdtWithdrawalAdmin.tsx",
           "src/components/withdrawal/NowpaymentsUsdtWithdrawal.tsx",
+          "src/domains/withdrawals/application/admin-usdt-withdrawal-action-lifecycle.ts",
+          "src/domains/withdrawals/application/admin-usdt-withdrawal-browser-service.ts",
+          "src/domains/withdrawals/ui/admin/admin-usdt-withdrawal-presentation.ts",
+          "src/domains/withdrawals/ui/admin/AdminUsdtBep20WithdrawalOperationsPanel.tsx",
+          "src/domains/withdrawals/ui/admin/AdminUsdtWithdrawalActionDialog.tsx",
+          "src/domains/withdrawals/ui/admin/AdminUsdtWithdrawalCard.tsx",
+          "src/domains/withdrawals/ui/admin/AdminUsdtWithdrawalList.tsx",
+          "src/domains/withdrawals/ui/admin/useAdminUsdtWithdrawalOperations.ts",
           "src/domains/withdrawals/ui/UsdtBep20Withdrawal.tsx",
           "src/domains/withdrawals/ui/UsdtBep20WithdrawalHistory.tsx",
           "src/domains/withdrawals/ui/UsdtBep20WithdrawalRequestForm.tsx",
@@ -897,6 +905,7 @@
           "public.withdrawals"
         ],
         "tests": [
+          "tests/admin-usdt-withdrawal-operations-ui.test.mjs",
           "tests/nowpayments-usdt-manual-withdrawal-database.test.mjs",
           "tests/nowpayments-usdt-withdrawal-admin.test.mjs",
           "tests/nowpayments-usdt-withdrawal-user.test.mjs",

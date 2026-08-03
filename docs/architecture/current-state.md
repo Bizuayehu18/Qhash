@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository base `87a1b678ccb28bdfa69a3cfbc13025a67c5a16d4`, plus the Admin Fiat Withdrawal Operations extraction
+**Scope:** Runtime baseline through repository base `58d1c632e9d3f56695e0030da85338dfa38eb251`, plus the Admin USDT-BEP20 Withdrawal Operations extraction
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -59,8 +59,8 @@ The repository is organized mainly by technical layer, with several business dom
 | Area | Current role | Observed concentration |
 |---|---|---|
 | `src/routes` | TanStack route entry points and substantial page logic | 6 route files remain over the 150-nonblank-line warning; `deposit.tsx`, `withdraw.tsx`, `plans.tsx`, `referrals.tsx`, `transactions.tsx`, and `notifications.tsx` are now thin composition entries while `admin.tsx` remains concentrated |
-| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Account transaction history, deposit, withdrawal, plans, referrals, Notifications, Support redirect/navigation/settings, Admin Overview, Fiat Deposit Verification Audit, Fiat Deposit Operations, Fiat Withdrawal Operations, and Payment Methods, crypto-rail, and Ethiopia fiat-rail UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
-| `src/components` | Shared UI plus extracted crypto compatibility bridges | Only the administrator NOWPayments withdrawal component remains over the 300-nonblank-line warning after the user deposit and withdrawal UI decompositions |
+| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Account transaction history, deposit, withdrawal, plans, referrals, Notifications, Support redirect/navigation/settings, Admin Overview, Fiat Deposit Verification Audit, Fiat Deposit Operations, Fiat Withdrawal Operations, Admin USDT-BEP20 Withdrawal Operations, and Payment Methods, crypto-rail, and Ethiopia fiat-rail UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
+| `src/components` | Shared UI plus extracted compatibility bridges | The administrator NOWPayments withdrawal component is now a thin compatibility re-export, so no remaining component exceeds the 300-nonblank-line warning |
 | `src/lib/server` | TanStack server functions for many domains in one flat folder | Large deposit, verification, withdrawal, earning, security, and admin modules |
 | `netlify/functions` | provider-facing, scheduled, verification, and admin Functions | NOWPayments handlers are partly decomposed through `netlify/functions/lib` |
 | `supabase/migrations` | forward-only Supabase schema history | authoritative production schema history; large applied files are immutable |
@@ -215,6 +215,24 @@ functions still authorize the active, non-frozen administrator, while
 authorization boundary for approval and rejection. This extraction changes no
 schema, migration, server function, Function, RPC, provider, database row,
 notification behavior, or financial state.
+
+Administrator USDT-BEP20 Withdrawal Operations is the seventh bounded Phase 5
+extraction. `src/domains/withdrawals/public.ts` exposes the panel, while
+withdrawal-owned application modules contain the existing authenticated
+overview transport, response validation, action submission, request guard,
+and administrator action lifecycle. Catalog publication, refreshes, filters,
+dialogs, notices, action keys, busy state, and mutation finalizers remain bound
+to the exact administrator and access-token generation. The established
+All/Pending/Completed/Rejected filters, USDT six-decimal presentation,
+destination and optional administrator-only transaction-hash display,
+disabled-new-requests warning, and manual Complete/Reject confirmations remain
+unchanged. `src/components/admin/NowpaymentsUsdtWithdrawalAdmin.tsx` and
+`src/lib/nowpayments-withdrawal-admin-ui.ts` remain temporary compatibility
+re-exports. The existing Netlify administrator handler remains the HTTP and
+authorization boundary, and the protected database functions remain the
+financial authority. This extraction changes no handler, RPC, schema,
+migration, financial rule, payout or signing behavior, provider request,
+database row, feature flag, or production state.
 
 `/transactions` is now a thin route through the same client-safe accounts
 facade. The accounts domain owns transaction filters, list presentation, and

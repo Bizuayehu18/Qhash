@@ -97,12 +97,15 @@ test("lowercase-only financial validators remain domain-owned", async () => {
   const lowercaseOnlyConsumers = [
     "netlify/functions/nowpayments-usdt-withdrawal-admin.mts",
     "netlify/functions/nowpayments-usdt-withdrawal-overview.mts",
-    "src/lib/nowpayments-withdrawal-admin-ui.ts",
+    "src/domains/withdrawals/application/admin-usdt-withdrawal-action-lifecycle.ts",
+    "src/domains/withdrawals/application/admin-usdt-withdrawal-browser-service.ts",
   ];
 
   for (const source of await Promise.all(lowercaseOnlyConsumers.map(readRepositoryFile))) {
     assert.doesNotMatch(source, /shared\/identifiers\/uuid/);
-    const genericPattern = source.match(/const UUID_PATTERN\s*=\s*([\s\S]*?);/);
+    const genericPattern = source.match(
+      /const (?:UUID|UUID_V4)_PATTERN\s*=\s*([\s\S]*?);/,
+    );
     assert.ok(genericPattern);
     assert.doesNotMatch(genericPattern[1], /\/i\s*$/);
   }
