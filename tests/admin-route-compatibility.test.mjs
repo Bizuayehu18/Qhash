@@ -70,6 +70,8 @@ test("admin route delegates extracted panels through client-safe domain surfaces
   assert.match(route, /activeSettingsTab.*"support"/);
   assert.match(route, /\{ key: "support", label: "Support" \}/);
   assert.match(route, /\{ key: "payment", label: "Payment" \}/);
+  assert.match(route, /hidden=\{activeSettingsTab !== "support"\}/);
+  assert.match(route, /activeSettingsTab === "payment" &&/);
   assert.match(route, /<PaymentMethodsTab userId=\{userId\} \/>/);
 
   assert.match(

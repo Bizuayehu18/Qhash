@@ -270,6 +270,23 @@ test("admin support panel preserves the established visible Telegram contract", 
   assert.match(panel, /loading=\{saving\}/);
 });
 
+test("admin settings keeps the support controller mounted across Support and Payment switches", async () => {
+  const route = await readRepositoryFile("src/routes/_app/admin.tsx");
+
+  assert.match(
+    route,
+    /<div\s+hidden=\{activeSettingsTab !== "support"\}\s+aria-hidden=\{activeSettingsTab !== "support"\}\s*>\s*<AdminSupportSettingsPanel[\s\S]*?<\/div>/,
+  );
+  assert.match(
+    route,
+    /\{activeSettingsTab === "payment" && <PaymentMethodsTab userId=\{userId\} \/>\}/,
+  );
+  assert.doesNotMatch(
+    route,
+    /activeSettingsTab === "support"\s*\?\s*\(\s*<AdminSupportSettingsPanel/,
+  );
+});
+
 test("support server keeps the public sanitized read and independent active-admin update authorization", async () => {
   const server = await readRepositoryFile("src/lib/server/support-settings.ts");
 

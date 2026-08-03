@@ -1634,14 +1634,11 @@ function SettingsTab({
         ))}
       </div>
 
-      {activeSettingsTab === "support" ? (
-        <AdminSupportSettingsPanel
-          accessToken={accessToken}
-          userId={userId}
-        />
-      ) : (
-        <PaymentMethodsTab userId={userId} />
-      )}
+      <div hidden={activeSettingsTab !== "support"} aria-hidden={activeSettingsTab !== "support"}>
+        <AdminSupportSettingsPanel accessToken={accessToken} userId={userId} />
+      </div>
+
+      {activeSettingsTab === "payment" && <PaymentMethodsTab userId={userId} />}
     </div>
   );
 }
