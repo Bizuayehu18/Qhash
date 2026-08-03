@@ -63,7 +63,7 @@ test("the legacy format path remains a compatibility bridge", async () => {
 
 test("current consumers import the shared primitive directly", async () => {
   const consumerPaths = [
-    "src/components/admin/NowpaymentsUsdtWithdrawalAdmin.tsx",
+    "src/domains/withdrawals/ui/admin/AdminUsdtWithdrawalCard.tsx",
     "src/domains/accounts/ui/dashboard/DashboardRecentTransactions.tsx",
     "src/domains/accounts/ui/transactions/TransactionHistoryList.tsx",
     "src/domains/crypto-deposits/ui/UsdtBep20AddressCard.tsx",

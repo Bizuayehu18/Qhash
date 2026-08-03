@@ -64,6 +64,7 @@ const allTests = [
   "admin-payment-methods-ui.test.mjs",
   "admin-route-compatibility.test.mjs",
   "admin-support-settings-ui.test.mjs",
+  "admin-usdt-withdrawal-operations-ui.test.mjs",
   "authenticated-request-lifecycle.test.mjs",
   "bsc-address-rotation.test.mjs",
   "bsc-user-deposit-exposure.test.mjs",

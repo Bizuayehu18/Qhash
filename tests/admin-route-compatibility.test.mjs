@@ -25,12 +25,14 @@ test("admin route delegates extracted panels through client-safe domain surfaces
     fiatDepositPublicSurface,
     fiatWithdrawalPublicSurface,
     supportPublicSurface,
+    withdrawalPublicSurface,
   ] = await Promise.all([
     readRepositoryFile("src/routes/_app/admin.tsx"),
     readRepositoryFile("src/domains/admin/public.ts"),
     readRepositoryFile("src/domains/fiat-deposits/public.ts"),
     readRepositoryFile("src/domains/fiat-withdrawals/public.ts"),
     readRepositoryFile("src/domains/support/public.ts"),
+    readRepositoryFile("src/domains/withdrawals/public.ts"),
   ]);
 
   assert.match(route, /createFileRoute\("\/_app\/admin"\)/);
@@ -64,7 +66,15 @@ test("admin route delegates extracted panels through client-safe domain surfaces
 
   assert.match(route, /if \(profile && !profile\.is_admin\) navigate\(\{ to: "\/dashboard" \}\)/);
   assert.match(route, /if \(!profile\?\.is_admin\) return null;/);
-  assert.match(route, /<NowpaymentsUsdtWithdrawalAdmin/);
+  assert.match(
+    route,
+    /import \{ AdminUsdtBep20WithdrawalOperationsPanel \} from "@\/domains\/withdrawals\/public\.js";/,
+  );
+  assert.match(route, /<AdminUsdtBep20WithdrawalOperationsPanel/);
+  assert.doesNotMatch(
+    route,
+    /components\/admin\/NowpaymentsUsdtWithdrawalAdmin|<NowpaymentsUsdtWithdrawalAdmin/,
+  );
   assert.match(route, /<AdminFiatDepositOperationsPanel/);
   assert.match(
     route,
@@ -130,6 +140,15 @@ test("admin route delegates extracted panels through client-safe domain surfaces
     /export \{ AdminSupportSettingsPanel \} from "\.\/ui\/admin\/AdminSupportSettingsPanel\.js";/,
   );
   assert.doesNotMatch(supportPublicSurface, /export \*/);
+  assert.match(
+    withdrawalPublicSurface,
+    /AdminUsdtBep20WithdrawalOperationsPanel,[\s\S]*AdminUsdtBep20WithdrawalOperationsPanel as NowpaymentsUsdtWithdrawalAdmin,[\s\S]*from "\.\/ui\/admin\/AdminUsdtBep20WithdrawalOperationsPanel\.js";/,
+  );
+  assert.doesNotMatch(withdrawalPublicSurface, /export \*/);
+  assert.doesNotMatch(
+    withdrawalPublicSurface,
+    /lib\/server|netlify\/functions|supabase-admin|service.role|createClient|\.from\(|\.rpc\(|fetch\(/i,
+  );
 });
 
 test("admin domain has one explicit browser-to-server overview bridge", async () => {

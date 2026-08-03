@@ -78,7 +78,7 @@ test("all seven equivalent production consumers import the shared predicate", as
     "netlify/functions/nowpayments-usdt-withdrawal-admin.mts",
     "src/domains/crypto-deposits/ui/nowpayments-deposit-ui.ts",
     "src/domains/deposits/domain/deposit-admission-policy.ts",
-    "src/lib/nowpayments-withdrawal-admin-ui.ts",
+    "src/domains/withdrawals/application/admin-usdt-withdrawal-browser-service.ts",
     "src/lib/nowpayments-withdrawal-ui.ts",
   ];
 

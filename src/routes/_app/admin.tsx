@@ -14,7 +14,6 @@ import { getSafeErrorMessage } from "@/lib/errors.js";
 import { useAuthStore } from "@/store/authStore.js";
 import { supabase } from "@/lib/supabase.js";
 import { withTimeout } from "@/lib/async.js";
-import { NowpaymentsUsdtWithdrawalAdmin } from "@/components/admin/NowpaymentsUsdtWithdrawalAdmin.js";
 import { AdminOverviewPanel } from "@/domains/admin/public.js";
 import {
   AdminFiatDepositOperationsPanel,
@@ -23,6 +22,7 @@ import {
 } from "@/domains/fiat-deposits/public.js";
 import { AdminSupportSettingsPanel } from "@/domains/support/public.js";
 import { AdminFiatWithdrawalOperationsPanel } from "@/domains/fiat-withdrawals/public.js";
+import { AdminUsdtBep20WithdrawalOperationsPanel } from "@/domains/withdrawals/public.js";
 import {
   getAdminSecurityUsersFn,
   resetUserFundPasswordFn,
@@ -107,7 +107,7 @@ function AdminPage() {
         />
       )}
       {activeTab === "usdt-withdrawals" && (
-        <NowpaymentsUsdtWithdrawalAdmin
+        <AdminUsdtBep20WithdrawalOperationsPanel
           accessToken={session?.access_token ?? null}
           userId={user?.id}
         />
