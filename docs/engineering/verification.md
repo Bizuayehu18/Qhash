@@ -102,6 +102,8 @@ compatibility shell while delegating its read-only Overview through the
 client-safe admin public surface and its Fiat Deposit Verification Audit panel
 and its Deposit Operations and Payment Methods panels through the client-safe
 fiat-deposit public surface,
+its Fiat Withdrawal Operations panel through the client-safe fiat-withdrawal
+public surface,
 and Administrator Support Settings through the client-safe Support public
 surface. It keeps all seven current tabs, the Settings Support/Payment
 composition, Support default and continuous mount, Payment conditional remount,
@@ -159,6 +161,22 @@ existing `/api/admin/approve-deposit` adapter behind one browser bridge; the
 server function, Netlify adapter, and `approve_deposit_tx` authorization and
 financial boundaries remain unchanged. This test does not close the Netlify
 adapter's separately recorded focused-handler-test waiver.
+
+`tests/admin-fiat-withdrawal-operations-ui.test.mjs` freezes the established
+default Pending filter, All/Pending/Approved/Rejected filters, latest-100
+withdrawal catalog, current-filter pending badge, CBE/TeleBirr presentation,
+loading and empty states, detail fields, legacy ETB amount, fee and net payout,
+account copy, review note, confirmations, and exact approval/rejection server
+contracts. Its lifecycle and deferred-request fixtures prove that catalog,
+selection, retry, note, and catalog-cleanup effects cannot cross an
+administrator, access-token generation, or selected filter, while review
+notice, single-flight, and finalizer effects cannot cross an administrator or
+access-token generation. Filter changes clear selection and notes, and an
+accepted review refreshes the currently selected catalog. The focused UI
+contract keeps `getAdminWithdrawalsFn`, `approveWithdrawalFn`, and
+`rejectWithdrawalFn` behind one browser bridge; the server functions,
+`approve_withdrawal_tx`, `reject_withdrawal_tx`, and shared withdrawal
+authorization and financial boundaries remain unchanged.
 
 `tests/shared-date-time-formatting.test.mjs` freezes the application shell's
 cross-domain presentation formatter. It covers string and `Date` inputs,

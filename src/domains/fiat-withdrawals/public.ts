@@ -1,3 +1,4 @@
+export { AdminFiatWithdrawalOperationsPanel } from "./ui/admin/AdminFiatWithdrawalOperationsPanel.js";
 export { FiatWithdrawalBalanceStrip } from "./ui/FiatWithdrawalBalanceStrip.js";
 export { FiatWithdrawalConfirmForm } from "./ui/FiatWithdrawalConfirmForm.js";
 export { FiatWithdrawalDetailsForm } from "./ui/FiatWithdrawalDetailsForm.js";

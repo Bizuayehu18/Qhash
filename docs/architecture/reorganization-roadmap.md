@@ -17,7 +17,7 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 | Phase 2 — Compatibility scaffolding | In progress: client-safe route/facade slices and cross-system ownership enforcement implemented; server-only entry points remain |
 | Phase 3 — Extract shared primitives | In progress: authenticated request lifecycle, exact cross-domain date/time presentation, shared UUID syntax, shared timestamp parseability, and the loose non-null/non-array object guard extracted |
 | Phase 4 — Extract domains one at a time | In progress: accounts transaction history/dashboard, public Support redirect, Notifications, crypto-deposit, ordinary-user USDT-withdrawal, Ethiopia fiat-deposit, Ethiopia fiat-withdrawal, legacy ETB plans, and referrals UI decompositions implemented |
-| Phase 5 — Decompose administration | In progress: read-only Admin Overview, Fiat Deposit Verification Audit, Admin Support Settings, Admin Fiat Payment Methods, and Admin Fiat Deposit Operations slices implemented |
+| Phase 5 — Decompose administration | In progress: read-only Admin Overview, Fiat Deposit Verification Audit, Admin Support Settings, Admin Fiat Payment Methods, Admin Fiat Deposit Operations, and Admin Fiat Withdrawal Operations slices implemented |
 | Phase 6 and later | Not started |
 
 ## Invariants throughout the roadmap
@@ -550,6 +550,28 @@ The fifth bounded Admin Fiat Deposit Operations slice:
   boundary, financial rule, feature flag, or production state. The approval
   adapter retains its documented mixed ownership and focused handler-test
   waiver.
+
+The sixth bounded Admin Fiat Withdrawal Operations slice:
+
+- exposes administrator CBE/TeleBirr withdrawal listing and review composition
+  through the client-safe `src/domains/fiat-withdrawals/public.ts` surface;
+- confines its existing administrator withdrawal-list, approval, and rejection
+  server dependencies to one fiat-withdrawal application bridge;
+- preserves the `/admin` URL, flat tab order, default Pending filter,
+  All/Pending/Approved/Rejected filters, latest-100 catalog, current-filter
+  pending count, loading and empty states, detail fields, ETB amount, fee and
+  net payout, account copy, review note, confirmations, and
+  approval/rejection request contracts;
+- scopes catalog publication, retry admission, selection, notes, and catalog
+  cleanup to the exact administrator, access-token generation, and selected
+  filter; clears selection and notes when the filter changes; scopes review
+  single-flight state, notices, cleanup, and finalizers to the exact
+  administrator and access-token generation; refreshes the currently selected
+  catalog after an accepted review; and
+- changes no list, approval, or rejection server function; RPC; authorization
+  rule; schema; migration; database row; provider boundary; financial rule;
+  feature flag; notification behavior; or production state. Shared Fund PIN,
+  cooldown, active-request, and financial authority remain in `withdrawals`.
 
 The remaining panels stay in the compatibility route until they are extracted
 by their accountable product domains in separately reviewed slices.

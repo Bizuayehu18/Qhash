@@ -23,11 +23,13 @@ test("admin route delegates extracted panels through client-safe domain surfaces
     route,
     adminPublicSurface,
     fiatDepositPublicSurface,
+    fiatWithdrawalPublicSurface,
     supportPublicSurface,
   ] = await Promise.all([
     readRepositoryFile("src/routes/_app/admin.tsx"),
     readRepositoryFile("src/domains/admin/public.ts"),
     readRepositoryFile("src/domains/fiat-deposits/public.ts"),
+    readRepositoryFile("src/domains/fiat-withdrawals/public.ts"),
     readRepositoryFile("src/domains/support/public.ts"),
   ]);
 
@@ -68,7 +70,10 @@ test("admin route delegates extracted panels through client-safe domain surfaces
     route,
     /<AdminFiatDepositOperationsPanel\s+accessToken=\{session\?\.access_token \?\? null\}\s+userId=\{user\?\.id\}\s+\/>/,
   );
-  assert.match(route, /<WithdrawalsTab/);
+  assert.match(
+    route,
+    /<AdminFiatWithdrawalOperationsPanel\s+accessToken=\{session\?\.access_token \?\? null\}\s+userId=\{user\?\.id\}\s+\/>/,
+  );
   assert.match(route, /<AdminSecurityTab/);
   assert.match(route, /<SettingsTab/);
   assert.match(route, /activeSettingsTab.*"support"/);
@@ -82,7 +87,7 @@ test("admin route delegates extracted panels through client-safe domain surfaces
   );
   assert.doesNotMatch(
     route,
-    /function PaymentMethodsTab|function DepositsTab|function DepositDetailPanel|getAdminDepositsFn|\/api\/admin\/approve-deposit|getPaymentMethodsFn|createPaymentMethodFn|updatePaymentMethodFn|archivePaymentMethodFn|type PaymentMethod\b|PaymentMethodType/,
+    /function PaymentMethodsTab|function DepositsTab|function DepositDetailPanel|function WithdrawalsTab|function WithdrawalDetailPanel|getAdminDepositsFn|\/api\/admin\/approve-deposit|getPaymentMethodsFn|createPaymentMethodFn|updatePaymentMethodFn|archivePaymentMethodFn|type PaymentMethod\b|PaymentMethodType|type AdminWithdrawal\b|METHOD_LABELS|getAdminWithdrawalsFn|approveWithdrawalFn|rejectWithdrawalFn/,
   );
 
   assert.match(
@@ -111,6 +116,15 @@ test("admin route delegates extracted panels through client-safe domain surfaces
     /export \{ AdminFiatPaymentMethodsPanel \} from "\.\/ui\/admin\/AdminFiatPaymentMethodsPanel\.js";/,
   );
   assert.doesNotMatch(fiatDepositPublicSurface, /export \*/);
+  assert.match(
+    fiatWithdrawalPublicSurface,
+    /export \{ AdminFiatWithdrawalOperationsPanel \} from "\.\/ui\/admin\/AdminFiatWithdrawalOperationsPanel\.js";/,
+  );
+  assert.doesNotMatch(fiatWithdrawalPublicSurface, /export \*/);
+  assert.doesNotMatch(
+    fiatWithdrawalPublicSurface,
+    /lib\/server|netlify\/functions|supabase-admin|service.role|createClient|\.from\(|\.rpc\(|fetch\(/i,
+  );
   assert.match(
     supportPublicSurface,
     /export \{ AdminSupportSettingsPanel \} from "\.\/ui\/admin\/AdminSupportSettingsPanel\.js";/,

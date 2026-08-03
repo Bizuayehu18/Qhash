@@ -59,6 +59,7 @@ async function verifyNativeDatabase(databaseUrl) {
 const allTests = [
   "admin-deposit-verification-audit-ui.test.mjs",
   "admin-fiat-deposit-operations-ui.test.mjs",
+  "admin-fiat-withdrawal-operations-ui.test.mjs",
   "admin-overview-ui.test.mjs",
   "admin-payment-methods-ui.test.mjs",
   "admin-route-compatibility.test.mjs",

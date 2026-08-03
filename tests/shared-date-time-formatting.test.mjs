@@ -69,10 +69,10 @@ test("current consumers import the shared primitive directly", async () => {
     "src/domains/crypto-deposits/ui/UsdtBep20AddressCard.tsx",
     "src/domains/crypto-deposits/ui/UsdtBep20DepositHistory.tsx",
     "src/domains/fiat-deposits/ui/FiatDepositHistory.tsx",
+    "src/domains/fiat-withdrawals/ui/admin/AdminFiatWithdrawalDetail.tsx",
     "src/domains/fiat-withdrawals/ui/FiatWithdrawalHistory.tsx",
     "src/domains/notifications/ui/NotificationList.tsx",
     "src/domains/withdrawals/ui/UsdtBep20WithdrawalHistory.tsx",
-    "src/routes/_app/admin.tsx",
   ];
   const consumers = await Promise.all(consumerPaths.map(readRepositoryFile));
 
