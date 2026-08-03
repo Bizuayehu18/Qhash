@@ -7,7 +7,6 @@ import { Spinner } from "@/components/ui/Spinner.js";
 import {
   ShieldCheck,
   Settings,
-  MessageSquare,
   Building2,
   Smartphone,
   CheckCircle,
@@ -34,6 +33,7 @@ import {
   AdminOverviewPanel,
 } from "@/domains/admin/public.js";
 import { DepositVerificationAuditPanel } from "@/domains/fiat-deposits/public.js";
+import { AdminSupportSettingsPanel } from "@/domains/support/public.js";
 import {
   getPaymentMethodsFn,
   createPaymentMethodFn,
@@ -46,11 +46,6 @@ import {
   approveWithdrawalFn,
   rejectWithdrawalFn,
 } from "@/lib/server/withdrawals.js";
-import {
-  getSupportSettingsFn,
-  updateSupportTelegramUsernameFn,
-  type SupportSettings,
-} from "@/lib/server/support-settings.js";
 import {
   getAdminSecurityUsersFn,
   resetUserFundPasswordFn,
@@ -143,7 +138,12 @@ function AdminPage() {
         />
       )}
       {activeTab === "security" && <AdminSecurityTab userId={user?.id} />}
-      {activeTab === "settings" && <SettingsTab userId={user?.id} />}
+      {activeTab === "settings" && (
+        <SettingsTab
+          accessToken={session?.access_token ?? null}
+          userId={user?.id}
+        />
+      )}
     </div>
   );
 }
@@ -1599,68 +1599,14 @@ function AdminSecurityTab({ userId }: { userId: string | undefined }) {
   );
 }
 
-function SettingsTab({ userId }: { userId: string | undefined }) {
+function SettingsTab({
+  accessToken,
+  userId,
+}: {
+  accessToken: string | null;
+  userId: string | undefined;
+}) {
   const [activeSettingsTab, setActiveSettingsTab] = useState<"support" | "payment">("support");
-  const [settings, setSettings] = useState<SupportSettings | null>(null);
-  const [telegramUsername, setTelegramUsername] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  const loadSettings = () => {
-    if (!userId) return;
-
-    setLoading(true);
-
-    (async () => {
-      try {
-        const result = await getSupportSettingsFn({ data: {} });
-        setSettings(result);
-        setTelegramUsername(result.telegramUsername ?? "");
-      } catch (err) {
-        toast.error(getSafeErrorMessage(err, "SUPPORT").message);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  };
-
-  useEffect(() => { loadSettings(); }, [userId]);
-
-  const saveSupportUsername = async () => {
-    if (!userId || saving) return;
-
-    setSaving(true);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-
-      if (!accessToken) {
-        toast.error("Session expired. Please sign in again.");
-        setSaving(false);
-        return;
-      }
-
-      const updated = await updateSupportTelegramUsernameFn({
-        data: {
-          accessToken,
-          telegramUsername,
-        },
-      });
-
-      setSettings(updated);
-      setTelegramUsername(updated.telegramUsername ?? "");
-      toast.success("Support Telegram username updated.");
-    } catch (err) {
-      toast.error(getSafeErrorMessage(err, "SUPPORT").message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const openCurrentSupport = () => {
-    if (!settings?.telegramUrl) return;
-    window.open(settings.telegramUrl, "_blank", "noopener,noreferrer");
-  };
 
   return (
     <div className="space-y-4">
@@ -1688,59 +1634,11 @@ function SettingsTab({ userId }: { userId: string | undefined }) {
         ))}
       </div>
 
-      {activeSettingsTab === "support" ? (
-        <>
-          <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <MessageSquare size={14} className="text-[#00ff41]" />
-              <span className="text-xs font-semibold">Support Settings</span>
-            </div>
+      <div hidden={activeSettingsTab !== "support"} aria-hidden={activeSettingsTab !== "support"}>
+        <AdminSupportSettingsPanel accessToken={accessToken} userId={userId} />
+      </div>
 
-            {loading ? (
-              <div className="flex items-center gap-2 text-xs text-gray-500">
-                <Spinner size="sm" /> Loading support settings...
-              </div>
-            ) : (
-              <>
-                <Input
-                  label="Telegram Support Username"
-                  placeholder="QHashSupport"
-                  value={telegramUsername}
-                  onChange={(e) => setTelegramUsername(e.target.value)}
-                  hint="Letters, numbers, and underscores only. @ is optional. Do not paste a full link."
-                />
-
-                {settings?.isConfigured && (
-                  <div className="flex items-center justify-between gap-3 rounded-xl bg-[#0d0d0d] border border-[#1a1a1a] p-3">
-                    <div className="min-w-0">
-                      <p className="text-[10px] text-gray-500">Current public support contact</p>
-                      <p className="text-xs text-[#00ff41] font-mono truncate">{settings.telegramDisplay}</p>
-                    </div>
-                    <button
-                      onClick={openCurrentSupport}
-                      className="shrink-0 p-2 rounded-lg text-gray-500 hover:text-[#00ff41] transition-colors card-press"
-                      title="Open current Telegram support"
-                    >
-                      <ExternalLink size={14} />
-                    </button>
-                  </div>
-                )}
-
-                <Button size="sm" loading={saving} onClick={saveSupportUsername}>
-                  Save Support Username
-                </Button>
-              </>
-            )}
-          </div>
-
-          <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-4 text-[11px] text-gray-500 leading-relaxed space-y-2">
-            <p>Support v1 uses Telegram only. Internal support tickets are not active.</p>
-            <p>The public Support page builds the link as t.me/username from this setting.</p>
-          </div>
-        </>
-      ) : (
-        <PaymentMethodsTab userId={userId} />
-      )}
+      {activeSettingsTab === "payment" && <PaymentMethodsTab userId={userId} />}
     </div>
   );
 }

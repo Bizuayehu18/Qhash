@@ -18,11 +18,17 @@ async function listRepositoryFiles(path) {
   return files.flat();
 }
 
-test("admin route delegates overview and verification audit through client-safe surfaces", async () => {
-  const [route, adminPublicSurface, fiatDepositPublicSurface] = await Promise.all([
+test("admin route delegates extracted panels through client-safe domain surfaces", async () => {
+  const [
+    route,
+    adminPublicSurface,
+    fiatDepositPublicSurface,
+    supportPublicSurface,
+  ] = await Promise.all([
     readRepositoryFile("src/routes/_app/admin.tsx"),
     readRepositoryFile("src/domains/admin/public.ts"),
     readRepositoryFile("src/domains/fiat-deposits/public.ts"),
+    readRepositoryFile("src/domains/support/public.ts"),
   ]);
 
   assert.match(route, /createFileRoute\("\/_app\/admin"\)/);
@@ -32,12 +38,15 @@ test("admin route delegates overview and verification audit through client-safe 
   );
   assert.match(route, /<AdminOverviewPanel/);
   assert.match(route, /<DepositVerificationAuditPanel/);
+  assert.match(route, /from "@\/domains\/support\/public\.js"/);
+  assert.match(route, /<AdminSupportSettingsPanel/);
   assert.match(route, /accessToken=\{session\?\.access_token \?\? null\}/);
   assert.match(route, /userId=\{user\?\.id\}/);
   assert.doesNotMatch(
     route,
-    /getAdminStatsFn|getDepositVerificationLogsFn|function OverviewTab|function AuditLogsTab/,
+    /getAdminStatsFn|getDepositVerificationLogsFn|getSupportSettingsFn|updateSupportTelegramUsernameFn|type SupportSettings|function OverviewTab|function AuditLogsTab/,
   );
+  assert.doesNotMatch(route, /Support Telegram username updated\.|Loading support settings\.\.\.|Telegram Support Username/);
 
   for (const label of [
     "Overview",
@@ -58,6 +67,12 @@ test("admin route delegates overview and verification audit through client-safe 
   assert.match(route, /<WithdrawalsTab/);
   assert.match(route, /<AdminSecurityTab/);
   assert.match(route, /<SettingsTab/);
+  assert.match(route, /activeSettingsTab.*"support"/);
+  assert.match(route, /\{ key: "support", label: "Support" \}/);
+  assert.match(route, /\{ key: "payment", label: "Payment" \}/);
+  assert.match(route, /hidden=\{activeSettingsTab !== "support"\}/);
+  assert.match(route, /activeSettingsTab === "payment" &&/);
+  assert.match(route, /<PaymentMethodsTab userId=\{userId\} \/>/);
 
   assert.match(
     adminPublicSurface,
@@ -77,6 +92,11 @@ test("admin route delegates overview and verification audit through client-safe 
     /export \{ DepositVerificationAuditPanel \} from "\.\/ui\/admin\/DepositVerificationAuditPanel\.js";/,
   );
   assert.doesNotMatch(fiatDepositPublicSurface, /export \*/);
+  assert.match(
+    supportPublicSurface,
+    /export \{ AdminSupportSettingsPanel \} from "\.\/ui\/admin\/AdminSupportSettingsPanel\.js";/,
+  );
+  assert.doesNotMatch(supportPublicSurface, /export \*/);
 });
 
 test("admin domain has one explicit browser-to-server overview bridge", async () => {

@@ -1,7 +1,7 @@
 # QHash domain boundaries
 
 **Status:** Current boundary map with target recommendations
-**Scope:** Repository base `1667ed283e0e602849a113ba170c21192775bfd5` plus the read-only Fiat Deposit Verification Audit extraction
+**Scope:** Repository base `492f63be1fc3a1aecbc0b71f02994961c7b755d7` plus the Admin Support Settings extraction
 **Purpose:** Define ownership before files are moved. Current facts and target recommendations are intentionally separated.
 
 The exact current assignment of repository, Netlify, Supabase, test, and
@@ -36,9 +36,9 @@ See also:
 | Plans and investments | `/plans`, `src/domains/plans/public.ts`, plans UI/application modules, existing plan and investment server functions | `plans`, `investments`, ETB wallet/transactions | browser presentation and authentication-scoped orchestration are domain-owned; values and financial execution remain part of the legacy ETB model |
 | Earnings | dashboard/admin-earnings and scheduled Functions | earning logs, investments, ETB wallet/transactions | processing and administrator presentation remain in legacy modules |
 | Referrals | `/referrals`, `src/domains/referrals/public.ts`, referral UI/application/domain modules, existing referral server functions | referrals, reward logs, investments, profiles, ETB transactions | browser reads are authentication-generation scoped; current visible identity and referral lookup still use username |
-| Administration | `/admin`, `/admin-earnings`, `src/domains/admin/public.ts`, read-only Overview UI/application modules, and domain-owned panels composed through public facades | profile role plus domain data | Overview composition is admin-owned; Fiat Deposit Verification Audit is fiat-deposit-owned and exact administrator/token/filter-generation scoped; remaining panels are concentrated, and authorization remains inside each server action |
+| Administration | `/admin`, `/admin-earnings`, `src/domains/admin/public.ts`, read-only Overview UI/application modules, and domain-owned panels composed through public facades | profile role plus domain data | Overview composition is admin-owned; Fiat Deposit Verification Audit is fiat-deposit-owned; Support Settings is support-owned; remaining panels are concentrated, and authorization remains inside each server action |
 | Notifications | `/notifications`, `src/domains/notifications/public.ts`, notification UI/application/domain modules, application-shell unread badge, and the existing notification server module | Supabase `notifications` | browser read/count/mark effects are exact-auth-generation scoped; notification records remain secondary to authoritative financial and referral state transitions |
-| Support and settings | `/support`, `src/domains/support/public.ts`, Support UI/application modules, and admin settings | Supabase `app_settings` | the public redirect and dashboard navigation consume one client-safe facade and application bridge; current visible support is Telegram |
+| Support and settings | `/support`, `src/domains/support/public.ts`, Support UI/application modules, and administrator Support Settings | Supabase `app_settings` | public reads and administrator reads/updates use separate application bridges behind one client-safe facade; current visible support is Telegram |
 | Legacy support tickets | no active visible product flow | separate Netlify Database through Drizzle | quarantined until authentication and database ownership are redesigned |
 | Deployment and schema | build scripts and migrations | Git, Netlify, Supabase migration ledger | operational boundary, not a product domain |
 
@@ -118,19 +118,23 @@ extraction.
 ### Support
 
 The `/support` route composes only the client-safe Support public surface. The
-Support domain owns its redirect presentation, and one application bridge owns
-the extracted Dashboard and public `/support` dependencies on the existing
-read-only support-settings server function. The public route retains its
+Support domain owns its redirect presentation, and one read-only application
+bridge owns the extracted Dashboard and public `/support` dependencies on the
+existing support-settings server function. The public route retains its
 one-shot Telegram `window.location.replace`, unavailable message, error
 handling, and unmount
 guard. Dashboard Support keeps its separate preload, timeout, passive refresh,
 click-navigation, and `/support` fallback contract through the same facade.
 
-Administrator Support settings and the Profile route's existing navigation
-remain legacy direct consumers. Those routes, dormant Netlify Database support
-tickets, and the stored setting remain at their current boundaries. This
-extraction changes no setting value, server function, database,
-authentication, route URL, or visible behavior.
+Administrator Support Settings also composes only the Support public surface.
+A separate administrator application bridge owns the existing public sanitized
+read and active, non-frozen administrator-authorized update calls, and its
+controller binds browser loads, saves, notices, and finalizers to the exact
+administrator and access-token generation. The Profile route remains a legacy
+direct consumer. Dormant Netlify Database support tickets and the stored
+setting remain at their current boundaries. This extraction changes no setting
+value, server function, database, authentication, route URL, visible behavior,
+or financial state.
 
 ### Plans and investments
 
@@ -281,6 +285,22 @@ This read-only composition does not move deposit approval, payment-method
 configuration, verifier execution, balances, or financial transitions into the
 admin domain. Those commands remain at their existing fiat-deposit and server
 boundaries, and the route continues to own only compatibility tab composition.
+
+The third bounded extraction moves Administrator Support Settings behind
+`src/domains/support/public.ts`. One support application bridge owns the
+existing public sanitized read and administrator update dependencies. The
+update server function derives identity from the token and independently
+rejects non-admin or frozen profiles; the read remains the sanitized public
+contract shared with Dashboard and `/support`. Browser load and save effects,
+notices, single-flight state, and finalizers are scoped to the exact
+administrator and access-token generation.
+
+The `/admin` Settings shell still owns only Support/Payment tab composition.
+The Support tab's copy, Telegram-link behavior, save contract, and validation
+are unchanged; `PaymentMethodsTab` remains in the compatibility route and its
+financial ownership remains with Fiat Deposits. No setting value, server
+function, schema, migration, route URL, provider boundary, or financial state
+changes in this extraction.
 
 The current single administrator capability remains, but UI and authorization contracts should be grouped by domain:
 

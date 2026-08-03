@@ -30,6 +30,10 @@ test("public support route is a thin adapter over the client-safe support facade
 
   assert.match(
     publicSurface,
+    /export \{ AdminSupportSettingsPanel \} from "\.\/ui\/admin\/AdminSupportSettingsPanel\.js";/,
+  );
+  assert.match(
+    publicSurface,
     /export \{ SupportRedirectPage \} from "\.\/ui\/SupportRedirectPage\.js";/,
   );
   assert.match(
@@ -38,7 +42,7 @@ test("public support route is a thin adapter over the client-safe support facade
   );
   assert.doesNotMatch(
     publicSurface,
-    /export \*|@\/lib\/server|updateSupportTelegramUsernameFn/,
+    /export \*|@\/lib\/server|getSupportSettingsFn|updateSupportTelegramUsernameFn/,
   );
 });
 

@@ -60,6 +60,7 @@ const allTests = [
   "admin-deposit-verification-audit-ui.test.mjs",
   "admin-overview-ui.test.mjs",
   "admin-route-compatibility.test.mjs",
+  "admin-support-settings-ui.test.mjs",
   "authenticated-request-lifecycle.test.mjs",
   "bsc-address-rotation.test.mjs",
   "bsc-user-deposit-exposure.test.mjs",

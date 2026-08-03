@@ -17,7 +17,7 @@ evidence. The reorganization is not a rewrite and is not the currency cutover.
 | Phase 2 — Compatibility scaffolding | In progress: client-safe route/facade slices and cross-system ownership enforcement implemented; server-only entry points remain |
 | Phase 3 — Extract shared primitives | In progress: authenticated request lifecycle, exact cross-domain date/time presentation, shared UUID syntax, shared timestamp parseability, and the loose non-null/non-array object guard extracted |
 | Phase 4 — Extract domains one at a time | In progress: accounts transaction history/dashboard, public Support redirect, Notifications, crypto-deposit, ordinary-user USDT-withdrawal, Ethiopia fiat-deposit, Ethiopia fiat-withdrawal, legacy ETB plans, and referrals UI decompositions implemented |
-| Phase 5 — Decompose administration | In progress: read-only Admin Overview and Fiat Deposit Verification Audit slices implemented |
+| Phase 5 — Decompose administration | In progress: read-only Admin Overview, Fiat Deposit Verification Audit, and Admin Support Settings slices implemented |
 | Phase 6 and later | Not started |
 
 ## Invariants throughout the roadmap
@@ -496,6 +496,21 @@ The second bounded Fiat Deposit Verification Audit slice:
   the exact administrator, access-token generation, and selected filter; and
 - changes no schema, migration, server query, audit write, deposit approval,
   payment-method action, provider boundary, financial rule, feature flag, or
+  production state.
+
+The third bounded Admin Support Settings slice:
+
+- exposes support-setting composition through the client-safe
+  `src/domains/support/public.ts` surface;
+- confines its existing administrator read/update server dependencies to one
+  support application bridge;
+- preserves the `/admin` URL, Settings tab, Support/Payment order and default,
+  Telegram copy, open-link behavior, validation, save result, and public
+  `/support` behavior;
+- binds load and save publication, notices, single-flight state, cleanup, and
+  finalizers to the exact administrator and access-token generation; and
+- changes no setting value, Payment Methods behavior, server authorization,
+  schema, migration, provider boundary, financial rule, feature flag, or
   production state.
 
 The remaining panels stay in the compatibility route until they are extracted

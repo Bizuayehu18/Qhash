@@ -66,7 +66,7 @@ router, build configuration, and Netlify configuration.
 | `plans` | Plan catalog presentation, eligibility, authentication-scoped purchase orchestration, investment records, and contract rules; financial execution remains server-owned |
 | `platform` | Repository governance, generated database contracts, migration runner, shared settings, domain-neutral application primitives, and architecture docs |
 | `referrals` | Referral graph, authentication-scoped team presentation, reward posting, and reward audit |
-| `support` | User support presentation and server-owned support configuration |
+| `support` | User support presentation and server-owned support configuration reads and administrator updates |
 | `withdrawals` | Fiat and USDT requests, reservation, cross-rail policy, and manual administrator resolution |
 
 ## Netlify Function contract
@@ -136,15 +136,19 @@ route and other consumers cannot render a balance owned by a previous user or
 a dashboard snapshot owned by a previous authentication generation.
 
 Dashboard support navigation crosses domains only through the client-safe
-`support` public facade. One support application bridge owns the extracted
-Dashboard and public `/support` dependencies on the existing read-only settings
+`support` public facade. One read-only support application bridge owns the
+extracted Dashboard and public `/support` dependencies on the existing settings
 server function. The public Support route consumes that facade and renders a
 domain-owned redirect page while preserving its one-shot redirect and
 unavailable-state behavior.
 The dashboard's preload, timeout, passive refresh, interactive navigation, and
 fallback contract remain separate from the public redirect presentation.
-Profile and the remaining Admin panels remain documented legacy direct
-consumers for later domain-specific extractions.
+Administrator Support Settings consumes the same client-safe facade through a
+second application bridge that owns the existing public sanitized read and
+active, non-frozen administrator-authorized update calls. Its controller scopes
+browser loads, saves, notices, and finalizers to the exact administrator and
+access-token generation. Profile remains a documented legacy direct consumer
+for a later identity-specific extraction.
 
 The transactions route also consumes only the accounts public facade. One
 accounts application bridge owns the browser dependency on the existing
