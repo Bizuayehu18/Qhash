@@ -425,14 +425,25 @@
     {
       "id": "fiat-withdrawals",
       "kind": "product",
-      "description": "Owns browser-facing Ethiopia CBE and TeleBirr withdrawal provider presentation and legacy ETB request orchestration; shared cross-rail policy and financial boundaries remain in withdrawals.",
+      "description": "Owns browser-facing Ethiopia CBE and TeleBirr ordinary-user presentation, legacy ETB request orchestration, and administrator fiat-withdrawal operations UI; shared cross-rail policy and financial approval/rejection boundaries remain in withdrawals.",
       "assets": {
         "publicSurfaces": [
           "src/domains/fiat-withdrawals/public.ts"
         ],
         "sourceModules": [
+          "src/domains/fiat-withdrawals/application/admin-fiat-withdrawal-operations-auth-lifecycle.ts",
+          "src/domains/fiat-withdrawals/application/admin-fiat-withdrawal-operations-browser-service.ts",
           "src/domains/fiat-withdrawals/application/fiat-withdrawal-browser-service.ts",
           "src/domains/fiat-withdrawals/domain/fiat-withdrawal-method.ts",
+          "src/domains/fiat-withdrawals/ui/admin/admin-fiat-withdrawal-operations-presentation.ts",
+          "src/domains/fiat-withdrawals/ui/admin/AdminFiatWithdrawalAmount.tsx",
+          "src/domains/fiat-withdrawals/ui/admin/AdminFiatWithdrawalDetail.tsx",
+          "src/domains/fiat-withdrawals/ui/admin/AdminFiatWithdrawalList.tsx",
+          "src/domains/fiat-withdrawals/ui/admin/AdminFiatWithdrawalOperationsPanel.tsx",
+          "src/domains/fiat-withdrawals/ui/admin/AdminFiatWithdrawalStatusBadge.tsx",
+          "src/domains/fiat-withdrawals/ui/admin/useAdminFiatWithdrawalCatalog.ts",
+          "src/domains/fiat-withdrawals/ui/admin/useAdminFiatWithdrawalOperations.ts",
+          "src/domains/fiat-withdrawals/ui/admin/useAdminFiatWithdrawalReview.ts",
           "src/domains/fiat-withdrawals/ui/fiat-withdrawal-auth-lifecycle.ts",
           "src/domains/fiat-withdrawals/ui/fiat-withdrawal-errors.ts",
           "src/domains/fiat-withdrawals/ui/fiat-withdrawal-format.ts",
@@ -454,6 +465,7 @@
           "src/domains/fiat-withdrawals/ui/useFiatWithdrawalRemoteState.ts"
         ],
         "tests": [
+          "tests/admin-fiat-withdrawal-operations-ui.test.mjs",
           "tests/fiat-withdrawal-ui.test.mjs"
         ]
       }

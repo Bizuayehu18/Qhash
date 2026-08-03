@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository base `a8734cb84c4190c859dd6d0c872e913bfee901d3`, plus the Admin Fiat Deposit Operations extraction
+**Scope:** Runtime baseline through repository base `87a1b678ccb28bdfa69a3cfbc13025a67c5a16d4`, plus the Admin Fiat Withdrawal Operations extraction
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -59,7 +59,7 @@ The repository is organized mainly by technical layer, with several business dom
 | Area | Current role | Observed concentration |
 |---|---|---|
 | `src/routes` | TanStack route entry points and substantial page logic | 6 route files remain over the 150-nonblank-line warning; `deposit.tsx`, `withdraw.tsx`, `plans.tsx`, `referrals.tsx`, `transactions.tsx`, and `notifications.tsx` are now thin composition entries while `admin.tsx` remains concentrated |
-| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Account transaction history, deposit, withdrawal, plans, referrals, Notifications, Support redirect/navigation/settings, Admin Overview, Fiat Deposit Verification Audit, Deposit Operations, and Payment Methods, crypto-rail, and Ethiopia fiat-rail UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
+| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Account transaction history, deposit, withdrawal, plans, referrals, Notifications, Support redirect/navigation/settings, Admin Overview, Fiat Deposit Verification Audit, Fiat Deposit Operations, Fiat Withdrawal Operations, and Payment Methods, crypto-rail, and Ethiopia fiat-rail UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
 | `src/components` | Shared UI plus extracted crypto compatibility bridges | Only the administrator NOWPayments withdrawal component remains over the 300-nonblank-line warning after the user deposit and withdrawal UI decompositions |
 | `src/lib/server` | TanStack server functions for many domains in one flat folder | Large deposit, verification, withdrawal, earning, security, and admin modules |
 | `netlify/functions` | provider-facing, scheduled, verification, and admin Functions | NOWPayments handlers are partly decomposed through `netlify/functions/lib` |
@@ -195,6 +195,25 @@ existing Netlify adapter and database RPC remain the financial and
 authorization boundary for approval and rejection. Their documented mixed
 ownership and focused-handler-test waiver remain open. This extraction changes
 no schema, migration, server function, Function, RPC, provider, database row,
+notification behavior, or financial state.
+
+Administrator Fiat Withdrawal Operations is the sixth bounded Phase 5
+extraction. `src/domains/fiat-withdrawals/public.ts` exposes the panel, while
+one fiat-withdrawal application bridge owns its dependency on the existing
+administrator withdrawal-list, approval, and rejection server functions.
+Catalog snapshots, bounded retries, visible/online refresh, selection, and
+review notes are bound to the exact administrator, access-token generation,
+and All/Pending/Approved/Rejected filter; filter changes clear the selection
+and note. Review single-flight state, notices, and mutation finalizers are
+bound to the exact administrator and access-token generation, and an accepted
+review refreshes the currently selected catalog. The existing latest-100 list,
+default Pending filter, CBE/TeleBirr presentation, ETB amount, fee and net
+payout fields, account details, copy, confirmation, approval/rejection payload,
+and visible behavior are unchanged. The list, approval, and rejection server
+functions still authorize the active, non-frozen administrator, while
+`approve_withdrawal_tx` and `reject_withdrawal_tx` remain the financial and
+authorization boundary for approval and rejection. This extraction changes no
+schema, migration, server function, Function, RPC, provider, database row,
 notification behavior, or financial state.
 
 `/transactions` is now a thin route through the same client-safe accounts

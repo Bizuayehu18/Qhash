@@ -6,34 +6,23 @@ import { Input } from "@/components/ui/Input.js";
 import {
   ShieldCheck,
   Settings,
-  CheckCircle,
-  XCircle,
   Copy,
-  Clock,
   AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { getSafeErrorMessage } from "@/lib/errors.js";
-import { formatDateTime } from "@/shared/formatting/date-time.js";
 import { useAuthStore } from "@/store/authStore.js";
 import { supabase } from "@/lib/supabase.js";
 import { withTimeout } from "@/lib/async.js";
 import { NowpaymentsUsdtWithdrawalAdmin } from "@/components/admin/NowpaymentsUsdtWithdrawalAdmin.js";
-import {
-  AdminEtbAmount,
-  AdminOverviewPanel,
-} from "@/domains/admin/public.js";
+import { AdminOverviewPanel } from "@/domains/admin/public.js";
 import {
   AdminFiatDepositOperationsPanel,
   AdminFiatPaymentMethodsPanel,
   DepositVerificationAuditPanel,
 } from "@/domains/fiat-deposits/public.js";
 import { AdminSupportSettingsPanel } from "@/domains/support/public.js";
-import {
-  getAdminWithdrawalsFn,
-  approveWithdrawalFn,
-  rejectWithdrawalFn,
-} from "@/lib/server/withdrawals.js";
+import { AdminFiatWithdrawalOperationsPanel } from "@/domains/fiat-withdrawals/public.js";
 import {
   getAdminSecurityUsersFn,
   resetUserFundPasswordFn,
@@ -44,10 +33,7 @@ export const Route = createFileRoute("/_app/admin")({
   component: AdminPage,
 });
 
-type AdminWithdrawal = Awaited<ReturnType<typeof getAdminWithdrawalsFn>>[number];
 type AdminSecurityUser = Awaited<ReturnType<typeof getAdminSecurityUsersFn>>[number];
-
-const METHOD_LABELS: Record<string, string> = { cbe: "CBE", telebirr: "TeleBirr" };
 
 const ADMIN_TAB_LOAD_TIMEOUT_MS = 10_000;
 const ADMIN_AUTO_RETRY_DELAY_MS = 1_500;
@@ -114,7 +100,12 @@ function AdminPage() {
           userId={user?.id}
         />
       )}
-      {activeTab === "withdrawals" && <WithdrawalsTab userId={user?.id} />}
+      {activeTab === "withdrawals" && (
+        <AdminFiatWithdrawalOperationsPanel
+          accessToken={session?.access_token ?? null}
+          userId={user?.id}
+        />
+      )}
       {activeTab === "usdt-withdrawals" && (
         <NowpaymentsUsdtWithdrawalAdmin
           accessToken={session?.access_token ?? null}
@@ -136,360 +127,6 @@ function AdminPage() {
       )}
     </div>
   );
-}
-
-function WithdrawalsTab({ userId }: { userId: string | undefined }) {
-  const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
-  const [withdrawals, setWithdrawals] = useState<AdminWithdrawal[]>([]);
-  const [withdrawalsLoaded, setWithdrawalsLoaded] = useState(false);
-  const [filter, setFilter] = useState<"all" | "pending" | "approved" | "rejected">("pending");
-  const [selectedWithdrawal, setSelectedWithdrawal] = useState<AdminWithdrawal | null>(null);
-  const [adminNote, setAdminNote] = useState("");
-  const [actionLoading, setActionLoading] = useState(false);
-
-  const mountedRef = useRef(true);
-  const loadingRef = useRef(false);
-  const retryCountRef = useRef(0);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearRetryTimer = useCallback(() => {
-    if (retryTimerRef.current) {
-      clearTimeout(retryTimerRef.current);
-      retryTimerRef.current = null;
-    }
-  }, []);
-
-  const scheduleRetry = useCallback(
-    (loadFn: () => void) => {
-      clearRetryTimer();
-
-      if (retryCountRef.current >= ADMIN_MAX_AUTO_RETRIES) return;
-
-      retryCountRef.current += 1;
-      retryTimerRef.current = setTimeout(loadFn, ADMIN_AUTO_RETRY_DELAY_MS);
-    },
-    [clearRetryTimer],
-  );
-
-  const loadWithdrawals = useCallback(
-    async (options?: { resetRetryCount?: boolean }) => {
-      if (loadingRef.current) return;
-
-      if (options?.resetRetryCount) {
-        retryCountRef.current = 0;
-      }
-
-      if (!userId) return;
-
-      if (!accessToken) {
-        scheduleRetry(() => {
-          void loadWithdrawals();
-        });
-        return;
-      }
-
-      clearRetryTimer();
-      loadingRef.current = true;
-
-      try {
-        const rows = await withTimeout(
-          getAdminWithdrawalsFn({
-            data: {
-              accessToken,
-              statusFilter: filter,
-            },
-          }),
-          ADMIN_TAB_LOAD_TIMEOUT_MS,
-          "Admin withdrawals request timed out.",
-        );
-
-        if (!mountedRef.current) return;
-
-        setWithdrawals(rows);
-        setWithdrawalsLoaded(true);
-        retryCountRef.current = 0;
-      } catch (err) {
-        console.error("[QHash] Admin withdrawals background refresh failed:", err);
-
-        if (!mountedRef.current) return;
-
-        scheduleRetry(() => {
-          void loadWithdrawals();
-        });
-      } finally {
-        loadingRef.current = false;
-      }
-    },
-    [accessToken, clearRetryTimer, filter, scheduleRetry, userId],
-  );
-
-  useEffect(() => {
-    mountedRef.current = true;
-
-    return () => {
-      mountedRef.current = false;
-      clearRetryTimer();
-    };
-  }, [clearRetryTimer]);
-
-  useEffect(() => {
-    setSelectedWithdrawal(null);
-    setAdminNote("");
-    setWithdrawals([]);
-    setWithdrawalsLoaded(false);
-    retryCountRef.current = 0;
-    void loadWithdrawals({ resetRetryCount: true });
-  }, [filter, loadWithdrawals]);
-
-  useEffect(() => {
-    const handleVisible = () => {
-      if (document.visibilityState === "visible") {
-        void loadWithdrawals({ resetRetryCount: true });
-      }
-    };
-
-    const handleOnline = () => {
-      void loadWithdrawals({ resetRetryCount: true });
-    };
-
-    document.addEventListener("visibilitychange", handleVisible);
-    window.addEventListener("online", handleOnline);
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisible);
-      window.removeEventListener("online", handleOnline);
-    };
-  }, [loadWithdrawals]);
-
-  const handleReview = async (withdrawalId: string, action: "approve" | "reject") => {
-    if (actionLoading) return;
-
-    const confirmed = window.confirm(
-      action === "approve"
-        ? "Approve this withdrawal request?"
-        : "Reject this withdrawal request and refund the full amount to the user wallet?",
-    );
-
-    if (!confirmed) return;
-
-    setActionLoading(true);
-
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-
-      if (!accessToken) {
-        throw new Error("Session expired. Please sign in again.");
-      }
-
-      if (action === "approve") {
-        await approveWithdrawalFn({
-          data: {
-            accessToken,
-            withdrawalId,
-            adminNote: adminNote.trim() || null,
-          },
-        });
-        toast.success("Withdrawal approved.");
-      } else {
-        await rejectWithdrawalFn({
-          data: {
-            accessToken,
-            withdrawalId,
-            adminNote: adminNote.trim() || null,
-          },
-        });
-        toast.success("Withdrawal rejected and refunded.");
-      }
-
-      setSelectedWithdrawal(null);
-      setAdminNote("");
-      void loadWithdrawals({ resetRetryCount: true });
-    } catch (err) {
-      toast.error(getSafeErrorMessage(err, "ADMIN").message);
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => toast.success("Copied!"));
-  };
-
-  const pendingCount = withdrawals.filter((w) => w.status === "pending").length;
-
-  return (
-    <div className="space-y-4">
-      <div className="flex gap-2 overflow-x-auto hide-scrollbar -mx-4 px-4 pb-1">
-        {(["all", "pending", "approved", "rejected"] as const).map((f) => (
-          <button
-            key={f}
-            onClick={() => { setFilter(f); setSelectedWithdrawal(null); setAdminNote(""); }}
-            className={`shrink-0 px-3 py-1.5 rounded-full text-[11px] border transition-colors card-press ${
-              filter === f
-                ? "bg-[rgba(0,255,65,0.08)] text-[#00ff41] border-[rgba(0,255,65,0.3)]"
-                : "text-gray-500 border-[#1f1f1f]"
-            }`}
-          >
-            {f === "all" ? "All" : f.charAt(0).toUpperCase() + f.slice(1)}
-            {f === "pending" && pendingCount > 0 && (
-              <span className="ml-1 text-[9px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded-full">
-                {pendingCount}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {selectedWithdrawal && (
-        <WithdrawalDetailPanel
-          withdrawal={selectedWithdrawal}
-          adminNote={adminNote}
-          setAdminNote={setAdminNote}
-          actionLoading={actionLoading}
-          onReview={handleReview}
-          onClose={() => { setSelectedWithdrawal(null); setAdminNote(""); }}
-          onCopy={copyToClipboard}
-        />
-      )}
-
-      {!withdrawalsLoaded ? (
-        <div className="space-y-2">{[1, 2, 3].map((i) => <div key={i} className="skeleton h-16 rounded-xl" />)}</div>
-      ) : withdrawals.length === 0 ? (
-        <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-8 text-center text-xs text-gray-600">No withdrawals found.</div>
-      ) : (
-        <div className="bg-[#111] rounded-xl border border-[#1a1a1a] divide-y divide-[#1a1a1a]">
-          {withdrawals.map((w) => (
-            <button
-              key={w.id}
-              onClick={() => { setSelectedWithdrawal(w); setAdminNote(w.admin_note ?? ""); }}
-              className="w-full text-left px-4 py-3 card-press"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-xs font-medium text-gray-200 truncate">@{w.username}</p>
-                    {w.status === "pending" && <Clock size={10} className="text-yellow-400" />}
-                  </div>
-                  <p className="text-[10px] text-gray-600">{w.phone || "No phone"}</p>
-                  <p className="text-[10px] text-gray-500 mt-1">
-                    {METHOD_LABELS[w.method] ?? w.method} &middot; {w.account_name} &middot; {w.account_last4 ? `****${w.account_last4}` : "No account"}
-                  </p>
-                </div>
-                <div className="text-right shrink-0 space-y-1">
-                  <p className="text-xs text-red-400 font-mono"><AdminEtbAmount value={w.amount} /></p>
-                  <WithdrawalStatusBadge status={w.status} />
-                </div>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function WithdrawalDetailPanel({
-  withdrawal,
-  adminNote,
-  setAdminNote,
-  actionLoading,
-  onReview,
-  onClose,
-  onCopy,
-}: {
-  withdrawal: AdminWithdrawal;
-  adminNote: string;
-  setAdminNote: (v: string) => void;
-  actionLoading: boolean;
-  onReview: (id: string, action: "approve" | "reject") => void;
-  onClose: () => void;
-  onCopy: (text: string) => void;
-}) {
-  return (
-    <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold">Withdrawal Details</span>
-        <button onClick={onClose} className="text-[10px] text-gray-500">Close</button>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 text-xs">
-        <DetailRow label="User" value={`@${withdrawal.username}`} />
-        <DetailRow label="Phone" value={withdrawal.phone || "—"} />
-        <DetailRow label="Amount" value={<AdminEtbAmount value={withdrawal.amount} />} highlight />
-        <DetailRow label="Net payout" value={<AdminEtbAmount value={withdrawal.net_amount ?? 0} />} highlight />
-        <DetailRow label="Fee" value={<AdminEtbAmount value={withdrawal.fee_amount ?? 0} />} />
-        <DetailRow label="Method" value={METHOD_LABELS[withdrawal.method] ?? withdrawal.method} />
-        <DetailRow label="Account Name" value={withdrawal.account_name} />
-        <div>
-          <span className="text-gray-500 text-[10px] block mb-1">Status</span>
-          <WithdrawalStatusBadge status={withdrawal.status} />
-        </div>
-        <div className="col-span-2">
-          <span className="text-gray-500 text-[10px] block mb-1">Account Number</span>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-200 font-mono break-all">{withdrawal.account_number || "—"}</span>
-            {withdrawal.account_number && (
-              <button
-                onClick={() => onCopy(withdrawal.account_number)}
-                className="p-1 rounded text-gray-600 hover:text-gray-300 transition-colors shrink-0"
-              >
-                <Copy size={11} />
-              </button>
-            )}
-          </div>
-        </div>
-        <DetailRow label="Requested" value={formatDateTime(withdrawal.created_at)} />
-        <DetailRow label="Reviewed" value={withdrawal.reviewed_at ? formatDateTime(withdrawal.reviewed_at) : "—"} />
-      </div>
-
-      {withdrawal.admin_note && withdrawal.status !== "pending" && (
-        <div className="text-[11px] text-gray-500">
-          <span className="text-gray-600">Note:</span> {withdrawal.admin_note}
-        </div>
-      )}
-
-      {withdrawal.status === "pending" && (
-        <div className="pt-3 border-t border-[#1f1f1f] space-y-3">
-          <Input
-            label="Review Note (optional)"
-            placeholder="e.g. Paid to customer account"
-            value={adminNote}
-            onChange={(e) => setAdminNote(e.target.value)}
-          />
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              loading={actionLoading}
-              onClick={() => onReview(withdrawal.id, "approve")}
-              className="flex-1"
-            >
-              <CheckCircle size={13} /> Approve
-            </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              loading={actionLoading}
-              onClick={() => onReview(withdrawal.id, "reject")}
-              className="flex-1"
-            >
-              <XCircle size={13} /> Reject
-            </Button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function WithdrawalStatusBadge({ status }: { status: string }) {
-  const statusConfig: Record<string, { label: string; variant: "success" | "warning" | "danger" | "default" }> = {
-    approved: { label: "Approved", variant: "success" },
-    pending: { label: "Pending", variant: "warning" },
-    rejected: { label: "Rejected", variant: "danger" },
-  };
-  const sc = statusConfig[status] ?? { label: status, variant: "default" as const };
-  return <Badge variant={sc.variant}>{sc.label}</Badge>;
 }
 
 function AdminSecurityTab({ userId }: { userId: string | undefined }) {

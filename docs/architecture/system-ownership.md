@@ -59,7 +59,7 @@ router, build configuration, and Netlify configuration.
 | `deposits` | Provider-neutral cross-rail deposit admission, shared availability, history composition, and deposit navigation |
 | `earnings` | Investment earning execution and earning-run audit |
 | `fiat-deposits` | Country fiat rail enablement, CBE/TeleBirr collection and verification, administrator payment-account configuration, deposit approval, and fiat-table enforcement |
-| `fiat-withdrawals` | Ethiopia CBE/TeleBirr browser presentation and legacy ETB request orchestration; shared financial policy remains in `withdrawals` |
+| `fiat-withdrawals` | Ethiopia CBE/TeleBirr ordinary-user and administrator browser presentation plus legacy ETB request orchestration; shared financial policy and approval/rejection authority remain in `withdrawals` |
 | `identity` | Registration, login, immutable profile identity, account security, and Fund PIN |
 | `legacy-netlify-database` | Quarantined Netlify Database history; never production Supabase authority |
 | `notifications` | User notification records and presentation |
@@ -154,6 +154,23 @@ bearer token and delegate financial authorization and the atomic transition to
 coverage waiver, and remediation debt; this extraction changes no Function,
 RPC, schema, provider, notification producer, database row, or financial state.
 The `/admin` route owns only the stable Deposits-tab composition.
+
+The `fiat-withdrawals` public facade also owns the administrator Fiat
+Withdrawal Operations panel. One fiat-withdrawal application bridge is the
+browser's only dependency on the existing administrator withdrawal-list,
+approval, and rejection server functions. Catalog snapshots, selection, review
+notes, retries, and catalog cleanup are scoped to the exact administrator,
+access-token generation, and All/Pending/Approved/Rejected filter; filter
+changes clear the selection and note. Review single-flight state, notices, and
+mutation finalizers are scoped to the exact administrator and access-token
+generation, and an accepted review refreshes the currently selected catalog.
+All three server functions continue to authorize the active, non-frozen
+administrator, while `public.approve_withdrawal_tx` and
+`public.reject_withdrawal_tx` retain the atomic financial transitions. Shared
+Fund PIN, cooldown, active-request, wallet, database, and financial authority
+remain owned by `withdrawals`; this extraction changes no server function, RPC,
+schema, provider, notification producer, database row, or financial state. The
+`/admin` route owns only the stable ETB Withdrawals-tab composition.
 
 The `accounts` public facade owns the browser dashboard page and remote-state
 hook. Its application bridge is the only accounts-domain dashboard dependency
