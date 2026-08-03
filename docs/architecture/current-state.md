@@ -1,7 +1,7 @@
 # QHash current-state architecture
 
 **Status:** Observed baseline
-**Scope:** Runtime baseline through repository base `f103e486dd4aff2519917bae41ffbcce03655145`, plus the Admin Fiat Payment Methods extraction
+**Scope:** Runtime baseline through repository base `a8734cb84c4190c859dd6d0c872e913bfee901d3`, plus the Admin Fiat Deposit Operations extraction
 **Purpose:** Record what exists before the repository reorganization and international USDT conversion. This document is descriptive unless a section is explicitly labelled **Target recommendation**.
 
 See also:
@@ -59,7 +59,7 @@ The repository is organized mainly by technical layer, with several business dom
 | Area | Current role | Observed concentration |
 |---|---|---|
 | `src/routes` | TanStack route entry points and substantial page logic | 6 route files remain over the 150-nonblank-line warning; `deposit.tsx`, `withdraw.tsx`, `plans.tsx`, `referrals.tsx`, `transactions.tsx`, and `notifications.tsx` are now thin composition entries while `admin.tsx` remains concentrated |
-| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Account transaction history, deposit, withdrawal, plans, referrals, Notifications, Support redirect/navigation/settings, Admin Overview, Fiat Deposit Verification Audit and Payment Methods, crypto-rail, and Ethiopia fiat-rail UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
+| `src/domains` | Accountable business-domain public surfaces, UI composition, and compatibility boundaries | Account transaction history, deposit, withdrawal, plans, referrals, Notifications, Support redirect/navigation/settings, Admin Overview, Fiat Deposit Verification Audit, Deposit Operations, and Payment Methods, crypto-rail, and Ethiopia fiat-rail UI slices are now physically domain-owned; the remaining legacy layers are still being extracted incrementally |
 | `src/components` | Shared UI plus extracted crypto compatibility bridges | Only the administrator NOWPayments withdrawal component remains over the 300-nonblank-line warning after the user deposit and withdrawal UI decompositions |
 | `src/lib/server` | TanStack server functions for many domains in one flat folder | Large deposit, verification, withdrawal, earning, security, and admin modules |
 | `netlify/functions` | provider-facing, scheduled, verification, and admin Functions | NOWPayments handlers are partly decomposed through `netlify/functions/lib` |
@@ -177,6 +177,22 @@ filters, CBE and TeleBirr fields, add/edit/enable/archive/restore commands,
 server authorization, CBE last-eight derivation, and archive semantics are
 unchanged. The extraction adds no schema, migration, provider, database, or
 financial behavior.
+
+Administrator Fiat Deposit Operations is the fifth bounded Phase 5
+extraction. `src/domains/fiat-deposits/public.ts` exposes the panel, while one
+fiat-deposit application bridge owns its dependency on the existing
+administrator deposit-list server function and approval HTTP endpoint.
+Catalog snapshots, bounded retries, visible/online refresh, selection, review
+drafts, notices, and mutation finalizers are bound to the exact administrator,
+access-token generation, and All/Pending/Approved/Rejected filter. The existing
+latest-100 list, CBE/TeleBirr presentation, receipt link, verified ETB amount,
+approval/rejection payload, and visible behavior are unchanged. The list server
+function still authorizes the active, non-frozen administrator, and the
+existing Netlify adapter and database RPC remain the financial and
+authorization boundary for approval and rejection. Their documented mixed
+ownership and focused-handler-test waiver remain open. This extraction changes
+no schema, migration, server function, Function, RPC, provider, database row,
+notification behavior, or financial state.
 
 `/transactions` is now a thin route through the same client-safe accounts
 facade. The accounts domain owns transaction filters, list presentation, and

@@ -138,6 +138,20 @@ archive-forces-inactive and restore-without-enable semantics, database and
 provider boundaries, and financial behavior remain unchanged. The `/admin`
 route owns only Settings Support/Payment composition and conditional mounting.
 
+The same `fiat-deposits` facade owns the administrator Fiat Deposit Operations
+panel. One fiat-deposit application bridge is the browser's only dependency on
+the existing administrator deposit-list server function and approval HTTP
+endpoint. Catalog snapshots, selection, review drafts, retries, notices, and
+mutation finalizers are scoped to the exact administrator, access-token
+generation, and All/Pending/Approved/Rejected filter. The list server function
+continues to authorize the active, non-frozen administrator, while
+`netlify/functions/admin-approve-deposit.mts` continues to authenticate the
+bearer token and delegate financial authorization and the atomic transition to
+`public.approve_deposit_tx`. The Function retains its recorded mixed ownership,
+coverage waiver, and remediation debt; this extraction changes no Function,
+RPC, schema, provider, notification producer, database row, or financial state.
+The `/admin` route owns only the stable Deposits-tab composition.
+
 The `accounts` public facade owns the browser dashboard page and remote-state
 hook. Its application bridge is the only accounts-domain dashboard dependency
 on legacy server functions. Dashboard snapshots and retries are keyed to the

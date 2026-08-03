@@ -63,7 +63,11 @@ test("admin route delegates extracted panels through client-safe domain surfaces
   assert.match(route, /if \(profile && !profile\.is_admin\) navigate\(\{ to: "\/dashboard" \}\)/);
   assert.match(route, /if \(!profile\?\.is_admin\) return null;/);
   assert.match(route, /<NowpaymentsUsdtWithdrawalAdmin/);
-  assert.match(route, /<DepositsTab/);
+  assert.match(route, /<AdminFiatDepositOperationsPanel/);
+  assert.match(
+    route,
+    /<AdminFiatDepositOperationsPanel\s+accessToken=\{session\?\.access_token \?\? null\}\s+userId=\{user\?\.id\}\s+\/>/,
+  );
   assert.match(route, /<WithdrawalsTab/);
   assert.match(route, /<AdminSecurityTab/);
   assert.match(route, /<SettingsTab/);
@@ -78,7 +82,7 @@ test("admin route delegates extracted panels through client-safe domain surfaces
   );
   assert.doesNotMatch(
     route,
-    /function PaymentMethodsTab|getPaymentMethodsFn|createPaymentMethodFn|updatePaymentMethodFn|archivePaymentMethodFn|type PaymentMethod\b|PaymentMethodType/,
+    /function PaymentMethodsTab|function DepositsTab|function DepositDetailPanel|getAdminDepositsFn|\/api\/admin\/approve-deposit|getPaymentMethodsFn|createPaymentMethodFn|updatePaymentMethodFn|archivePaymentMethodFn|type PaymentMethod\b|PaymentMethodType/,
   );
 
   assert.match(
@@ -93,6 +97,10 @@ test("admin route delegates extracted panels through client-safe domain surfaces
   assert.doesNotMatch(
     adminPublicSurface,
     /lib\/server|netlify\/functions|supabase-admin|service.role|createClient|\.from\(|\.rpc\(|fetch\(/i,
+  );
+  assert.match(
+    fiatDepositPublicSurface,
+    /export \{ AdminFiatDepositOperationsPanel \} from "\.\/ui\/admin\/AdminFiatDepositOperationsPanel\.js";/,
   );
   assert.match(
     fiatDepositPublicSurface,

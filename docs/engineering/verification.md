@@ -100,7 +100,8 @@ null-state rules by their respective domains.
 `tests/admin-route-compatibility.test.mjs` freezes `/admin` as the unchanged
 compatibility shell while delegating its read-only Overview through the
 client-safe admin public surface and its Fiat Deposit Verification Audit panel
-and Payment Methods panel through the client-safe fiat-deposit public surface,
+and its Deposit Operations and Payment Methods panels through the client-safe
+fiat-deposit public surface,
 and Administrator Support Settings through the client-safe Support public
 surface. It keeps all seven current tabs, the Settings Support/Payment
 composition, Support default and continuous mount, Payment conditional remount,
@@ -142,6 +143,19 @@ administrator, access-token generation, or archive filter, while editor and
 action effects cannot cross an administrator or token generation. Exact
 concurrent mutations coalesce, filter changes clear edit selection, and every
 server mutation retains independent active-administrator authorization.
+
+`tests/admin-fiat-deposit-operations-ui.test.mjs` freezes the established
+All/Pending/Approved/Rejected filters, latest-100 deposit catalog, current-filter
+pending badge, CBE/TeleBirr presentation, loading and empty states, detail and
+receipt-link behavior, verified ETB amount, copy, review note, and exact
+approval/rejection HTTP contract. Its lifecycle and deferred-request fixtures
+prove that catalog, selection, retry, draft, notice, single-flight, and
+finalizer effects cannot cross an administrator, access-token generation, or
+selected filter. The focused UI contract keeps `getAdminDepositsFn` and the
+existing `/api/admin/approve-deposit` adapter behind one browser bridge; the
+server function, Netlify adapter, and `approve_deposit_tx` authorization and
+financial boundaries remain unchanged. This test does not close the Netlify
+adapter's separately recorded focused-handler-test waiver.
 
 `tests/shared-date-time-formatting.test.mjs` freezes the application shell's
 cross-domain presentation formatter. It covers string and `Date` inputs,
