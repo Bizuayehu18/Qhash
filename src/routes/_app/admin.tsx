@@ -8,7 +8,6 @@ import {
   Settings,
   CheckCircle,
   XCircle,
-  ExternalLink,
   Copy,
   Clock,
   AlertTriangle,
@@ -25,11 +24,11 @@ import {
   AdminOverviewPanel,
 } from "@/domains/admin/public.js";
 import {
+  AdminFiatDepositOperationsPanel,
   AdminFiatPaymentMethodsPanel,
   DepositVerificationAuditPanel,
 } from "@/domains/fiat-deposits/public.js";
 import { AdminSupportSettingsPanel } from "@/domains/support/public.js";
-import { getAdminDepositsFn } from "@/lib/server/deposits.js";
 import {
   getAdminWithdrawalsFn,
   approveWithdrawalFn,
@@ -45,7 +44,6 @@ export const Route = createFileRoute("/_app/admin")({
   component: AdminPage,
 });
 
-type AdminDeposit = Awaited<ReturnType<typeof getAdminDepositsFn>>[number];
 type AdminWithdrawal = Awaited<ReturnType<typeof getAdminWithdrawalsFn>>[number];
 type AdminSecurityUser = Awaited<ReturnType<typeof getAdminSecurityUsersFn>>[number];
 
@@ -110,7 +108,12 @@ function AdminPage() {
           userId={user?.id}
         />
       )}
-      {activeTab === "deposits" && <DepositsTab userId={user?.id} />}
+      {activeTab === "deposits" && (
+        <AdminFiatDepositOperationsPanel
+          accessToken={session?.access_token ?? null}
+          userId={user?.id}
+        />
+      )}
       {activeTab === "withdrawals" && <WithdrawalsTab userId={user?.id} />}
       {activeTab === "usdt-withdrawals" && (
         <NowpaymentsUsdtWithdrawalAdmin
@@ -130,277 +133,6 @@ function AdminPage() {
           accessToken={session?.access_token ?? null}
           userId={user?.id}
         />
-      )}
-    </div>
-  );
-}
-
-function DepositsTab({ userId }: { userId: string | undefined }) {
-  const accessToken = useAuthStore((s) => s.session?.access_token ?? null);
-  const [deposits, setDeposits] = useState<AdminDeposit[]>([]);
-  const [depositsLoaded, setDepositsLoaded] = useState(false);
-  const [filter, setFilter] = useState("all");
-  const [adminNote, setAdminNote] = useState("");
-  const [approvalAmount, setApprovalAmount] = useState("");
-  const [actionLoading, setActionLoading] = useState(false);
-  const [selectedDeposit, setSelectedDeposit] = useState<AdminDeposit | null>(null);
-
-  const mountedRef = useRef(true);
-  const loadingRef = useRef(false);
-  const retryCountRef = useRef(0);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearRetryTimer = useCallback(() => {
-    if (retryTimerRef.current) {
-      clearTimeout(retryTimerRef.current);
-      retryTimerRef.current = null;
-    }
-  }, []);
-
-  const scheduleRetry = useCallback(
-    (loadFn: () => void) => {
-      clearRetryTimer();
-
-      if (retryCountRef.current >= ADMIN_MAX_AUTO_RETRIES) return;
-
-      retryCountRef.current += 1;
-      retryTimerRef.current = setTimeout(loadFn, ADMIN_AUTO_RETRY_DELAY_MS);
-    },
-    [clearRetryTimer],
-  );
-
-  const loadDeposits = useCallback(
-    async (options?: { resetRetryCount?: boolean }) => {
-      if (loadingRef.current) return;
-
-      if (options?.resetRetryCount) {
-        retryCountRef.current = 0;
-      }
-
-      if (!userId) return;
-
-      if (!accessToken) {
-        scheduleRetry(() => {
-          void loadDeposits();
-        });
-        return;
-      }
-
-      clearRetryTimer();
-      loadingRef.current = true;
-
-      try {
-        const rows = await withTimeout(
-          getAdminDepositsFn({
-            data: {
-              accessToken,
-              statusFilter: filter,
-            },
-          }),
-          ADMIN_TAB_LOAD_TIMEOUT_MS,
-          "Admin deposits request timed out.",
-        );
-
-        if (!mountedRef.current) return;
-
-        setDeposits(rows);
-        setDepositsLoaded(true);
-        retryCountRef.current = 0;
-      } catch (err) {
-        console.error("[QHash] Admin deposits background refresh failed:", err);
-
-        if (!mountedRef.current) return;
-
-        scheduleRetry(() => {
-          void loadDeposits();
-        });
-      } finally {
-        loadingRef.current = false;
-      }
-    },
-    [accessToken, clearRetryTimer, filter, scheduleRetry, userId],
-  );
-
-  useEffect(() => {
-    mountedRef.current = true;
-
-    return () => {
-      mountedRef.current = false;
-      clearRetryTimer();
-    };
-  }, [clearRetryTimer]);
-
-  useEffect(() => {
-    setSelectedDeposit(null);
-    setAdminNote("");
-    setApprovalAmount("");
-    setDeposits([]);
-    setDepositsLoaded(false);
-    retryCountRef.current = 0;
-    void loadDeposits({ resetRetryCount: true });
-  }, [filter, loadDeposits]);
-
-  useEffect(() => {
-    const handleVisible = () => {
-      if (document.visibilityState === "visible") {
-        void loadDeposits({ resetRetryCount: true });
-      }
-    };
-
-    const handleOnline = () => {
-      void loadDeposits({ resetRetryCount: true });
-    };
-
-    document.addEventListener("visibilitychange", handleVisible);
-    window.addEventListener("online", handleOnline);
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisible);
-      window.removeEventListener("online", handleOnline);
-    };
-  }, [loadDeposits]);
-
-  const handleReview = async (depositId: string, action: "approve" | "reject") => {
-    if (!userId) return;
-
-    if (action === "approve") {
-      const parsed = Number(approvalAmount);
-      if (!approvalAmount || !Number.isFinite(parsed) || parsed <= 0) {
-        toast.error("Enter the verified receipt amount before approving.");
-        return;
-      }
-    }
-
-    setActionLoading(true);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token;
-      if (!token) throw new Error("Session expired. Please log in again.");
-
-      const res = await fetch("/api/admin/approve-deposit", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          depositId,
-          action,
-          adminNote: adminNote || null,
-          ...(action === "approve" ? { verifiedAmount: Number(approvalAmount) } : {}),
-        }),
-      });
-
-      const result = await res.json();
-      if (!res.ok || !result.success) {
-        throw new Error(result.message || "Failed to review deposit.");
-      }
-
-      toast.success(`Deposit ${action === "approve" ? "approved" : "rejected"}.`);
-      setSelectedDeposit(null);
-      setAdminNote("");
-      setApprovalAmount("");
-      void loadDeposits({ resetRetryCount: true });
-    } catch (err) {
-      toast.error(getSafeErrorMessage(err, "ADMIN").message);
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => toast.success("Copied!"));
-  };
-
-  const pendingCount = deposits.filter((d) => d.status === "pending").length;
-
-  const statusConfig: Record<string, { label: string; variant: "success" | "warning" | "danger" | "default" }> = {
-    approved: { label: "Approved", variant: "success" },
-    pending: { label: "Pending", variant: "warning" },
-    rejected: { label: "Rejected", variant: "danger" },
-  };
-
-  return (
-    <div className="space-y-4">
-      {/* Filters */}
-      <div className="flex gap-2 overflow-x-auto hide-scrollbar -mx-4 px-4 pb-1">
-        {["all", "pending", "approved", "rejected"].map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`shrink-0 px-3 py-1.5 rounded-full text-[11px] border transition-colors card-press ${
-              filter === f
-                ? "bg-[rgba(0,255,65,0.08)] text-[#00ff41] border-[rgba(0,255,65,0.3)]"
-                : "text-gray-500 border-[#1f1f1f]"
-            }`}
-          >
-            {f === "all" ? "All" : f.charAt(0).toUpperCase() + f.slice(1)}
-            {f === "pending" && pendingCount > 0 && (
-              <span className="ml-1 text-[9px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded-full">
-                {pendingCount}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {/* Selected deposit detail */}
-      {selectedDeposit && (
-        <DepositDetailPanel
-          deposit={selectedDeposit}
-          statusConfig={statusConfig}
-          adminNote={adminNote}
-          setAdminNote={setAdminNote}
-          approvalAmount={approvalAmount}
-          setApprovalAmount={setApprovalAmount}
-          actionLoading={actionLoading}
-          onReview={handleReview}
-          onClose={() => { setSelectedDeposit(null); setAdminNote(""); setApprovalAmount(""); }}
-          onCopy={copyToClipboard}
-        />
-      )}
-
-      {/* Deposit list */}
-      {!depositsLoaded ? (
-        <div className="space-y-2">{[1, 2, 3].map((i) => <div key={i} className="skeleton h-14 rounded-xl" />)}</div>
-      ) : deposits.length === 0 ? (
-        <div className="bg-[#111] rounded-xl border border-[#1a1a1a] p-8 text-center text-xs text-gray-600">No deposits found.</div>
-      ) : (
-        <div className="bg-[#111] rounded-xl border border-[#1a1a1a] divide-y divide-[#1a1a1a]">
-          {deposits.map((d) => {
-            const sc = statusConfig[d.status];
-            return (
-              <button
-                key={d.id}
-                onClick={() => { setSelectedDeposit(d); setAdminNote(""); setApprovalAmount(""); }}
-                className="w-full text-left flex items-center justify-between px-4 py-3 card-press"
-              >
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-xs font-medium text-gray-200">@{d.username}</p>
-                    {d.status === "pending" && (
-                      <Clock size={10} className="text-yellow-400" />
-                    )}
-                    {d.status === "pending" && d.admin_note?.startsWith("Verifier review:") && (
-                      <Badge variant="warning" className="text-[9px] px-1.5 py-0">Verifier Review</Badge>
-                    )}
-                  </div>
-                  <p className="text-[10px] text-gray-600">
-                    {METHOD_LABELS[d.method_type]} &middot; {formatDateTime(d.created_at)}
-                  </p>
-                </div>
-                <div className="text-right flex items-center gap-2">
-                  <span className="text-xs text-[#00ff41] font-mono">
-                    {d.amount > 0
-                      ? <AdminEtbAmount value={d.amount} />
-                      : "—"}
-                  </span>
-                  <Badge variant={sc?.variant ?? "default"}>{sc?.label ?? d.status}</Badge>
-                </div>
-              </button>
-            );
-          })}
-        </div>
       )}
     </div>
   );
@@ -1207,130 +939,6 @@ function SettingsTab({
 
       {activeSettingsTab === "payment" && (
         <AdminFiatPaymentMethodsPanel accessToken={accessToken} userId={userId} />
-      )}
-    </div>
-  );
-}
-
-function DepositDetailPanel({
-  deposit,
-  statusConfig,
-  adminNote,
-  setAdminNote,
-  approvalAmount,
-  setApprovalAmount,
-  actionLoading,
-  onReview,
-  onClose,
-  onCopy,
-}: {
-  deposit: AdminDeposit;
-  statusConfig: Record<string, { label: string; variant: "success" | "warning" | "danger" | "default" }>;
-  adminNote: string;
-  setAdminNote: (v: string) => void;
-  approvalAmount: string;
-  setApprovalAmount: (v: string) => void;
-  actionLoading: boolean;
-  onReview: (id: string, action: "approve" | "reject") => void;
-  onClose: () => void;
-  onCopy: (text: string) => void;
-}) {
-  return (
-    <div className="bg-[#111] rounded-xl border border-[rgba(0,255,65,0.15)] p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold">Deposit Details</span>
-        <button onClick={onClose} className="text-[10px] text-gray-500">Close</button>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 text-xs">
-        <DetailRow label="User" value={`@${deposit.username}`} />
-        <DetailRow label="Phone" value={deposit.phone} />
-        <DetailRow label="Amount" value={deposit.amount > 0 ? <AdminEtbAmount value={deposit.amount} /> : "Not specified"} highlight={deposit.amount > 0} />
-        <DetailRow label="Method" value={`${METHOD_LABELS[deposit.method_type] ?? deposit.method_type}`} />
-        <DetailRow label="Account" value={deposit.method_number} />
-        <DetailRow label="Status" value={statusConfig[deposit.status]?.label ?? deposit.status} />
-        <div className="col-span-2">
-          <span className="text-gray-500 text-[10px] block mb-1">Transaction ID</span>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-[#00ff41] font-mono">{deposit.transaction_reference}</span>
-            <button
-              onClick={() => onCopy(deposit.transaction_reference)}
-              className="p-1 rounded text-gray-600 hover:text-gray-300 transition-colors"
-            >
-              <Copy size={11} />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {deposit.admin_note && deposit.admin_note.startsWith("Verifier review:") && (
-        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
-          <AlertTriangle size={14} className="text-amber-400 shrink-0 mt-0.5" />
-          <div className="text-[11px] text-amber-300 leading-relaxed">
-            <span className="font-semibold text-amber-400 block mb-0.5">Manual Review Required</span>
-            {deposit.admin_note}
-          </div>
-        </div>
-      )}
-
-      {deposit.admin_note && !deposit.admin_note.startsWith("Verifier review:") && (
-        <div className="text-[11px] text-gray-500">
-          <span className="text-gray-600">Note:</span> {deposit.admin_note}
-        </div>
-      )}
-
-      {/* Receipt link */}
-      {deposit.receipt_url && (
-        <a
-          href={deposit.receipt_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-[rgba(0,255,65,0.2)] bg-[rgba(0,255,65,0.04)] text-[#00ff41] text-xs font-medium transition-colors hover:bg-[rgba(0,255,65,0.08)] card-press"
-        >
-          <ExternalLink size={13} />
-          Open Receipt
-        </a>
-      )}
-
-      {/* Admin actions for pending deposits */}
-      {deposit.status === "pending" && (
-        <div className="pt-3 border-t border-[#1f1f1f] space-y-3">
-          <Input
-            label="Verified Amount (ETB)"
-            type="number"
-            placeholder="Enter amount from receipt"
-            value={approvalAmount}
-            onChange={(e) => setApprovalAmount(e.target.value)}
-            min="100"
-            step="0.01"
-            hint={deposit.amount > 0 ? <>User entered: <AdminEtbAmount value={deposit.amount} /></> : "User did not specify amount — check receipt"}
-          />
-          <Input
-            label="Verification Note (optional)"
-            placeholder="e.g. Verified receiver name and amount"
-            value={adminNote}
-            onChange={(e) => setAdminNote(e.target.value)}
-          />
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              loading={actionLoading}
-              onClick={() => onReview(deposit.id, "approve")}
-              className="flex-1"
-            >
-              <CheckCircle size={13} /> Approve
-            </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              loading={actionLoading}
-              onClick={() => onReview(deposit.id, "reject")}
-              className="flex-1"
-            >
-              <XCircle size={13} /> Reject
-            </Button>
-          </div>
-        </div>
       )}
     </div>
   );

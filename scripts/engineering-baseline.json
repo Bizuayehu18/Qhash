@@ -100,7 +100,7 @@
       "src/lib/server/telebirr-verify.ts": 571,
       "src/lib/server/withdrawals.ts": 757,
       "src/routes/_app/admin-earnings.tsx": 229,
-      "src/routes/_app/admin.tsx": 1189,
+      "src/routes/_app/admin.tsx": 838,
       "src/routes/_app/profile/security/fund-password.tsx": 295,
       "src/routes/_app/profile/security.tsx": 157,
       "src/routes/_app/profile.tsx": 216,
